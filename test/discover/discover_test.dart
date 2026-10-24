@@ -78,8 +78,8 @@ void main() {
       tester,
     ) async {
       final app = await TestApp.pump(tester, innerTube: _youTubeMusic());
-      // The user's own music comes first.
-      expect(find.text('Albums'), findsOneWidget);
+      // Local music lives in Library now.
+      expect(find.text('Albums'), findsNothing);
 
       await _scrollTo(tester, find.text('Discover'));
       expect(find.text('From YouTube Music'), findsOneWidget);
@@ -147,7 +147,8 @@ void main() {
 
     testWidgets('works with an empty library too', (tester) async {
       await TestApp.pump(tester, withMusic: false, innerTube: _youTubeMusic());
-      expect(find.text('Bring your music'), findsOneWidget);
+      // Home no longer pushes local import.
+      expect(find.text('Bring your music'), findsNothing);
       await _scrollTo(tester, find.text('From YouTube Music'));
       await _scrollTo(tester, find.text('Neon Rain'));
     });

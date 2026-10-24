@@ -7,6 +7,7 @@ import 'package:noir/app/theme/design_tokens.dart';
 import 'package:noir/app/theme/glass_theme.dart';
 import 'package:noir/core/widgets/buttons.dart';
 import 'package:noir/core/widgets/dialogs.dart';
+import 'package:noir/core/widgets/shelf_row.dart';
 import 'package:noir/core/widgets/states.dart';
 import 'package:noir/features/discover/application/discover_providers.dart';
 import 'package:noir/features/discover/presentation/load_more.dart';
@@ -205,7 +206,11 @@ class _Header extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = Theme.of(context).textTheme;
     return Padding(
-      padding: const EdgeInsets.only(top: 44, bottom: NoirSpacing.md),
+      // The chips' [ShelfRow.lift] completes the usual gap.
+      padding: const EdgeInsets.only(
+        top: 44,
+        bottom: NoirSpacing.md - ShelfRow.lift,
+      ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
@@ -255,27 +260,23 @@ class _ChipRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
+    return ShelfRow(
       height: MediaQuery.textScalerOf(context).scale(22) + 22,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        clipBehavior: Clip.none,
-        itemCount: chips.length,
-        separatorBuilder: (_, _) => const SizedBox(width: NoirSpacing.xs),
-        itemBuilder: (context, i) {
-          final chip = chips[i];
-          final isSelected = chip.params == selected;
-          return Center(
+      spacing: NoirSpacing.xs,
+      arrowSize: 32,
+      children: [
+        for (final chip in chips)
+          Center(
             child: PillChip(
               key: ValueKey(chip.params),
               label: chip.title,
-              selected: isSelected,
+              selected: chip.params == selected,
               // Picking the selected mood again goes back to everything.
-              onSelected: () => onSelected(isSelected ? null : chip.params),
+              onSelected: () =>
+                  onSelected(chip.params == selected ? null : chip.params),
             ),
-          );
-        },
-      ),
+          ),
+      ],
     );
   }
 }
@@ -288,33 +289,20 @@ class _ShelfRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final t = Theme.of(context).textTheme;
     return Padding(
       padding: const EdgeInsets.only(top: 28),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: TileRow(
+        tileWidth: tile,
+        title: shelf.title,
+        eyebrow: shelf.strapline,
         children: [
-          if (shelf.strapline case final strapline?)
-            Text(
-              strapline.toUpperCase(),
-              style: t.labelSmall?.copyWith(
-                color: context.noir.textTertiary,
-                letterSpacing: 0.8,
-              ),
+          for (final (i, item) in shelf.items.indexed)
+            YtmTile(
+              key: ValueKey('$i-${item.title}'),
+              item: item,
+              siblings: shelf.items,
+              width: tile,
             ),
-          SectionHeader(shelf.title),
-          TileRow(
-            tileWidth: tile,
-            children: [
-              for (final (i, item) in shelf.items.indexed)
-                YtmTile(
-                  key: ValueKey('$i-${item.title}'),
-                  item: item,
-                  siblings: shelf.items,
-                  width: tile,
-                ),
-            ],
-          ),
         ],
       ),
     );
