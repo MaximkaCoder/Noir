@@ -73,6 +73,10 @@ class PlaybackController extends Notifier<PlaybackState> {
   bool _crossfading = false;
   DateTime _lastSessionSave = DateTime.fromMillisecondsSinceEpoch(0);
 
+  /// Off until [restoreSession] has run (or the user starts something), so
+  /// early engine events can't overwrite the saved session before it's read.
+  bool _sessionReady = false;
+
   /// Keeps playback going past the end of the queue with YouTube Music radio
   /// (like its autoplay) when the queue holds a YouTube track and repeat is
   /// off. Tests switch it off.
@@ -328,6 +332,14 @@ class PlaybackController extends Notifier<PlaybackState> {
 
   /// Restores the last queue paused at its last position.
   Future<void> restoreSession() async {
+    try {
+      await _restoreSession();
+    } finally {
+      _sessionReady = true;
+    }
+  }
+
+  Future<void> _restoreSession() async {
     if (!_settings.resumeSession) return;
     final json = await ref
         .read(settingsRepositoryProvider)
@@ -366,6 +378,7 @@ class PlaybackController extends Notifier<PlaybackState> {
   }
 
   void _saveSession({bool force = false}) {
+    if (!_sessionReady) return;
     final now = DateTime.now();
     if (!force && now.difference(_lastSessionSave) < _sessionSaveInterval) {
       return;
@@ -392,6 +405,7 @@ class PlaybackController extends Notifier<PlaybackState> {
   QueueItem _item(Track track) => QueueItem(uid: _nextUid++, track: track);
 
   void _setQueue(List<QueueItem> queue) {
+    _sessionReady = true;
     final currentUid = state.current?.uid;
     state = state.copyWith(
       queue: queue,
@@ -412,6 +426,7 @@ class PlaybackController extends Notifier<PlaybackState> {
   }
 
   Future<void> _loadCurrent({required bool autoplay}) async {
+    _sessionReady = true;
     final item = state.current;
     if (item == null) return;
     _crossfading = false;

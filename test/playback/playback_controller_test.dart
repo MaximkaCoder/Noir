@@ -218,7 +218,12 @@ void main() {
       ],
     );
     addTearDown(container2.dispose);
-    await container2.read(playbackProvider.notifier).restoreSession();
+    final ctrl2 = container2.read(playbackProvider.notifier);
+    // The engine reports 0:00 on start-up, before the session is read; that
+    // must not wipe the saved session.
+    engine2.tick(Duration.zero);
+    await pumpEventQueue();
+    await ctrl2.restoreSession();
 
     final restored = container2.read(playbackProvider);
     expect(restored.current!.track.title, 'C');
