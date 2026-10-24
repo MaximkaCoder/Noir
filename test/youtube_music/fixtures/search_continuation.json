@@ -1,0 +1,454 @@
+{
+ "contents": {
+  "sectionListRenderer": {
+   "contents": [
+    {
+     "itemSectionRenderer": {
+      "contents": [
+       {
+        "messageRenderer": {
+         "button": {
+          "buttonRenderer": {
+           "style": "STYLE_TEXT",
+           "isDisabled": false,
+           "text": {
+            "simpleText": "About these results"
+           },
+           "icon": {
+            "iconType": "INFO_OUTLINE"
+           },
+           "navigationEndpoint": {
+            "urlEndpoint": {
+             "url": "https://www.youtube.com/howyoutubeworks/product-features/search/",
+             "target": "TARGET_NEW_WINDOW"
+            }
+           },
+           "iconPosition": "BUTTON_ICON_POSITION_TYPE_RIGHT_OF_TEXT"
+          }
+         },
+         "style": {
+          "value": "RENDER_STYLE_PANEL"
+         }
+        }
+       }
+      ]
+     }
+    }
+   ]
+  }
+ },
+ "continuationContents": {
+  "musicShelfContinuation": {
+   "contents": [
+    {
+     "musicResponsiveListItemRenderer": {
+      "thumbnail": {
+       "musicThumbnailRenderer": {
+        "thumbnail": {
+         "thumbnails": [
+          {
+           "url": "https://yt3.googleusercontent.com/wm1nkwlINP48XhoI_M_m5Z7IWIw742yukaiKKxqQGcskmB6TdcKZqTsBNChGW_I1BphPt7OkBwu9kRE=w60-h60-l90-rj",
+           "width": 60,
+           "height": 60
+          },
+          {
+           "url": "https://yt3.googleusercontent.com/wm1nkwlINP48XhoI_M_m5Z7IWIw742yukaiKKxqQGcskmB6TdcKZqTsBNChGW_I1BphPt7OkBwu9kRE=w120-h120-l90-rj",
+           "width": 120,
+           "height": 120
+          }
+         ]
+        },
+        "thumbnailCrop": "MUSIC_THUMBNAIL_CROP_UNSPECIFIED",
+        "thumbnailScale": "MUSIC_THUMBNAIL_SCALE_ASPECT_FIT"
+       }
+      },
+      "flexColumns": [
+       {
+        "musicResponsiveListItemFlexColumnRenderer": {
+         "text": {
+          "runs": [
+           {
+            "text": "Within (Drumless Edition)",
+            "navigationEndpoint": {
+             "watchEndpoint": {
+              "videoId": "prmvo0uprc0",
+              "watchEndpointMusicSupportedConfigs": {
+               "watchEndpointMusicConfig": {
+                "musicVideoType": "MUSIC_VIDEO_TYPE_ATV"
+               }
+              }
+             }
+            }
+           }
+          ]
+         },
+         "displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_HIGH"
+        }
+       },
+       {
+        "musicResponsiveListItemFlexColumnRenderer": {
+         "text": {
+          "runs": [
+           {
+            "text": "Daft Punk",
+            "navigationEndpoint": {
+             "browseEndpoint": {
+              "browseId": "UCRr1xG_2WIDs18a6cIiCxeA",
+              "browseEndpointContextSupportedConfigs": {
+               "browseEndpointContextMusicConfig": {
+                "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+               }
+              }
+             }
+            }
+           },
+           {
+            "text": " • "
+           },
+           {
+            "text": "Random Access Memories (Drumless Edition)",
+            "navigationEndpoint": {
+             "browseEndpoint": {
+              "browseId": "MPREb_OgeEnoHTsCm",
+              "browseEndpointContextSupportedConfigs": {
+               "browseEndpointContextMusicConfig": {
+                "pageType": "MUSIC_PAGE_TYPE_ALBUM"
+               }
+              }
+             }
+            }
+           },
+           {
+            "text": " • "
+           },
+           {
+            "text": "3:49"
+           }
+          ]
+         },
+         "displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_HIGH"
+        }
+       },
+       {
+        "musicResponsiveListItemFlexColumnRenderer": {
+         "text": {
+          "runs": [
+           {
+            "text": "41M plays"
+           }
+          ]
+         },
+         "displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_HIGH"
+        }
+       }
+      ],
+      "playlistItemData": {
+       "videoId": "prmvo0uprc0"
+      },
+      "flexColumnDisplayStyle": "MUSIC_RESPONSIVE_LIST_ITEM_FLEX_COLUMN_DISPLAY_STYLE_TWO_LINE_STACK",
+      "itemHeight": "MUSIC_RESPONSIVE_LIST_ITEM_HEIGHT_TALL"
+     }
+    },
+    {
+     "musicResponsiveListItemRenderer": {
+      "thumbnail": {
+       "musicThumbnailRenderer": {
+        "thumbnail": {
+         "thumbnails": [
+          {
+           "url": "https://yt3.googleusercontent.com/KWKJfEfasVPd53ha--VXKCrjQPtCYMbjtTAg25IhmODgYDud5bqPgZXwzaLY4Mhq1MTEjjvyFRbLSuw=w60-h60-l90-rj",
+           "width": 60,
+           "height": 60
+          },
+          {
+           "url": "https://yt3.googleusercontent.com/KWKJfEfasVPd53ha--VXKCrjQPtCYMbjtTAg25IhmODgYDud5bqPgZXwzaLY4Mhq1MTEjjvyFRbLSuw=w120-h120-l90-rj",
+           "width": 120,
+           "height": 120
+          }
+         ]
+        },
+        "thumbnailCrop": "MUSIC_THUMBNAIL_CROP_UNSPECIFIED",
+        "thumbnailScale": "MUSIC_THUMBNAIL_SCALE_ASPECT_FIT"
+       }
+      },
+      "flexColumns": [
+       {
+        "musicResponsiveListItemFlexColumnRenderer": {
+         "text": {
+          "runs": [
+           {
+            "text": "Veridis Quo",
+            "navigationEndpoint": {
+             "watchEndpoint": {
+              "videoId": "qe8Q7mjxjig",
+              "watchEndpointMusicSupportedConfigs": {
+               "watchEndpointMusicConfig": {
+                "musicVideoType": "MUSIC_VIDEO_TYPE_ATV"
+               }
+              }
+             }
+            }
+           }
+          ]
+         },
+         "displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_HIGH"
+        }
+       },
+       {
+        "musicResponsiveListItemFlexColumnRenderer": {
+         "text": {
+          "runs": [
+           {
+            "text": "Daft Punk",
+            "navigationEndpoint": {
+             "browseEndpoint": {
+              "browseId": "UCRr1xG_2WIDs18a6cIiCxeA",
+              "browseEndpointContextSupportedConfigs": {
+               "browseEndpointContextMusicConfig": {
+                "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+               }
+              }
+             }
+            }
+           },
+           {
+            "text": " • "
+           },
+           {
+            "text": "Something About Us (Love Theme from Interstella)",
+            "navigationEndpoint": {
+             "browseEndpoint": {
+              "browseId": "MPREb_DYSzDJvUSDu",
+              "browseEndpointContextSupportedConfigs": {
+               "browseEndpointContextMusicConfig": {
+                "pageType": "MUSIC_PAGE_TYPE_ALBUM"
+               }
+              }
+             }
+            }
+           },
+           {
+            "text": " • "
+           },
+           {
+            "text": "5:46"
+           }
+          ]
+         },
+         "displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_HIGH"
+        }
+       },
+       {
+        "musicResponsiveListItemFlexColumnRenderer": {
+         "text": {
+          "runs": [
+           {
+            "text": "111M plays"
+           }
+          ]
+         },
+         "displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_HIGH"
+        }
+       }
+      ],
+      "playlistItemData": {
+       "videoId": "qe8Q7mjxjig"
+      },
+      "flexColumnDisplayStyle": "MUSIC_RESPONSIVE_LIST_ITEM_FLEX_COLUMN_DISPLAY_STYLE_TWO_LINE_STACK",
+      "itemHeight": "MUSIC_RESPONSIVE_LIST_ITEM_HEIGHT_TALL"
+     }
+    },
+    {
+     "musicResponsiveListItemRenderer": {
+      "thumbnail": {
+       "musicThumbnailRenderer": {
+        "thumbnail": {
+         "thumbnails": [
+          {
+           "url": "https://yt3.googleusercontent.com/EouTICRKfWMgZrtKdBtLZlDA0bPcoB6H0diwN0Y48nyoEhQeCCu8Aq6MiXW_xCD1stinKLgXW-48hp4=w60-h60-l90-rj",
+           "width": 60,
+           "height": 60
+          },
+          {
+           "url": "https://yt3.googleusercontent.com/EouTICRKfWMgZrtKdBtLZlDA0bPcoB6H0diwN0Y48nyoEhQeCCu8Aq6MiXW_xCD1stinKLgXW-48hp4=w120-h120-l90-rj",
+           "width": 120,
+           "height": 120
+          }
+         ]
+        },
+        "thumbnailCrop": "MUSIC_THUMBNAIL_CROP_UNSPECIFIED",
+        "thumbnailScale": "MUSIC_THUMBNAIL_SCALE_ASPECT_FIT"
+       }
+      },
+      "flexColumns": [
+       {
+        "musicResponsiveListItemFlexColumnRenderer": {
+         "text": {
+          "runs": [
+           {
+            "text": "Burnin' (Edit Version)",
+            "navigationEndpoint": {
+             "watchEndpoint": {
+              "videoId": "l4E-yJocal8",
+              "watchEndpointMusicSupportedConfigs": {
+               "watchEndpointMusicConfig": {
+                "musicVideoType": "MUSIC_VIDEO_TYPE_ATV"
+               }
+              }
+             }
+            }
+           }
+          ]
+         },
+         "displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_HIGH"
+        }
+       },
+       {
+        "musicResponsiveListItemFlexColumnRenderer": {
+         "text": {
+          "runs": [
+           {
+            "text": "Daft Punk",
+            "navigationEndpoint": {
+             "browseEndpoint": {
+              "browseId": "UCRr1xG_2WIDs18a6cIiCxeA",
+              "browseEndpointContextSupportedConfigs": {
+               "browseEndpointContextMusicConfig": {
+                "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+               }
+              }
+             }
+            }
+           },
+           {
+            "text": " • "
+           },
+           {
+            "text": "Burnin'",
+            "navigationEndpoint": {
+             "browseEndpoint": {
+              "browseId": "MPREb_WxsOu109dUN",
+              "browseEndpointContextSupportedConfigs": {
+               "browseEndpointContextMusicConfig": {
+                "pageType": "MUSIC_PAGE_TYPE_ALBUM"
+               }
+              }
+             }
+            }
+           },
+           {
+            "text": " • "
+           },
+           {
+            "text": "3:49"
+           }
+          ]
+         },
+         "displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_HIGH"
+        }
+       },
+       {
+        "musicResponsiveListItemFlexColumnRenderer": {
+         "text": {
+          "runs": [
+           {
+            "text": "9.8M plays"
+           }
+          ]
+         },
+         "displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_HIGH"
+        }
+       }
+      ],
+      "playlistItemData": {
+       "videoId": "l4E-yJocal8"
+      },
+      "flexColumnDisplayStyle": "MUSIC_RESPONSIVE_LIST_ITEM_FLEX_COLUMN_DISPLAY_STYLE_TWO_LINE_STACK",
+      "itemHeight": "MUSIC_RESPONSIVE_LIST_ITEM_HEIGHT_TALL"
+     }
+    }
+   ],
+   "continuations": [
+    {
+     "nextContinuationData": {
+      "continuation": "TEST_CONTINUATION_1"
+     }
+    }
+   ],
+   "autoReloadWhenEmpty": false
+  }
+ },
+ "header": {
+  "musicHeaderRenderer": {
+   "header": {
+    "chipCloudRenderer": {
+     "chips": [
+      {
+       "chipCloudChipRenderer": {
+        "style": {
+         "styleType": "STYLE_SECONDARY"
+        },
+        "navigationEndpoint": {
+         "searchEndpoint": {
+          "query": "daft punk"
+         }
+        },
+        "icon": {
+         "iconType": "CLOSE"
+        },
+        "isSelected": false,
+        "uniqueId": "Clear filters"
+       }
+      },
+      {
+       "chipCloudChipRenderer": {
+        "style": {
+         "styleType": "STYLE_DEFAULT"
+        },
+        "text": {
+         "runs": [
+          {
+           "text": "Featured playlists"
+          }
+         ]
+        },
+        "navigationEndpoint": {
+         "searchEndpoint": {
+          "query": "daft punk",
+          "params": "EgeKAQQoADgBagwQDhAKEAMQBBAJEAU%3D"
+         }
+        },
+        "isSelected": false,
+        "uniqueId": "Featured playlists"
+       }
+      },
+      {
+       "chipCloudChipRenderer": {
+        "style": {
+         "styleType": "STYLE_DEFAULT"
+        },
+        "text": {
+         "runs": [
+          {
+           "text": "Community playlists"
+          }
+         ]
+        },
+        "navigationEndpoint": {
+         "searchEndpoint": {
+          "query": "daft punk",
+          "params": "EgeKAQQoAEABagwQDhAKEAMQBBAJEAU%3D"
+         }
+        },
+        "isSelected": false,
+        "uniqueId": "Community playlists"
+       }
+      }
+     ],
+     "collapsedRowCount": 1,
+     "horizontalScrollable": true
+    }
+   }
+  }
+ }
+}

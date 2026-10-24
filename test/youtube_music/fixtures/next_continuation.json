@@ -1,0 +1,389 @@
+{
+ "contents": {
+  "singleColumnMusicWatchNextResultsRenderer": {
+   "tabbedRenderer": {
+    "watchNextTabbedResultsRenderer": {
+     "tabs": [
+      {
+       "tabRenderer": {
+        "title": "Up next",
+        "content": {
+         "musicQueueRenderer": {
+          "hack": true
+         }
+        }
+       }
+      }
+     ]
+    }
+   }
+  }
+ },
+ "continuationContents": {
+  "playlistPanelContinuation": {
+   "contents": [
+    {
+     "playlistPanelVideoRenderer": {
+      "title": {
+       "runs": [
+        {
+         "text": "Kiss"
+        }
+       ]
+      },
+      "longBylineText": {
+       "runs": [
+        {
+         "text": "Prince & The Revolution",
+         "navigationEndpoint": {
+          "browseEndpoint": {
+           "browseId": "UCPIZb3A7k6zLefVNtaAmvGg",
+           "browseEndpointContextSupportedConfigs": {
+            "browseEndpointContextMusicConfig": {
+             "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+            }
+           }
+          }
+         }
+        },
+        {
+         "text": " • "
+        },
+        {
+         "text": "Parade - Music from the Motion Picture Under the Cherry Moon",
+         "navigationEndpoint": {
+          "browseEndpoint": {
+           "browseId": "MPREb_5ZS43ToF9wi",
+           "browseEndpointContextSupportedConfigs": {
+            "browseEndpointContextMusicConfig": {
+             "pageType": "MUSIC_PAGE_TYPE_ALBUM"
+            }
+           }
+          }
+         }
+        },
+        {
+         "text": " • "
+        },
+        {
+         "text": "1986"
+        }
+       ]
+      },
+      "thumbnail": {
+       "thumbnails": [
+        {
+         "url": "https://yt3.googleusercontent.com/1amvFs6FShBnds4Jq7dU2wZULfiPbo8SlNoqVfQjK-uCu-BZjjXKCmLZavC-IlUohZlZ6GhSfFin04QF=w60-h60-l90-rj",
+         "width": 60,
+         "height": 60
+        },
+        {
+         "url": "https://yt3.googleusercontent.com/1amvFs6FShBnds4Jq7dU2wZULfiPbo8SlNoqVfQjK-uCu-BZjjXKCmLZavC-IlUohZlZ6GhSfFin04QF=w120-h120-l90-rj",
+         "width": 120,
+         "height": 120
+        },
+        {
+         "url": "https://yt3.googleusercontent.com/1amvFs6FShBnds4Jq7dU2wZULfiPbo8SlNoqVfQjK-uCu-BZjjXKCmLZavC-IlUohZlZ6GhSfFin04QF=w180-h180-l90-rj",
+         "width": 180,
+         "height": 180
+        },
+        {
+         "url": "https://yt3.googleusercontent.com/1amvFs6FShBnds4Jq7dU2wZULfiPbo8SlNoqVfQjK-uCu-BZjjXKCmLZavC-IlUohZlZ6GhSfFin04QF=w226-h226-l90-rj",
+         "width": 226,
+         "height": 226
+        },
+        {
+         "url": "https://yt3.googleusercontent.com/1amvFs6FShBnds4Jq7dU2wZULfiPbo8SlNoqVfQjK-uCu-BZjjXKCmLZavC-IlUohZlZ6GhSfFin04QF=w302-h302-l90-rj",
+         "width": 302,
+         "height": 302
+        },
+        {
+         "url": "https://yt3.googleusercontent.com/1amvFs6FShBnds4Jq7dU2wZULfiPbo8SlNoqVfQjK-uCu-BZjjXKCmLZavC-IlUohZlZ6GhSfFin04QF=w544-h544-l90-rj",
+         "width": 544,
+         "height": 544
+        }
+       ]
+      },
+      "lengthText": {
+       "runs": [
+        {
+         "text": "3:47"
+        }
+       ]
+      },
+      "selected": false,
+      "navigationEndpoint": {
+       "watchEndpoint": {
+        "videoId": "rH9CZuuKpSg",
+        "playlistId": "RDAMVMZ85lxckrtzg",
+        "index": 50,
+        "params": "OAHyAQIIAQ%3D%3D",
+        "playlistSetVideoId": "8C5FAE6B164813C8",
+        "watchEndpointMusicSupportedConfigs": {
+         "watchEndpointMusicConfig": {
+          "hasPersistentPlaylistPanel": true,
+          "musicVideoType": "MUSIC_VIDEO_TYPE_ATV"
+         }
+        }
+       }
+      },
+      "videoId": "rH9CZuuKpSg",
+      "shortBylineText": {
+       "runs": [
+        {
+         "text": "Prince & The Revolution"
+        }
+       ]
+      },
+      "playlistSetVideoId": "8C5FAE6B164813C8",
+      "canReorder": true
+     }
+    },
+    {
+     "playlistPanelVideoRenderer": {
+      "title": {
+       "runs": [
+        {
+         "text": "Sussudio"
+        }
+       ]
+      },
+      "longBylineText": {
+       "runs": [
+        {
+         "text": "Phil Collins",
+         "navigationEndpoint": {
+          "browseEndpoint": {
+           "browseId": "UCzt9gB3XNQYs_2UHvolUZog",
+           "browseEndpointContextSupportedConfigs": {
+            "browseEndpointContextMusicConfig": {
+             "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+            }
+           }
+          }
+         }
+        },
+        {
+         "text": " • "
+        },
+        {
+         "text": "No Jacket Required",
+         "navigationEndpoint": {
+          "browseEndpoint": {
+           "browseId": "MPREb_uCoTsKlD9Ro",
+           "browseEndpointContextSupportedConfigs": {
+            "browseEndpointContextMusicConfig": {
+             "pageType": "MUSIC_PAGE_TYPE_ALBUM"
+            }
+           }
+          }
+         }
+        },
+        {
+         "text": " • "
+        },
+        {
+         "text": "1985"
+        }
+       ]
+      },
+      "thumbnail": {
+       "thumbnails": [
+        {
+         "url": "https://yt3.googleusercontent.com/klPnG1BNKQ4o48PyWwshhKHVMCjuzdodqd6kh9ZxM1hFB4YWP_NeAHa9RenTXIMzcG38v0jseJlJmV2X=w60-h60-l90-rj",
+         "width": 60,
+         "height": 60
+        },
+        {
+         "url": "https://yt3.googleusercontent.com/klPnG1BNKQ4o48PyWwshhKHVMCjuzdodqd6kh9ZxM1hFB4YWP_NeAHa9RenTXIMzcG38v0jseJlJmV2X=w120-h120-l90-rj",
+         "width": 120,
+         "height": 120
+        },
+        {
+         "url": "https://yt3.googleusercontent.com/klPnG1BNKQ4o48PyWwshhKHVMCjuzdodqd6kh9ZxM1hFB4YWP_NeAHa9RenTXIMzcG38v0jseJlJmV2X=w180-h180-l90-rj",
+         "width": 180,
+         "height": 180
+        },
+        {
+         "url": "https://yt3.googleusercontent.com/klPnG1BNKQ4o48PyWwshhKHVMCjuzdodqd6kh9ZxM1hFB4YWP_NeAHa9RenTXIMzcG38v0jseJlJmV2X=w226-h226-l90-rj",
+         "width": 226,
+         "height": 226
+        },
+        {
+         "url": "https://yt3.googleusercontent.com/klPnG1BNKQ4o48PyWwshhKHVMCjuzdodqd6kh9ZxM1hFB4YWP_NeAHa9RenTXIMzcG38v0jseJlJmV2X=w302-h302-l90-rj",
+         "width": 302,
+         "height": 302
+        },
+        {
+         "url": "https://yt3.googleusercontent.com/klPnG1BNKQ4o48PyWwshhKHVMCjuzdodqd6kh9ZxM1hFB4YWP_NeAHa9RenTXIMzcG38v0jseJlJmV2X=w544-h544-l90-rj",
+         "width": 544,
+         "height": 544
+        }
+       ]
+      },
+      "lengthText": {
+       "runs": [
+        {
+         "text": "4:24"
+        }
+       ]
+      },
+      "selected": false,
+      "navigationEndpoint": {
+       "watchEndpoint": {
+        "videoId": "IlKT2nrd7BM",
+        "playlistId": "RDAMVMZ85lxckrtzg",
+        "index": 51,
+        "params": "OAHyAQIIAQ%3D%3D",
+        "playlistSetVideoId": "138030DF486135A9",
+        "watchEndpointMusicSupportedConfigs": {
+         "watchEndpointMusicConfig": {
+          "hasPersistentPlaylistPanel": true,
+          "musicVideoType": "MUSIC_VIDEO_TYPE_ATV"
+         }
+        }
+       }
+      },
+      "videoId": "IlKT2nrd7BM",
+      "shortBylineText": {
+       "runs": [
+        {
+         "text": "Phil Collins"
+        }
+       ]
+      },
+      "playlistSetVideoId": "138030DF486135A9",
+      "canReorder": true
+     }
+    },
+    {
+     "playlistPanelVideoRenderer": {
+      "title": {
+       "runs": [
+        {
+         "text": "All Night Long (All Night)"
+        }
+       ]
+      },
+      "longBylineText": {
+       "runs": [
+        {
+         "text": "Lionel Richie",
+         "navigationEndpoint": {
+          "browseEndpoint": {
+           "browseId": "UCqBNd0XhYrv8OFlyr4fufdA",
+           "browseEndpointContextSupportedConfigs": {
+            "browseEndpointContextMusicConfig": {
+             "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+            }
+           }
+          }
+         }
+        },
+        {
+         "text": " • "
+        },
+        {
+         "text": "Can't Slow Down",
+         "navigationEndpoint": {
+          "browseEndpoint": {
+           "browseId": "MPREb_zIFLuIPVbmg",
+           "browseEndpointContextSupportedConfigs": {
+            "browseEndpointContextMusicConfig": {
+             "pageType": "MUSIC_PAGE_TYPE_ALBUM"
+            }
+           }
+          }
+         }
+        },
+        {
+         "text": " • "
+        },
+        {
+         "text": "1983"
+        }
+       ]
+      },
+      "thumbnail": {
+       "thumbnails": [
+        {
+         "url": "https://yt3.googleusercontent.com/_NYJiWu4FELJ-Gj7Rumq_vkgugDcit8xl4E1F7P2tBDUt7Vn3PzQbsTCxYjtHoBLpv8UXiLACRVQxok=w60-h60-s-l90-rj",
+         "width": 60,
+         "height": 60
+        },
+        {
+         "url": "https://yt3.googleusercontent.com/_NYJiWu4FELJ-Gj7Rumq_vkgugDcit8xl4E1F7P2tBDUt7Vn3PzQbsTCxYjtHoBLpv8UXiLACRVQxok=w120-h120-s-l90-rj",
+         "width": 120,
+         "height": 120
+        },
+        {
+         "url": "https://yt3.googleusercontent.com/_NYJiWu4FELJ-Gj7Rumq_vkgugDcit8xl4E1F7P2tBDUt7Vn3PzQbsTCxYjtHoBLpv8UXiLACRVQxok=w180-h180-s-l90-rj",
+         "width": 180,
+         "height": 180
+        },
+        {
+         "url": "https://yt3.googleusercontent.com/_NYJiWu4FELJ-Gj7Rumq_vkgugDcit8xl4E1F7P2tBDUt7Vn3PzQbsTCxYjtHoBLpv8UXiLACRVQxok=w226-h226-s-l90-rj",
+         "width": 226,
+         "height": 226
+        },
+        {
+         "url": "https://yt3.googleusercontent.com/_NYJiWu4FELJ-Gj7Rumq_vkgugDcit8xl4E1F7P2tBDUt7Vn3PzQbsTCxYjtHoBLpv8UXiLACRVQxok=w302-h302-s-l90-rj",
+         "width": 302,
+         "height": 302
+        },
+        {
+         "url": "https://yt3.googleusercontent.com/_NYJiWu4FELJ-Gj7Rumq_vkgugDcit8xl4E1F7P2tBDUt7Vn3PzQbsTCxYjtHoBLpv8UXiLACRVQxok=w544-h544-s-l90-rj",
+         "width": 544,
+         "height": 544
+        }
+       ]
+      },
+      "lengthText": {
+       "runs": [
+        {
+         "text": "6:23"
+        }
+       ]
+      },
+      "selected": false,
+      "navigationEndpoint": {
+       "watchEndpoint": {
+        "videoId": "5sBGUyUnqwM",
+        "playlistId": "RDAMVMZ85lxckrtzg",
+        "index": 52,
+        "params": "OAHyAQIIAQ%3D%3D",
+        "playlistSetVideoId": "30D50B2E1F78CC1A",
+        "watchEndpointMusicSupportedConfigs": {
+         "watchEndpointMusicConfig": {
+          "hasPersistentPlaylistPanel": true,
+          "musicVideoType": "MUSIC_VIDEO_TYPE_ATV"
+         }
+        }
+       }
+      },
+      "videoId": "5sBGUyUnqwM",
+      "shortBylineText": {
+       "runs": [
+        {
+         "text": "Lionel Richie"
+        }
+       ]
+      },
+      "playlistSetVideoId": "30D50B2E1F78CC1A",
+      "canReorder": true
+     }
+    }
+   ],
+   "playlistId": "RDAMVMZ85lxckrtzg",
+   "isInfinite": true,
+   "continuations": [
+    {
+     "nextRadioContinuationData": {
+      "continuation": "TEST_CONTINUATION_1"
+     }
+    }
+   ],
+   "numItemsToShow": 25
+  }
+ }
+}
