@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:noir/core/widgets/artwork.dart';
 import 'package:noir/core/widgets/menus.dart';
+import 'package:noir/features/discover/presentation/ytm_artist_screen.dart';
 import 'package:noir/features/playback/application/playback_controller.dart';
 import 'package:noir/features/search/application/music_search_controller.dart';
 import 'package:noir/features/search/application/search_controller.dart';
@@ -71,8 +72,8 @@ void openYtmItem(
       context.go('$base/album/${Uri.encodeComponent(browseId)}');
     case YtmPlaylistItem(:final playlistId):
       context.go('$base/playlist/${Uri.encodeComponent(playlistId)}');
-    case YtmArtistItem(:final title):
-      searchMusicFor(context, ref, title);
+    case YtmArtistItem(:final browseId):
+      openYtmArtist(context, browseId);
   }
 }
 
