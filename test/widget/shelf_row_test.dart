@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noir/app/theme/app_theme.dart';
 import 'package:noir/app/theme/glass_theme.dart';
+import 'package:noir/core/widgets/glass_surface.dart';
 import 'package:noir/core/widgets/shelf_row.dart';
 import 'package:noir/features/settings/domain/app_settings.dart';
 
@@ -64,10 +65,10 @@ ScrollPosition _shelf(WidgetTester tester) => tester
     .position;
 
 double _arrowOpacity(WidgetTester tester, String tooltip) => tester
-    .widget<AnimatedOpacity>(
+    .widget<GlassFade>(
       find.ancestor(
         of: find.byTooltip(tooltip),
-        matching: find.byType(AnimatedOpacity),
+        matching: find.byType(GlassFade),
       ),
     )
     .opacity;

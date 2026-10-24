@@ -13,6 +13,7 @@ import 'package:noir/app/theme/design_tokens.dart';
 import 'package:noir/app/theme/glass_theme.dart';
 import 'package:noir/core/platform/window_controls.dart';
 import 'package:noir/core/widgets/glass_surface.dart';
+import 'package:noir/core/widgets/liquid_press.dart';
 import 'package:noir/core/widgets/noir_backdrop.dart';
 import 'package:noir/features/playback/application/playback_controller.dart';
 import 'package:noir/features/playback/presentation/mini_players.dart';
@@ -329,32 +330,35 @@ class TopBar extends ConsumerWidget {
                     },
                     child: MouseRegion(
                       cursor: SystemMouseCursors.text,
-                      child: GlassSurface(
-                        interactive: true,
-                        borderRadius: NoirRadii.pillAll,
-                        blur: 0,
-                        child: SizedBox(
-                          width: 280,
-                          height: 38,
-                          child: Row(
-                            children: [
-                              const SizedBox(width: 14),
-                              Icon(
-                                Icons.search_rounded,
-                                size: 18,
-                                color: c.textSecondary,
-                              ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: Text(
-                                  'Search music, artists, albums…',
-                                  style: t.bodySmall,
-                                  overflow: TextOverflow.ellipsis,
+                      child: LiquidPress(
+                        pressedScale: 0.97,
+                        bubbleScale: 1.03,
+                        child: GlassSurface(
+                          interactive: true,
+                          borderRadius: NoirRadii.pillAll,
+                          child: SizedBox(
+                            width: 280,
+                            height: 38,
+                            child: Row(
+                              children: [
+                                const SizedBox(width: 14),
+                                Icon(
+                                  Icons.search_rounded,
+                                  size: 18,
+                                  color: c.textSecondary,
                                 ),
-                              ),
-                              Text('Ctrl K', style: t.labelSmall),
-                              const SizedBox(width: 14),
-                            ],
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Text(
+                                    'Search music, artists, albums…',
+                                    style: t.bodySmall,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                                Text('Ctrl K', style: t.labelSmall),
+                                const SizedBox(width: 14),
+                              ],
+                            ),
                           ),
                         ),
                       ),
@@ -375,7 +379,8 @@ class TopBar extends ConsumerWidget {
   }
 }
 
-/// Placeholder avatar until an account is connected (Phase 5).
+/// Placeholder avatar until an account is connected (Phase 5): a small
+/// Liquid Glass circle.
 class AccountAvatar extends StatelessWidget {
   const AccountAvatar({required this.onTap, this.size = 34, super.key});
 
@@ -390,22 +395,25 @@ class AccountAvatar extends StatelessWidget {
       child: Semantics(
         button: true,
         label: 'Settings and account',
-        child: InkResponse(
-          onTap: onTap,
-          radius: size / 2 + 4,
-          hoverDuration: NoirEffects.of(context).motion(NoirMotion.fast),
-          child: Container(
-            width: size,
-            height: size,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: c.surfaceElevated,
-              border: Border.all(color: c.glassBorder),
-            ),
-            child: Icon(
-              Icons.person_outline_rounded,
-              size: size * 0.55,
-              color: c.textSecondary,
+        child: LiquidPress(
+          child: GlassSurface(
+            borderRadius: NoirRadii.pillAll,
+            child: Material(
+              type: MaterialType.transparency,
+              child: InkResponse(
+                onTap: onTap,
+                customBorder: const CircleBorder(),
+                hoverColor: c.hover,
+                hoverDuration: NoirEffects.of(context).motion(NoirMotion.fast),
+                child: SizedBox.square(
+                  dimension: size,
+                  child: Icon(
+                    Icons.person_outline_rounded,
+                    size: size * 0.55,
+                    color: c.textSecondary,
+                  ),
+                ),
+              ),
             ),
           ),
         ),

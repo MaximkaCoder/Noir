@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:noir/app/router.dart';
 import 'package:noir/app/shell/sidebar.dart';
 import 'package:noir/core/widgets/buttons.dart';
+import 'package:noir/core/widgets/glass_surface.dart';
 import 'package:noir/core/widgets/liquid_glass.dart';
 import 'package:noir/features/library/data/library_repository.dart';
 import 'package:noir/features/playback/application/playback_controller.dart';
@@ -482,6 +483,8 @@ void main() {
       tester,
     ) async {
       final app = await TestApp.pump(tester);
+      await _play(app);
+      await tester.pumpAndSettle();
       expect(find.byType(BackdropFilter), findsWidgets);
 
       app.container
@@ -556,12 +559,14 @@ void main() {
     });
 
     testWidgets('performance mode keeps glass but lowers blur', (tester) async {
-      await TestApp.pump(
+      final app = await TestApp.pump(
         tester,
         settings: const AppSettings(
           performanceMode: PerformanceMode.performance,
         ),
       );
+      await _play(app);
+      await tester.pumpAndSettle();
       expect(find.byType(BackdropFilter), findsWidgets);
     });
   });
@@ -577,15 +582,15 @@ void main() {
       await tester.tap(find.byTooltip('More').first);
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 60));
-      final fade = tester.widget<FadeTransition>(
+      final fade = tester.widget<GlassFade>(
         find
             .ancestor(
               of: find.text('Add to queue'),
-              matching: find.byType(FadeTransition),
+              matching: find.byType(GlassFade),
             )
             .first,
       );
-      expect(fade.opacity.value, inExclusiveRange(0, 1));
+      expect(fade.opacity, inExclusiveRange(0, 1));
       await tester.pumpAndSettle();
 
       await tester.tap(find.text('Add to queue'));

@@ -120,6 +120,7 @@ class PrimaryPlayButton extends StatelessWidget {
 }
 
 /// Glass pill used for secondary actions ("Create playlist", "Add folder").
+/// Answers presses with [LiquidPress], like the island's buttons.
 class PillButton extends StatelessWidget {
   const PillButton({
     required this.label,
@@ -167,29 +168,34 @@ class PillButton extends StatelessWidget {
     return Semantics(
       button: true,
       enabled: onPressed != null,
-      child: _Pressable(
-        onPressed: onPressed,
-        scale: NoirEffects.of(context).animations,
-        child: filled
-            ? DecoratedBox(
-                decoration: BoxDecoration(
-                  color: c.primaryActionFill,
+      child: LiquidPress(
+        enabled: onPressed != null,
+        pressedScale: 0.95,
+        bubbleScale: 1.06,
+        child: _Pressable(
+          onPressed: onPressed,
+          scale: false,
+          child: filled
+              ? DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: c.primaryActionFill,
+                    borderRadius: NoirRadii.pillAll,
+                  ),
+                  child: content,
+                )
+              : GlassSurface(
                   borderRadius: NoirRadii.pillAll,
+                  interactive: true,
+                  child: content,
                 ),
-                child: content,
-              )
-            : GlassSurface(
-                borderRadius: NoirRadii.pillAll,
-                interactive: true,
-                blur: 0,
-                child: content,
-              ),
+        ),
       ),
     );
   }
 }
 
-/// Rounded filter chip row item ("Playlists", "Artists", …).
+/// Rounded filter chip row item ("Playlists", "Artists", …). Answers
+/// presses with [LiquidPress].
 class PillChip extends StatelessWidget {
   const PillChip({
     required this.label,
@@ -209,29 +215,33 @@ class PillChip extends StatelessWidget {
     return Semantics(
       selected: selected,
       button: true,
-      child: _Pressable(
-        onPressed: onSelected,
-        scale: false,
-        child: AnimatedContainer(
-          duration: fx.motion(NoirMotion.medium),
-          curve: NoirMotion.standard,
-          padding: const EdgeInsets.symmetric(
-            horizontal: NoirSpacing.lg,
-            vertical: NoirSpacing.sm,
-          ),
-          decoration: BoxDecoration(
-            color: selected ? c.selected : Colors.transparent,
-            borderRadius: NoirRadii.pillAll,
-            border: Border.all(
-              color: selected ? c.glassBorder : Colors.transparent,
-            ),
-          ),
-          child: AnimatedDefaultTextStyle(
+      child: LiquidPress(
+        pressedScale: 0.94,
+        bubbleScale: 1.08,
+        child: _Pressable(
+          onPressed: onSelected,
+          scale: false,
+          child: AnimatedContainer(
             duration: fx.motion(NoirMotion.medium),
             curve: NoirMotion.standard,
-            style: Theme.of(context).textTheme.labelLarge!
-                .copyWith(color: selected ? c.textPrimary : c.textSecondary),
-            child: Text(label),
+            padding: const EdgeInsets.symmetric(
+              horizontal: NoirSpacing.lg,
+              vertical: NoirSpacing.sm,
+            ),
+            decoration: BoxDecoration(
+              color: selected ? c.selected : Colors.transparent,
+              borderRadius: NoirRadii.pillAll,
+              border: Border.all(
+                color: selected ? c.glassBorder : Colors.transparent,
+              ),
+            ),
+            child: AnimatedDefaultTextStyle(
+              duration: fx.motion(NoirMotion.medium),
+              curve: NoirMotion.standard,
+              style: Theme.of(context).textTheme.labelLarge!
+                  .copyWith(color: selected ? c.textPrimary : c.textSecondary),
+              child: Text(label),
+            ),
           ),
         ),
       ),
