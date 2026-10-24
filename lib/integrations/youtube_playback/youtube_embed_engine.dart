@@ -245,7 +245,10 @@ class YouTubeEmbedEngine implements PlaybackEngine {
   var player = null, timer = null;
   // playVideo() right after cueVideoById() is lost when the cue finishes
   // later (the player ends up "cued"), so a pending play is retried then.
-  var wantPlay = false;
+  // After a video has ended, playVideo() on the next cued one can be ignored
+  // altogether, so the first play() of a freshly cued video loads it with
+  // autoplay instead (loadVideoById starts on its own).
+  var wantPlay = false, cued = null;
   var tag = document.createElement('script');
   tag.src = 'https://www.youtube.com/iframe_api';
   document.head.appendChild(tag);
@@ -263,7 +266,7 @@ class YouTubeEmbedEngine implements PlaybackEngine {
         onReady: function(){ send({event:'ready'}); },
         onStateChange: function(e){
           if (e.data === 5 && wantPlay) { player.playVideo(); return; }
-          if (e.data === 1) wantPlay = false;
+          if (e.data === 1) { wantPlay = false; cued = null; }
           send({event:'state', data: e.data});
           clearInterval(timer);
           if (e.data === 1) timer = setInterval(tick, 250);
@@ -274,11 +277,18 @@ class YouTubeEmbedEngine implements PlaybackEngine {
     });
   }
   window.noir = {
-    cue: function(id, s){ wantPlay = false; player.cueVideoById({videoId: id, startSeconds: s}); },
-    play: function(){ wantPlay = true; player.playVideo(); },
+    cue: function(id, s){
+      wantPlay = false; cued = {videoId: id, startSeconds: s};
+      player.cueVideoById(cued);
+    },
+    play: function(){
+      wantPlay = true;
+      if (cued) { var c = cued; cued = null; player.loadVideoById(c); }
+      else player.playVideo();
+    },
     pause: function(){ wantPlay = false; player.pauseVideo(); },
     stop: function(){ wantPlay = false; player.stopVideo(); },
-    seek: function(s){ player.seekTo(s, true); tick(); },
+    seek: function(s){ if (cued) cued.startSeconds = s; player.seekTo(s, true); tick(); },
     volume: function(v){ player.setVolume(v); }
   };
 </script>
