@@ -1,10 +1,11 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noir/app/router.dart';
 import 'package:noir/app/shell/sidebar.dart';
 import 'package:noir/core/widgets/buttons.dart';
-import 'package:noir/core/widgets/glass_surface.dart';
+import 'package:noir/core/widgets/liquid_glass.dart';
 import 'package:noir/features/library/data/library_repository.dart';
 import 'package:noir/features/playback/application/playback_controller.dart';
 import 'package:noir/features/playback/presentation/mini_players.dart';
@@ -27,6 +28,9 @@ Finder _inSidebar(String label) =>
 
 Finder _inIsland(Finder matching) =>
     find.descendant(of: find.byType(PlayerIsland), matching: matching);
+
+Rect _glassRect(WidgetTester tester) =>
+    tester.getRect(_inIsland(find.byType(LiquidGlass)));
 
 void main() {
   group('adaptive shell', () {
@@ -227,12 +231,129 @@ void main() {
       expect(_inIsland(find.text('Mara Vale')), findsOneWidget);
       expect(_inIsland(find.bySemanticsLabel('Volume')), findsOneWidget);
 
-      // Floating: clear of the window edges and the sidebar.
-      final glass = tester.getRect(_inIsland(find.byType(GlassSurface)).first);
-      expect(glass.left, 248 + 12);
-      expect(glass.right, 1360 - 12);
-      expect(glass.bottom, 860 - 12);
+      // A floating capsule centered over the content, at most 900 px wide.
+      final glass = _glassRect(tester);
+      expect(glass.width, PlayerIsland.maxWidth);
+      expect(glass.center.dx, 248 + (1360 - 248) / 2);
+      expect(glass.bottom, 860 - 16);
       expect(_inSidebar('Ash & Ember'), findsNothing);
+    });
+
+    testWidgets('the capsule shrinks with the window', (tester) async {
+      final app = await TestApp.pump(tester, size: const Size(900, 700));
+      await _play(app);
+      await tester.pumpAndSettle();
+      final glass = _glassRect(tester);
+      // Icon rail (80 px) + 16 px margins on both sides.
+      expect(glass.left, 80 + 16);
+      expect(glass.right, 900 - 16);
+    });
+
+    testWidgets('hovering the track reveals the times and thickens the line', (
+      tester,
+    ) async {
+      final app = await TestApp.pump(tester);
+      await _play(app);
+      await tester.pumpAndSettle();
+      final line = _inIsland(find.byKey(PlayerIsland.progressKey));
+      expect(tester.getSize(line).height, 2);
+      expect(_inIsland(find.text('0:00')), findsNothing);
+      expect(_inIsland(find.text('Mara Vale')), findsOneWidget);
+
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      addTearDown(mouse.removePointer);
+      await mouse.addPointer(location: Offset.zero);
+      await mouse.moveTo(tester.getCenter(_inIsland(find.text('Ash & Ember'))));
+      await tester.pumpAndSettle();
+      expect(tester.getSize(line).height, 4);
+      expect(_inIsland(find.text('0:00')), findsOneWidget);
+      expect(_inIsland(find.text('-3:00')), findsOneWidget);
+      expect(_inIsland(find.text('Mara Vale')), findsNothing);
+      // The title stays readable, and still opens the player.
+      expect(_inIsland(find.text('Ash & Ember')), findsOneWidget);
+
+      await mouse.moveTo(const Offset(700, 300));
+      await tester.pumpAndSettle();
+      expect(tester.getSize(line).height, 2);
+      expect(_inIsland(find.text('0:00')), findsNothing);
+      expect(_inIsland(find.text('Mara Vale')), findsOneWidget);
+    });
+
+    testWidgets('clicking the progress line seeks; dragging scrubs', (
+      tester,
+    ) async {
+      final app = await TestApp.pump(tester);
+      await _play(app);
+      await tester.pumpAndSettle();
+      final line = tester.getRect(
+        _inIsland(find.byKey(PlayerIsland.progressKey)),
+      );
+      Offset at(double f) => Offset(line.left + line.width * f, line.center.dy);
+
+      await tester.tapAt(at(0.5));
+      await tester.pumpAndSettle();
+      expect(app.engine.calls, contains('seek 90'));
+
+      app.engine.calls.clear();
+      final drag = await tester.startGesture(
+        at(0.9),
+        kind: PointerDeviceKind.mouse,
+      );
+      await drag.moveBy(const Offset(-30, 0));
+      await drag.moveTo(at(0.5));
+      await tester.pumpAndSettle();
+      // The times follow the drag; nothing seeks until release.
+      expect(_inIsland(find.text('1:30')), findsOneWidget);
+      expect(_inIsland(find.text('-1:30')), findsOneWidget);
+      expect(app.engine.calls.where((c) => c.startsWith('seek')), isEmpty);
+
+      await drag.up();
+      await tester.pumpAndSettle();
+      expect(app.engine.calls.where((c) => c.startsWith('seek')), ['seek 90']);
+    });
+
+    for (final animations in [true, false]) {
+      testWidgets('hover ${animations ? 'lifts' : 'leaves'} the capsule '
+          'with animations ${animations ? 'on' : 'off'}', (tester) async {
+        final app = await TestApp.pump(
+          tester,
+          settings: AppSettings(animations: animations),
+        );
+        await _play(app);
+        await tester.pumpAndSettle();
+        final lift = find
+            .descendant(
+              of: find.byType(LiquidGlass),
+              matching: find.byType(AnimatedScale),
+            )
+            .first;
+        expect(tester.widget<AnimatedScale>(lift).scale, 1);
+
+        final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+        addTearDown(mouse.removePointer);
+        await mouse.addPointer(location: Offset.zero);
+        await mouse.moveTo(_glassRect(tester).center);
+        await tester.pumpAndSettle();
+        expect(tester.widget<AnimatedScale>(lift).scale, animations ? 1.01 : 1);
+      });
+    }
+
+    testWidgets('Liquid Glass off: a solid capsule of the same geometry', (
+      tester,
+    ) async {
+      final app = await TestApp.pump(tester);
+      await _play(app);
+      await tester.pumpAndSettle();
+      expect(_inIsland(find.byType(BackdropFilter)), findsOneWidget);
+      final glass = _glassRect(tester);
+
+      app.container
+          .read(settingsProvider.notifier)
+          .update((s) => s.copyWith(liquidGlass: false));
+      await tester.pumpAndSettle();
+      expect(_inIsland(find.byType(BackdropFilter)), findsNothing);
+      expect(_glassRect(tester), glass);
+      expect(_inIsland(find.byTooltip('Pause')), findsOneWidget);
     });
 
     testWidgets('pages get bottom padding to scroll clear of it', (
@@ -244,7 +365,7 @@ void main() {
 
       await _play(app);
       await tester.pumpAndSettle();
-      final glass = tester.getRect(_inIsland(find.byType(GlassSurface)).first);
+      final glass = _glassRect(tester);
       expect(
         MediaQuery.paddingOf(tester.element(home)).bottom,
         860 - glass.top,
@@ -277,16 +398,17 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(QueuePanel), findsOneWidget);
       expect(app.container.read(queuePanelOpenProvider), isTrue);
-      // The island now ends where the panel begins.
-      final glass = tester.getRect(_inIsland(find.byType(GlassSurface)).first);
-      expect(glass.right, 1360 - 360 - 12);
+      // The island now centers between the sidebar and the panel.
+      final glass = _glassRect(tester);
+      expect(glass.left, 248 + 16);
+      expect(glass.right, 1360 - 360 - 16);
 
       await tester.tap(find.byTooltip('Hide queue'));
       await tester.pumpAndSettle();
       expect(find.byType(QueuePanel), findsNothing);
     });
 
-    for (final (size, volume, times) in const [
+    for (final (size, volume, modes) in const [
       (Size(1600, 1000), true, true),
       (Size(900, 700), false, true),
       (Size(700, 700), false, false),
@@ -302,9 +424,15 @@ void main() {
           _inIsland(find.bySemanticsLabel('Volume')),
           volume ? findsOneWidget : findsNothing,
         );
+        for (final tooltip in ['Shuffle off', 'Repeat off']) {
+          expect(
+            _inIsland(find.byTooltip(tooltip)),
+            modes ? findsOneWidget : findsNothing,
+          );
+        }
         expect(
-          _inIsland(find.text('0:00')),
-          times ? findsOneWidget : findsNothing,
+          _inIsland(find.byTooltip('Add to favorites (this device)')),
+          findsOneWidget,
         );
         expect(_inIsland(find.byTooltip('Mute')), findsOneWidget);
         expect(_inIsland(find.byTooltip('Next')), findsOneWidget);
