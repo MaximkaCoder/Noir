@@ -109,7 +109,8 @@ void main() {
       await tester.tap(find.byType(SidebarPlayerCard));
       await tester.pumpAndSettle();
       expect(find.byTooltip('Close player (Esc)'), findsOneWidget);
-      expect(find.text('Up next'), findsOneWidget);
+      // The queue opens as a side sheet; no inline card.
+      expect(find.text('Up next'), findsNothing);
 
       await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await tester.pumpAndSettle();

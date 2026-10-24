@@ -15,12 +15,27 @@ history, listening history) or by removing library folders.
 
 ## Sent anywhere
 
-Nothing. This version makes no network requests with your data, has no
-telemetry, no analytics and no third-party tracking. Fonts are bundled.
+Nothing, except the lyrics lookups described below. There is no telemetry,
+no analytics and no third-party tracking. Fonts are bundled.
 
 "Export diagnostics" writes a JSON file you choose to share. It contains app
 version, OS, locale, settings and item counts — no paths, titles, history or
 account data.
+
+## Lyrics (LRCLIB)
+
+Lyrics come from [LRCLIB](https://lrclib.net), a free community lyrics
+database. A lookup happens only while the Lyrics panel is open in Now
+Playing, for the song currently playing, and sends LRCLIB:
+
+- the song title and artist (for YouTube videos: the cleaned-up video title
+  and channel name), the album for local files, and the duration in seconds;
+- a `User-Agent: NOIR/<version>` header, plus your IP address as with any
+  web request.
+
+No account, identifier, file path or listening history is sent. Answers are
+kept in memory for the last 50 songs and are gone when NOIR quits. Lyrics
+are off at every launch; leave the panel closed and nothing is ever sent.
 
 ## Google / YouTube (future version)
 

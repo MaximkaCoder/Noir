@@ -1,14 +1,22 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:noir/app/theme/design_tokens.dart';
+import 'package:noir/app/theme/glass_theme.dart';
+import 'package:noir/core/platform/window_controls.dart';
 import 'package:noir/core/widgets/buttons.dart';
 import 'package:noir/core/widgets/dialogs.dart';
+import 'package:noir/core/widgets/glass_surface.dart';
 import 'package:noir/core/widgets/smooth_scroll.dart';
 import 'package:noir/core/widgets/states.dart';
 import 'package:noir/features/playback/application/playback_controller.dart';
+import 'package:noir/features/playback/presentation/youtube_video_layer.dart';
+import 'package:noir/features/settings/presentation/settings_controller.dart';
+import 'package:noir/shared/models/media.dart';
 import 'package:noir/shared/widgets/track_row.dart';
 
 /// Whether the desktop right-hand queue panel is open.
@@ -32,6 +40,154 @@ void openQueue(BuildContext context, WidgetRef ref) {
     ref.read(queuePanelOpenProvider.notifier).toggle();
   } else {
     unawaited(context.push('/queue'));
+  }
+}
+
+/// Whether the queue sheet ([showQueueSheet]) is open. Now Playing hands
+/// its video slot to the sheet meanwhile, so the YouTube player never sits
+/// on top of the sheet.
+final queueSheetOpenProvider = NotifierProvider<_SheetOpen, bool>(
+  _SheetOpen.new,
+);
+
+class _SheetOpen extends Notifier<bool> {
+  @override
+  bool build() => false;
+
+  // A method reads better than a setter at the call site.
+  // ignore: use_setters_to_change_properties
+  void set({required bool open}) => state = open;
+}
+
+/// Slides the queue in from the right edge as a route on the root
+/// navigator, so `maybePop` (Esc, mouse Back) closes it before anything
+/// underneath. Tapping outside closes it too.
+Future<void> showQueueSheet(BuildContext context, WidgetRef ref) async {
+  final fx = NoirEffects.of(context);
+  final open = ref.read(queueSheetOpenProvider.notifier)..set(open: true);
+  try {
+    await showGeneralDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: 'Close queue',
+      barrierColor: Colors.black.withValues(alpha: 0.3),
+      transitionDuration: fx.motion(NoirMotion.slow),
+      pageBuilder: (context, _, _) => const _QueueSheet(),
+      transitionBuilder: (context, animation, _, child) {
+        final curved = CurvedAnimation(
+          parent: animation,
+          curve: NoirMotion.emphasized,
+          reverseCurve: Curves.easeInCubic,
+        );
+        return FadeTransition(
+          opacity: CurvedAnimation(parent: animation, curve: Curves.easeOut),
+          child: SlideTransition(
+            position: Tween(
+              begin: const Offset(1, 0),
+              end: Offset.zero,
+            ).animate(curved),
+            child: child,
+          ),
+        );
+      },
+    );
+  } finally {
+    open.set(open: false);
+  }
+}
+
+class _QueueSheet extends ConsumerWidget {
+  const _QueueSheet();
+
+  static const maxWidth = 400.0;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final t = Theme.of(context).textTheme;
+    final fx = NoirEffects.of(context);
+    final width = min(MediaQuery.sizeOf(context).width, maxWidth);
+    void close() => Navigator.of(context).maybePop();
+    final showVideo =
+        ref.watch(
+          playbackProvider.select(
+            (s) => s.current?.track.source == MediaSource.youtube,
+          ),
+        ) &&
+        !ref.watch(settingsProvider.select((s) => s.hideYouTubePlayer)) &&
+        ref.watch(youTubeEngineProvider) != null;
+
+    return CallbackShortcuts(
+      bindings: {const SingleActivator(LogicalKeyboardKey.escape): close},
+      child: Align(
+        alignment: Alignment.centerRight,
+        child: SizedBox(
+          width: width,
+          height: double.infinity,
+          child: Material(
+            type: MaterialType.transparency,
+            child: GlassSurface(
+              borderRadius: width < maxWidth
+                  ? BorderRadius.zero
+                  : const BorderRadius.horizontal(
+                      left: Radius.circular(NoirRadii.xl),
+                    ),
+              shadow: 1,
+              highlight: 0.4,
+              fillOpacity: fx.glass ? 2.5 : 1,
+              child: SafeArea(
+                left: false,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    WindowDragArea(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 8, 12, 4),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text('Queue', style: t.titleMedium),
+                            ),
+                            NoirIconButton(
+                              icon: Icons.close_rounded,
+                              tooltip: 'Close queue (Esc)',
+                              onPressed: close,
+                            ),
+                            if (usesCustomWindowChrome) ...[
+                              const SizedBox(width: NoirSpacing.sm),
+                              const WindowControls(),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ),
+                    if (showVideo)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+                        child: VideoSlot(
+                          size: Size(
+                            (width - 32).clamp(
+                              200.0,
+                              YouTubeVideoLayer.miniSize.width,
+                            ),
+                            YouTubeVideoLayer.miniSize.height,
+                          ),
+                        ),
+                      ),
+                    const Expanded(
+                      child: QueueList(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: NoirSpacing.md,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 
