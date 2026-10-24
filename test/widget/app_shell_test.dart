@@ -490,8 +490,10 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 50));
       // An unchanged theme must not start a 200 ms app-wide theme lerp,
-      // which starved the switch animation of frames.
-      expect(identical(Theme.of(context), before), isTrue);
+      // which starved the switch animation of frames. AnimatedTheme only
+      // lerps when the data differs (Theme.of may still hand back a fresh
+      // localized copy, so identity is too strict).
+      expect(Theme.of(context), before);
     });
 
     testWidgets('crossfade length slides in instead of popping', (
