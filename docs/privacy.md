@@ -29,3 +29,21 @@ connect, using the scopes described in [oauth-flow.md](oauth-flow.md). Data
 from YouTube will be cached at most 30 days and deleted when you disconnect.
 NOIR's privacy policy will link the Google Privacy Policy and the YouTube Terms
 of Service, as Google's policies require.
+
+## Written to your YouTube account
+
+NOIR changes your YouTube account only when you ask it to, and only after you
+grant the extra permission ("manage your YouTube account") in your browser:
+
+- **Heart on a YouTube song** — adds that video to the playlist you chose in
+  Settings → Accounts → "Save hearted songs to" (`playlistItems.insert`).
+  Tapping the filled heart removes it from that playlist again
+  (`playlistItems.delete`). Nothing else in the playlist is touched.
+- **Create new playlist…** — creates one **private** playlist with the name
+  you typed (default "NOIR Likes", `playlists.insert`).
+
+NOIR never likes, dislikes or rates videos (`videos.rate` is never called),
+never deletes playlists and never writes anything in the background. On this
+device it remembers which playlist you chose (deleted when you disconnect).
+You can withdraw the permission at https://myaccount.google.com/permissions
+or by disconnecting in Settings.

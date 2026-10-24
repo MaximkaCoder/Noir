@@ -34,9 +34,18 @@ class GoogleOAuthConfig {
     youtubeReadOnlyScope,
   ];
 
-  /// Requested incrementally, only when the user first edits a playlist.
-  static const playlistWriteScope =
+  /// Manage the user's YouTube account (here: add and remove playlist
+  /// items, create a playlist). Requested incrementally, only when the user
+  /// first saves a song to a playlist or picks the playlist to save to.
+  static const playlistWriteScope = 'https://www.googleapis.com/auth/youtube';
+
+  /// Also allows playlist edits; accepted when Google reports it.
+  static const forceSslScope =
       'https://www.googleapis.com/auth/youtube.force-ssl';
+
+  /// Whether [scopes] allow changing the user's playlists.
+  static bool grantsWrite(Iterable<String> scopes) =>
+      scopes.contains(playlistWriteScope) || scopes.contains(forceSslScope);
 
   static final authorizationEndpoint = Uri.parse(
     'https://accounts.google.com/o/oauth2/v2/auth',

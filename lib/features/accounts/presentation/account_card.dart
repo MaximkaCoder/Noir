@@ -9,6 +9,7 @@ import 'package:noir/core/widgets/dialogs.dart';
 import 'package:noir/core/widgets/glass_surface.dart';
 import 'package:noir/features/accounts/domain/account_connection.dart';
 import 'package:noir/features/youtube/application/youtube_sync.dart';
+import 'package:noir/features/youtube/presentation/save_target_picker.dart';
 import 'package:noir/integrations/google_auth/google_oauth_config.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -170,6 +171,10 @@ class AccountConnectionCard extends ConsumerWidget {
                     ? 'Access: view and manage your YouTube account'
                     : 'Access: view your YouTube account (read-only)',
               ),
+              if (account.canSaveToPlaylists)
+                line(Icons.check_rounded, 'Can save to playlists'),
+              const SizedBox(height: NoirSpacing.lg),
+              const SaveTargetSetting(),
             ] else ...[
               const SizedBox(height: NoirSpacing.md),
               Text(

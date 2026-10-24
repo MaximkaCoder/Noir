@@ -201,6 +201,97 @@ void main() {
       expect(service.current.status, AccountStatus.needsReconnect);
     });
 
+    group('incremental write access', () {
+      List<String> scopesOf(Uri url) =>
+          url.queryParameters['scope']!.split(' ');
+
+      const writeGrant =
+          'openid email profile ${GoogleOAuthConfig.youtubeReadOnlyScope} '
+          '${GoogleOAuthConfig.playlistWriteScope}';
+
+      test(
+        'sign-in asks for read-only scopes, never the write scope',
+        () async {
+          final opened = <Uri>[];
+          service = build(launch: browser(opened: opened));
+          await service.connect();
+          expect(
+            scopesOf(opened.single),
+            isNot(contains(GoogleOAuthConfig.playlistWriteScope)),
+          );
+          expect(scopesOf(opened.single), GoogleOAuthConfig.readOnlyScopes);
+          expect(service.current.canSaveToPlaylists, isFalse);
+        },
+      );
+
+      test('upgrade adds the write scope with include_granted_scopes and '
+          'keeps the new refresh token', () async {
+        final opened = <Uri>[];
+        service = build(launch: browser(opened: opened));
+        await service.connect();
+        http.handler = (_) =>
+            ok({...tokenJson(scope: writeGrant), 'refresh_token': 'refresh-2'});
+
+        await service.requestWriteAccess();
+
+        final url = opened.last;
+        expect(opened, hasLength(2));
+        expect(url.queryParameters['include_granted_scopes'], 'true');
+        expect(url.queryParameters['login_hint'], 'me@example.com');
+        expect(scopesOf(url), contains(GoogleOAuthConfig.playlistWriteScope));
+        expect(store.account!.refreshToken, 'refresh-2');
+        expect(
+          store.account!.scopes,
+          contains(GoogleOAuthConfig.playlistWriteScope),
+        );
+        expect(service.current.status, AccountStatus.connected);
+        expect(service.current.canSaveToPlaylists, isTrue);
+      });
+
+      test('declining keeps read-only access untouched', () async {
+        await service.connect();
+        service = build(launch: browser(code: null, error: 'access_denied'));
+        await service.init();
+
+        await expectLater(
+          service.requestWriteAccess(),
+          throwsA(isA<OAuthWriteDeclined>()),
+        );
+        expect(store.account!.refreshToken, 'refresh-1');
+        expect(service.current.status, AccountStatus.connected);
+        expect(service.current.canSaveToPlaylists, isFalse);
+      });
+
+      test('an unticked write box counts as declined', () async {
+        await service.connect();
+        http.handler = (_) =>
+            ok({...tokenJson(), 'refresh_token': 'refresh-2'});
+        await expectLater(
+          service.requestWriteAccess(),
+          throwsA(isA<OAuthWriteDeclined>()),
+        );
+        expect(store.account!.refreshToken, 'refresh-1');
+      });
+
+      test('a different Google account is rejected and revoked', () async {
+        await service.connect();
+        http.handler = (r) => r.uri.path.endsWith('revoke')
+            ? ok({})
+            : ok({
+                ...tokenJson(scope: writeGrant),
+                'refresh_token': 'other-refresh',
+                'id_token': fakeIdToken({'email': 'someone@example.com'}),
+              });
+        await expectLater(
+          service.requestWriteAccess(),
+          throwsA(isA<OAuthFailed>()),
+        );
+        expect(http.requests.last.form['token'], 'other-refresh');
+        expect(store.account!.refreshToken, 'refresh-1');
+        expect(service.current.canSaveToPlaylists, isFalse);
+      });
+    });
+
     test('disconnect revokes at Google and forgets credentials', () async {
       await service.connect();
       await service.disconnect();

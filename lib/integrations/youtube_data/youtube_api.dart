@@ -47,6 +47,17 @@ class YtVideo {
   final String categoryId;
 }
 
+/// One entry of a playlist: the playlist item id (needed to remove it) and
+/// the video it points to.
+class YtPlaylistEntry {
+  const YtPlaylistEntry({required this.videoId, this.id});
+
+  final String videoId;
+
+  /// `playlistItems` resource id; null only in hand-made test data.
+  final String? id;
+}
+
 /// Result of a conditional request that was answered with data.
 class YtFetch<T> {
   const YtFetch(this.value, this.etag);
@@ -58,7 +69,18 @@ class YtFetch<T> {
   final String? etag;
 }
 
-enum YouTubeErrorKind { quota, auth, notFound, network, server, other }
+enum YouTubeErrorKind {
+  quota,
+  auth,
+
+  /// HTTP 403 `insufficientPermissions`: the token lacks the scope (for
+  /// writes, the user has not granted playlist access yet).
+  permission,
+  notFound,
+  network,
+  server,
+  other,
+}
 
 class YouTubeApiException implements Exception {
   const YouTubeApiException(this.kind, this.message);
@@ -72,9 +94,10 @@ class YouTubeApiException implements Exception {
   String toString() => 'YouTubeApiException(${kind.name})';
 }
 
-/// Read-only access to the YouTube Data API v3 for the signed-in user.
-/// Quota costs (default 10,000 units/day): every call here costs 1 unit per
-/// page.
+/// Access to the YouTube Data API v3 for the signed-in user.
+/// Quota costs (default 10,000 units/day): reads cost 1 unit per page; the
+/// few writes (adding or removing a playlist item, creating a playlist)
+/// cost 50 units each. NOIR never rates videos (`videos.rate`).
 class YouTubeApi {
   YouTubeApi({
     required this._dio,
@@ -119,9 +142,9 @@ class YouTubeApi {
     );
   }
 
-  /// Video ids of a playlist in order. Deleted and private videos are
-  /// skipped — they cannot be played.
-  Future<List<String>> playlistVideoIds(String playlistId) async {
+  /// Items of a playlist in order. Deleted and private videos are skipped —
+  /// they cannot be played.
+  Future<List<YtPlaylistEntry>> playlistItems(String playlistId) async {
     final page = await _paged('playlistItems', {
       'part': 'snippet,status',
       'playlistId': playlistId,
@@ -129,9 +152,62 @@ class YouTubeApi {
     });
     return [
       for (final i in page!.items)
-        if (_playable(i))
-          ((_snippet(i)['resourceId'] as Map?)?['videoId'] as String?) ?? '',
-    ].where((id) => id.isNotEmpty).toList();
+        if (_playable(i) && _itemVideoId(i) != null)
+          YtPlaylistEntry(id: i['id'] as String?, videoId: _itemVideoId(i)!),
+    ];
+  }
+
+  /// Ids of the items in [playlistId] that point to [videoId] (1 unit).
+  Future<List<String>> playlistItemIdsFor(
+    String playlistId,
+    String videoId,
+  ) async {
+    final page = await _paged('playlistItems', {
+      'part': 'id',
+      'playlistId': playlistId,
+      'videoId': videoId,
+      'maxResults': '50',
+    });
+    return [for (final i in page!.items) i['id']! as String];
+  }
+
+  /// Appends [videoId] to [playlistId] (`playlistItems.insert`, 50 units).
+  /// Returns the new playlist item's id.
+  Future<String> insertPlaylistItem(String playlistId, String videoId) async {
+    final item = await _write(
+      'POST',
+      'playlistItems',
+      {'part': 'snippet'},
+      body: {
+        'snippet': {
+          'playlistId': playlistId,
+          'resourceId': {'kind': 'youtube#video', 'videoId': videoId},
+        },
+      },
+    );
+    return item['id']! as String;
+  }
+
+  /// Removes one playlist item (`playlistItems.delete`, 50 units).
+  Future<void> deletePlaylistItem(String itemId) =>
+      _write('DELETE', 'playlistItems', {'id': itemId});
+
+  /// Creates a playlist, private unless [privacy] says otherwise
+  /// (`playlists.insert`, 50 units).
+  Future<YtPlaylist> createPlaylist(
+    String title, {
+    String privacy = 'private',
+  }) async {
+    final created = await _write(
+      'POST',
+      'playlists',
+      {'part': 'snippet,status'},
+      body: {
+        'snippet': {'title': title},
+        'status': {'privacyStatus': privacy},
+      },
+    );
+    return _playlist(created);
   }
 
   /// Full details (duration, embeddability, category) for any number of ids,
@@ -203,6 +279,30 @@ class YouTubeApi {
     String resource,
     Map<String, String> query, {
     String? ifNoneMatch,
+  }) => _send('GET', resource, query, ifNoneMatch: ifNoneMatch);
+
+  /// A write. Not retried on network or server errors: YouTube may already
+  /// have applied it, and a second insert would add the video twice.
+  Future<Map<String, Object?>> _write(
+    String method,
+    String resource,
+    Map<String, String> query, {
+    Map<String, Object?>? body,
+  }) async => (await _send(
+    method,
+    resource,
+    query,
+    body: body,
+    retryTransient: false,
+  ))!;
+
+  Future<Map<String, Object?>?> _send(
+    String method,
+    String resource,
+    Map<String, String> query, {
+    Map<String, Object?>? body,
+    String? ifNoneMatch,
+    bool retryTransient = true,
   }) async {
     var forceRefresh = false;
     for (var attempt = 1; ; attempt++) {
@@ -213,10 +313,12 @@ class YouTubeApi {
         throw YouTubeApiException(YouTubeErrorKind.auth, e.message);
       }
       try {
-        final response = await _dio.get<Map<String, Object?>>(
+        final response = await _dio.request<Map<String, Object?>>(
           '$_base/$resource',
           queryParameters: query,
+          data: body,
           options: Options(
+            method: method,
             headers: {
               'Authorization': 'Bearer $token',
               if (ifNoneMatch != null)
@@ -229,7 +331,8 @@ class YouTubeApi {
           ),
         );
         if (response.statusCode == 304) return null;
-        return response.data!;
+        // DELETE answers 204 without a body.
+        return response.data ?? const {};
       } on DioException catch (e) {
         final error = _classify(e);
         final canRetry = attempt < _maxAttempts;
@@ -241,7 +344,7 @@ class YouTubeApi {
             error.kind == YouTubeErrorKind.network ||
             error.kind == YouTubeErrorKind.server ||
             e.response?.statusCode == 429;
-        if (transient && canRetry) {
+        if (transient && canRetry && retryTransient) {
           // Exponential backoff: 0.5 s, 1 s, …
           await Future<void>.delayed(retryDelay * (1 << (attempt - 1)));
           continue;
@@ -274,6 +377,14 @@ class YouTubeApi {
         'everything already synced stays available.',
       );
     }
+    if (status == 403 &&
+        (reason == 'insufficientPermissions' ||
+            reason == 'ACCESS_TOKEN_SCOPE_INSUFFICIENT')) {
+      return const YouTubeApiException(
+        YouTubeErrorKind.permission,
+        'NOIR needs permission to change your YouTube playlists.',
+      );
+    }
     if (status == 401) {
       return const YouTubeApiException(
         YouTubeErrorKind.auth,
@@ -303,6 +414,11 @@ class YouTubeApi {
 
   static Map<String, Object?> _snippet(Map<String, Object?> item) =>
       (item['snippet'] as Map?)?.cast<String, Object?>() ?? const {};
+
+  static String? _itemVideoId(Map<String, Object?> item) {
+    final id = (_snippet(item)['resourceId'] as Map?)?['videoId'] as String?;
+    return id == null || id.isEmpty ? null : id;
+  }
 
   static bool _playable(Map<String, Object?> item) {
     final privacy = (item['status'] as Map?)?['privacyStatus'];

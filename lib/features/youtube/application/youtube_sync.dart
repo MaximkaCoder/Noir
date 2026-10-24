@@ -4,6 +4,7 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:noir/features/accounts/domain/account_connection.dart';
 import 'package:noir/features/settings/data/settings_repository.dart';
+import 'package:noir/features/youtube/application/youtube_save.dart';
 import 'package:noir/features/youtube/data/youtube_repository.dart';
 import 'package:noir/integrations/youtube_data/youtube_api.dart';
 
@@ -157,8 +158,8 @@ class YouTubeSyncController extends Notifier<YouTubeSyncState>
         await Future.wait([
           for (final p in changed.skip(i).take(3))
             api
-                .playlistVideoIds(p.id)
-                .then((ids) => repo.savePlaylistItems(p.id, p.etag, ids)),
+                .playlistItems(p.id)
+                .then((items) => repo.savePlaylistItems(p.id, p.etag, items)),
         ]);
       }
 
@@ -183,6 +184,10 @@ class YouTubeSyncController extends Notifier<YouTubeSyncState>
   Future<void> _forget() async {
     await ref.read(youTubeRepositoryProvider).clearAll();
     await ref.read(settingsRepositoryProvider).delete(_metaKey);
+    // The chosen save playlist belongs to the account that just left.
+    await ref
+        .read(settingsRepositoryProvider)
+        .delete(SaveTargetController.storageKey);
     state = const YouTubeSyncState();
   }
 

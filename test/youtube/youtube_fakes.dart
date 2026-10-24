@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:noir/features/accounts/domain/account_connection.dart';
+import 'package:noir/integrations/google_auth/desktop_oauth_flow.dart';
+import 'package:noir/integrations/google_auth/google_oauth_config.dart';
 
 import '../helpers/fake_http.dart';
 
@@ -12,8 +14,18 @@ class FakeAccount implements AccountConnectionService {
   );
   int refreshes = 0;
 
-  void set(AccountStatus status) {
-    _state = AccountConnection(status: status);
+  /// How [requestWriteAccess] ends: null grants the write scope.
+  OAuthException? upgradeError;
+  int upgrades = 0;
+
+  void set(AccountStatus status, {bool canWrite = false}) {
+    _state = AccountConnection(
+      status: status,
+      grantedScopes: [
+        GoogleOAuthConfig.youtubeReadOnlyScope,
+        if (canWrite) GoogleOAuthConfig.playlistWriteScope,
+      ],
+    );
     _changes.add(_state);
   }
 
@@ -37,6 +49,13 @@ class FakeAccount implements AccountConnectionService {
   void cancelConnect() {}
   @override
   Future<void> disconnect() async => set(AccountStatus.disconnected);
+
+  @override
+  Future<void> requestWriteAccess() async {
+    upgrades++;
+    if (upgradeError case final e?) throw e;
+    set(AccountStatus.connected, canWrite: true);
+  }
 }
 
 Map<String, Object?> video(
@@ -59,6 +78,7 @@ Map<String, Object?> video(
 };
 
 Map<String, Object?> item(String videoId, {String privacy = 'public'}) => {
+  'id': 'item-$videoId',
   'snippet': {
     'resourceId': {'videoId': videoId},
   },

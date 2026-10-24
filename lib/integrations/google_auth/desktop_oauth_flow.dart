@@ -83,6 +83,16 @@ final class OAuthReauthRequired extends OAuthException {
     : super('Your Google session has ended. Connect your account again.');
 }
 
+/// The user did not grant the playlist write scope during an incremental
+/// authorization. Read-only access is unchanged.
+final class OAuthWriteDeclined extends OAuthException {
+  const OAuthWriteDeclined()
+    : super(
+        "NOIR can't save songs to your playlists without that permission. "
+        'Everything else keeps working.',
+      );
+}
+
 final class OAuthFailed extends OAuthException {
   const OAuthFailed(super.message);
 }
@@ -111,7 +121,14 @@ class DesktopOAuthFlow {
   Completer<Uri>? _callback;
 
   /// Runs the browser consent flow and exchanges the code for tokens.
-  Future<OAuthTokens> authorize(List<String> scopes) async {
+  ///
+  /// Always sends `include_granted_scopes=true`, so asking for one more
+  /// scope later (incremental authorization) returns tokens covering
+  /// everything granted so far. [loginHint] preselects the connected account.
+  Future<OAuthTokens> authorize(
+    List<String> scopes, {
+    String? loginHint,
+  }) async {
     final clientId = _config.desktopClientId;
     if (clientId == null) {
       throw const OAuthFailed('Google sign-in is not configured.');
@@ -141,6 +158,7 @@ class DesktopOAuthFlow {
           // Always return a refresh token, also on re-consent.
           'prompt': 'consent',
           'include_granted_scopes': 'true',
+          'login_hint': ?loginHint,
         },
       );
       if (!await _launch(url)) {

@@ -10,8 +10,9 @@ Phase 5 can be implemented and reviewed against it. Sources: see
   browser (desktop) or the platform SDK (mobile). Embedded WebViews are
   forbidden by Google for OAuth.
 - Minimum scopes: `openid email profile youtube.readonly`. The write scope
-  `youtube.force-ssl` is requested incrementally the first time the user edits
-  a YouTube playlist.
+  `https://www.googleapis.com/auth/youtube` is never requested at sign-in; it
+  is requested incrementally (see below) the first time the user hearts a
+  YouTube song or picks / creates the playlist hearted songs go to.
 - Permissions are explained before the browser opens (see the account card in
   Settings → Accounts).
 - No tokens, cookies or authorization headers are logged.
@@ -32,6 +33,39 @@ Phase 5 can be implemented and reviewed against it. Sources: see
    never committed.
 6. Store the refresh token with `flutter_secure_storage` (Windows Credential
    Manager-backed). Keep the access token in memory only.
+
+## Incremental authorization (playlist write scope)
+
+The heart on a YouTube song saves it to a playlist the user chose (it is
+never a YouTube like). That needs `https://www.googleapis.com/auth/youtube`
+(`youtube.force-ssl` is accepted too when Google reports it).
+
+1. Trigger: the first heart tap, or choosing / creating the target playlist
+   in Settings → Accounts, while the stored grant lacks the write scope. A
+   dialog explains what NOIR will do before the browser opens.
+2. The same desktop flow runs again (loopback, PKCE, `state`) with
+   `scope=openid email profile youtube.readonly youtube`,
+   `include_granted_scopes=true`, `access_type=offline`, `prompt=consent`
+   and `login_hint=<connected email>`. Google only asks about the new scope.
+   (`include_granted_scopes=true` is sent on every authorization; the
+   sign-in request itself never contains the write scope.)
+3. The token response's `scope` field is the source of truth for what was
+   granted. If it lacks the write scope (the user unticked it) or the user
+   pressed Cancel (`access_denied`), NOIR keeps the old refresh token and
+   says "NOIR can't save songs to your playlists without that permission.
+   Everything else keeps working." Read-only features are unaffected.
+4. On success the new refresh token (it represents the combined grant)
+   replaces the old one in secure storage, together with the granted
+   scopes. The old token is not revoked — revoking would end the whole
+   grant. The account card then shows "Can save to playlists".
+5. If the ID token names a different Google account than the connected one,
+   the new grant is revoked and nothing changes.
+6. If YouTube later answers a write with HTTP 403 `insufficientPermissions`
+   (scope no longer honoured), NOIR reverts the heart and offers the same
+   upgrade again.
+
+Disconnecting revokes the combined grant, so a later reconnect starts
+read-only again.
 
 ## Android
 
@@ -66,4 +100,7 @@ offered.
 
 - OAuth consent screen with privacy policy URL and verified domain.
 - Sensitive-scope verification for `youtube.readonly` (expect a demo video).
+- Add `https://www.googleapis.com/auth/youtube` to the consent screen's Data
+  Access list (also needed in testing mode for test users to be offered it);
+  it is a sensitive scope and joins the same verification.
 - Testing mode limits: 100 test users, authorizations expire after 7 days.

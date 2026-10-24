@@ -110,10 +110,12 @@ class YouTubeRefreshController extends Notifier<YouTubeRefreshState> {
 
     if (row.etag != playlist.etag) await repo.updatePlaylist(playlist);
     if (row.itemsEtag != playlist.etag) {
-      final ids = await api.playlistVideoIds(id);
-      final missing = await repo.videosNeedingDetails(ids);
+      final items = await api.playlistItems(id);
+      final missing = await repo.videosNeedingDetails(
+        items.map((i) => i.videoId),
+      );
       if (missing.isNotEmpty) await repo.saveVideos(await api.videos(missing));
-      await repo.savePlaylistItems(id, playlist.etag, ids);
+      await repo.savePlaylistItems(id, playlist.etag, items);
     }
     if (fetched.etag case final etag?) _etags[id] = etag;
   }

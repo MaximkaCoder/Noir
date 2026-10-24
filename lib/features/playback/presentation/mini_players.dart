@@ -11,6 +11,8 @@ import 'package:noir/core/widgets/glass_surface.dart';
 import 'package:noir/features/playback/application/playback_controller.dart';
 import 'package:noir/features/playback/presentation/playback_controls.dart';
 import 'package:noir/features/queue/presentation/queue_panel.dart';
+import 'package:noir/features/youtube/presentation/save_button.dart';
+import 'package:noir/shared/models/media.dart';
 import 'package:noir/shared/models/playback.dart';
 
 void openNowPlaying(BuildContext context) => context.push('/now-playing');
@@ -233,6 +235,9 @@ class _IslandTrack extends ConsumerWidget {
             ),
           ),
         ),
+        // YouTube songs: the heart saves to the user's chosen playlist.
+        if (showFavorite && track.source == MediaSource.youtube)
+          YouTubeSaveButton(track),
         // Favorites are local; YouTube items have no local id.
         if (showFavorite && track.localId != null)
           AnimatedSwitcher(

@@ -37,7 +37,7 @@ class AppDatabase extends _$AppDatabase {
   );
 
   @override
-  int get schemaVersion => 3;
+  int get schemaVersion => 4;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -57,10 +57,16 @@ class AppDatabase extends _$AppDatabase {
         await m.createTable(ytVideos);
         await m.createTable(ytPlaylistItems);
         await m.createTable(ytLikes);
-      } else if (from < 3) {
-        // v2 → v3: video category for the "Liked music" filter. Existing
-        // rows stay null until the next sync fills them in.
-        await m.addColumn(ytVideos, ytVideos.categoryId);
+      } else {
+        if (from < 3) {
+          // v2 → v3: video category for the "Liked music" filter. Existing
+          // rows stay null until the next sync fills them in.
+          await m.addColumn(ytVideos, ytVideos.categoryId);
+        }
+        if (from < 4) {
+          // v3 → v4: playlist item ids, to remove saved songs on YouTube.
+          await m.addColumn(ytPlaylistItems, ytPlaylistItems.itemId);
+        }
       }
     },
     beforeOpen: (details) async {

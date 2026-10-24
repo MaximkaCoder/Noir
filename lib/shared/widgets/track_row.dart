@@ -14,6 +14,7 @@ import 'package:noir/features/playlists/presentation/add_to_playlist.dart';
 import 'package:noir/features/settings/domain/app_settings.dart';
 import 'package:noir/features/settings/presentation/settings_controller.dart';
 import 'package:noir/features/youtube/application/youtube_providers.dart';
+import 'package:noir/features/youtube/presentation/save_button.dart';
 import 'package:noir/shared/models/media.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -141,6 +142,16 @@ class _TrackRowState extends ConsumerState<TrackRow> {
                         size: 14,
                         color: c.textSecondary,
                         semanticLabel: 'Favorite',
+                      ),
+                    ),
+                  // YouTube songs: saved to the user's chosen playlist.
+                  if (track.source == MediaSource.youtube)
+                    Padding(
+                      padding: const EdgeInsets.only(left: NoirSpacing.xs),
+                      child: YouTubeSaveButton(
+                        track,
+                        size: 16,
+                        showWhenUnsaved: _hovered || !_hasHover(context),
                       ),
                     ),
                   const SizedBox(width: NoirSpacing.md),

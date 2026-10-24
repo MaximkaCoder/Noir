@@ -13,14 +13,14 @@ void main() {
 
   setUpAll(() => verifier = SchemaVerifier(GeneratedHelper()));
 
-  test('fresh install matches the v3 snapshot', () async {
-    final db = AppDatabase(await verifier.startAt(3));
-    await verifier.migrateAndValidate(db, 3);
+  test('fresh install matches the v4 snapshot', () async {
+    final db = AppDatabase(await verifier.startAt(4));
+    await verifier.migrateAndValidate(db, 4);
     await db.close();
   });
 
   test(
-    'upgrade v1 → v3 adds the YouTube cache and keeps library data',
+    'upgrade v1 → v4 adds the YouTube cache and keeps library data',
     () async {
       final schema = await verifier.schemaAt(1);
       schema.rawDatabase.execute(
@@ -28,7 +28,7 @@ void main() {
         "VALUES ('a.mp3', 'Kept', 1, 0, 0)",
       );
       final db = AppDatabase(schema.newConnection());
-      await verifier.migrateAndValidate(db, 3);
+      await verifier.migrateAndValidate(db, 4);
       final tracks = await db.select(db.tracks).get();
       expect(tracks.single.title, 'Kept');
       expect(await db.select(db.ytPlaylists).get(), isEmpty);
@@ -37,7 +37,7 @@ void main() {
   );
 
   test(
-    'upgrade v2 → v3 keeps cached videos with no category (backfilled later)',
+    'upgrade v2 → v4 keeps cached videos with no category (backfilled later)',
     () async {
       final schema = await verifier.schemaAt(2);
       schema.rawDatabase.execute(
@@ -45,10 +45,32 @@ void main() {
         "VALUES ('v1', 'Song', 'Mara Vale - Topic', 0)",
       );
       final db = AppDatabase(schema.newConnection());
-      await verifier.migrateAndValidate(db, 3);
+      await verifier.migrateAndValidate(db, 4);
       final video = await db.select(db.ytVideos).getSingle();
       expect(video.title, 'Song');
       expect(video.categoryId, isNull);
+      await db.close();
+    },
+  );
+
+  test(
+    'upgrade v3 → v4 keeps cached playlist items without item ids',
+    () async {
+      final schema = await verifier.schemaAt(3);
+      schema.rawDatabase
+        ..execute(
+          'INSERT INTO yt_playlists (id, title, item_count, etag, position, '
+          "synced_at) VALUES ('PL1', 'Mix', 1, 'e1', 0, 0)",
+        )
+        ..execute(
+          'INSERT INTO yt_playlist_items (playlist_id, position, video_id) '
+          "VALUES ('PL1', 0, 'v1')",
+        );
+      final db = AppDatabase(schema.newConnection());
+      await verifier.migrateAndValidate(db, 4);
+      final item = await db.select(db.ytPlaylistItems).getSingle();
+      expect(item.videoId, 'v1');
+      expect(item.itemId, isNull);
       await db.close();
     },
   );

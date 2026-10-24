@@ -39,8 +39,10 @@ playback, media notifications, crossfade, offline) apply to local files only.
 | Audio-only playback | **Prohibited** (III.I.7) | — | All platforms | Video always visible in Now Playing for YouTube items |
 | Offline / download | **Prohibited** (III.E.1.b) | — | All platforms | Not implemented |
 | Queue management | No dedicated API. Advancing on state `0` (ended) with `loadVideoById` is documented player usage; no clause forbids it | none | Autoplay only when > 50 % of the player is visible | Local NOIR queue; clearly labeled as not a YouTube playlist |
-| Add / remove / reorder playlist items | `playlistItems.insert/update/delete` (50 units each) | `youtube.force-ssl` (requested incrementally on first edit) | Must be clearly user-initiated (III.C.2) | Phase 5, explicit user action only |
-| Create playlist | `playlists.insert` (50 units) | `youtube.force-ssl` | — | Phase 5 |
+| Add / remove playlist items | `playlistItems.insert` / `playlistItems.delete` (**50 units each**; removing a row cached before item ids were stored first costs 1 unit for `playlistItems.list videoId=…`) | `youtube` (or `youtube.force-ssl`), requested incrementally on the first heart / target choice | Must be clearly user-initiated (III.C.2) | The heart on YouTube songs saves to / removes from one user-chosen playlist. Optimistic, reverted on error; one request in flight per video (double taps ignored); writes are never retried automatically (a retry could add the video twice). ~100 hearts/day fit in the default quota |
+| Reorder playlist items | `playlistItems.update` (50 units) | `youtube` | — | Not implemented |
+| Create playlist | `playlists.insert` (50 units) | `youtube` | — | "Create new playlist…" in the save-target picker; private by default, name defaults to "NOIR Likes" |
+| Like / rate videos | `videos.rate` (50 units) | `youtube` | — | **Never called.** The heart is a playlist save, not a YouTube like |
 
 Default quota: 10,000 units/day for regular methods plus the separate 100/day
 `search.list` bucket. More quota requires an API Compliance Audit.
