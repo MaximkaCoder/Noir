@@ -40,3 +40,12 @@ mechanism is what makes it work.
   spike used `mute: 1`).
 - webview_windows 0.4.0 is ~2 years old; keep it behind the `PlaybackEngine` interface so
   it can be replaced.
+
+## Follow-up (2026-10-24): cue → play race
+
+`playVideo()` called immediately after `cueVideoById()` is lost: the cue
+finishes afterwards and leaves the player in state 5 (cued), so clicking a
+track did nothing. Reproduced in this spike (`-1 → 3 → -1 → 5`). Fix in
+NOIR's player page: remember a pending play and call `playVideo()` again when
+state 5 arrives. With the fix the player reaches state 1 and plays with sound
+— no `--autoplay-policy` flag and no muting needed.
