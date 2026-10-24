@@ -652,7 +652,7 @@ class _Player extends ConsumerWidget {
     );
     final track = state.current!.track;
     final wide = box.maxWidth >= NowPlayingScreen.wideBreakpoint;
-    final video = track.source == MediaSource.youtube && !hidePlayer;
+    final video = state.showsVideoPlayer && !hidePlayer;
     // Lyrics replace the cover on narrow windows: gone once they're in.
     final cover = wide || lyrics.value < 1 || lyrics.status.isAnimating;
     final art = _Stage.coverSize(box, wide: wide);

@@ -22,6 +22,12 @@ import 'package:noir/features/settings/presentation/privacy_notice.dart';
 import 'package:noir/features/settings/presentation/settings_controller.dart';
 import 'package:noir/shared/widgets/page_scaffold.dart';
 
+/// Extra settings sections contributed by optional modules, shown after
+/// Playback. Empty by default.
+final settingsExtensionsProvider = Provider<List<WidgetBuilder>>(
+  (ref) => const [],
+);
+
 /// Only settings with a real effect are shown.
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -160,6 +166,8 @@ class SettingsScreen extends ConsumerWidget {
                   },
                   onChanged: (m) => set((s) => s.copyWith(lyricsMode: m)),
                 ),
+                for (final section in ref.watch(settingsExtensionsProvider))
+                  Builder(builder: section),
                 const _Section('Accounts'),
                 const AccountConnectionCard(),
                 const _Section('Library'),

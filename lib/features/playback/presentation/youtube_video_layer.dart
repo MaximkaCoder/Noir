@@ -10,7 +10,6 @@ import 'package:noir/core/widgets/buttons.dart';
 import 'package:noir/core/widgets/glass_surface.dart';
 import 'package:noir/features/playback/application/playback_controller.dart';
 import 'package:noir/features/settings/presentation/settings_controller.dart';
-import 'package:noir/shared/models/media.dart';
 import 'package:webview_windows/webview_windows.dart';
 
 /// Where Now Playing wants the video (global coordinates), or null.
@@ -47,7 +46,7 @@ class _YouTubeVideoLayerState extends ConsumerState<YouTubeVideoLayer> {
   void _pauseIfPlaying() {
     if (ref.read(settingsProvider).hideYouTubePlayer) return;
     final s = ref.read(playbackProvider);
-    if (s.current?.track.source == MediaSource.youtube && s.isPlaying) {
+    if (s.showsVideoPlayer && s.isPlaying) {
       unawaited(ref.read(playbackProvider.notifier).pause());
     }
   }
@@ -71,9 +70,7 @@ class _YouTubeVideoLayerState extends ConsumerState<YouTubeVideoLayer> {
   Widget build(BuildContext context) {
     final engine = ref.watch(youTubeEngineProvider);
     final isYouTube = ref.watch(
-      playbackProvider.select(
-        (s) => s.current?.track.source == MediaSource.youtube,
-      ),
+      playbackProvider.select((s) => s.showsVideoPlayer),
     );
     if (engine == null) return const SizedBox.shrink();
 

@@ -79,4 +79,10 @@ abstract class PlaybackState with _$PlaybackState {
       index != null && (index! + 1 < queue.length || repeat == RepeatMode.all);
 
   bool get hasPrevious => index != null && index! > 0;
+
+  /// The current item plays in the embedded YouTube player, which must stay
+  /// visible. False when it plays on another engine.
+  bool get showsVideoPlayer =>
+      capabilities.requiresVisiblePlayer &&
+      current?.track.source == MediaSource.youtube;
 }

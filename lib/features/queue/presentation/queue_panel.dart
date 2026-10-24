@@ -16,7 +16,6 @@ import 'package:noir/core/widgets/states.dart';
 import 'package:noir/features/playback/application/playback_controller.dart';
 import 'package:noir/features/playback/presentation/youtube_video_layer.dart';
 import 'package:noir/features/settings/presentation/settings_controller.dart';
-import 'package:noir/shared/models/media.dart';
 import 'package:noir/shared/widgets/track_row.dart';
 
 /// Whether the desktop right-hand queue panel is open.
@@ -108,11 +107,7 @@ class _QueueSheet extends ConsumerWidget {
     final width = min(MediaQuery.sizeOf(context).width, maxWidth);
     void close() => Navigator.of(context).maybePop();
     final showVideo =
-        ref.watch(
-          playbackProvider.select(
-            (s) => s.current?.track.source == MediaSource.youtube,
-          ),
-        ) &&
+        ref.watch(playbackProvider.select((s) => s.showsVideoPlayer)) &&
         !ref.watch(settingsProvider.select((s) => s.hideYouTubePlayer)) &&
         ref.watch(youTubeEngineProvider) != null;
 

@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noir/core/database/app_database.dart';
 import 'package:noir/core/database/database_provider.dart';
@@ -10,6 +11,7 @@ import 'package:noir/features/settings/presentation/settings_controller.dart';
 import 'package:noir/shared/models/media.dart';
 import 'package:noir/shared/models/playback.dart';
 
+import '../helpers/fake_audio_files.dart';
 import '../helpers/fake_engine.dart';
 import '../helpers/test_database.dart';
 
@@ -23,7 +25,10 @@ void main() {
   PlaybackState state() => container.read(playbackProvider);
   List<String> titles() => [for (final q in state().queue) q.track.title];
 
-  Future<void> setUpWith([AppSettings settings = const AppSettings()]) async {
+  Future<void> setUpWith([
+    AppSettings settings = const AppSettings(),
+    List<Override> overrides = const [],
+  ]) async {
     db = inMemoryDatabase();
     engine = FakeEngine();
     container = ProviderContainer(
@@ -31,6 +36,7 @@ void main() {
         databaseProvider.overrideWithValue(db),
         playbackEngineProvider.overrideWithValue(engine),
         initialSettingsProvider.overrideWithValue(settings),
+        ...overrides,
       ],
     );
     final library = LibraryRepository(db);
@@ -159,6 +165,22 @@ void main() {
       final favs = await LibraryRepository(db).watchFavorites().first;
       expect(favs.map((t) => t.title), ['A']);
     });
+  });
+
+  test('tells the audio file provider what plays next', () async {
+    final files = FakeAudioFiles();
+    await setUpWith(const AppSettings(), [
+      audioFilesProvider.overrideWithValue(files),
+    ]);
+    await controller().playTracks(tracks);
+    expect(files.prefetched.last, ['B', 'C']);
+
+    await controller().next();
+    expect(files.prefetched.last, ['C', 'D']);
+
+    await controller().jumpTo(3);
+    controller().addToQueue([tracks.first]);
+    expect(files.prefetched.last, ['A']);
   });
 
   group('crossfade', () {
