@@ -237,7 +237,7 @@ class _PinnedRow extends ConsumerWidget {
               null => null,
             },
             PinKind.youtubeLiked => (
-              'Liked videos',
+              ref.watch(youTubeLikesTitleProvider),
               'YouTube · ${songCount(likes.length)}',
               (s) => Artwork(
                 path: likes.firstOrNull?.artwork,

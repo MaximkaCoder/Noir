@@ -18,6 +18,7 @@ import 'package:noir/features/playback/application/playback_controller.dart';
 import 'package:noir/features/playlists/application/playlist_providers.dart';
 import 'package:noir/features/playlists/presentation/add_to_playlist.dart';
 import 'package:noir/features/youtube/application/youtube_providers.dart';
+import 'package:noir/features/youtube/application/youtube_sync.dart';
 import 'package:noir/features/youtube/data/youtube_repository.dart';
 import 'package:noir/shared/models/media.dart';
 import 'package:noir/shared/widgets/media_tiles.dart';
@@ -40,6 +41,13 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
   TrackSort _sort = TrackSort.title;
   bool _filtering = false;
   final _filter = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    // Picks up playlists created on YouTube since the last sync (throttled).
+    unawaited(ref.read(youTubeSyncProvider.notifier).refreshPlaylists());
+  }
 
   @override
   void didUpdateWidget(LibraryScreen old) {
@@ -236,6 +244,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
         if (_matches(p.title)) p,
     ];
     final likes = ref.watch(youTubeLikesProvider).value ?? const <Track>[];
+    final likesTitle = ref.watch(youTubeLikesTitleProvider);
     final connected =
         ref.watch(accountConnectionProvider).value?.isConnected ?? false;
     if (!connected && playlists.isEmpty) return const [];
@@ -246,10 +255,10 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
           child: SectionHeader('From YouTube'),
         ),
       ),
-      if (likes.isNotEmpty && _matches('Liked videos'))
+      if (likes.isNotEmpty && _matches(likesTitle))
         SliverToBoxAdapter(
           child: CollectionRow(
-            title: 'Liked videos',
+            title: likesTitle,
             subtitle: songCount(likes.length),
             leading: Artwork(
               path: likes.first.artworkUrl,

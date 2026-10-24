@@ -286,7 +286,7 @@ class _Collections extends ConsumerWidget {
                   ),
                   if (hasLikes)
                     _NavItem(
-                      label: 'Liked videos',
+                      label: ref.watch(youTubeLikesTitleProvider),
                       icon: Icons.thumb_up_alt_outlined,
                       dense: true,
                       selected: location == '/library/youtube/liked',
