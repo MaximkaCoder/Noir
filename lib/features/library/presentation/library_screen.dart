@@ -9,6 +9,7 @@ import 'package:noir/core/widgets/artwork.dart';
 import 'package:noir/core/widgets/buttons.dart';
 import 'package:noir/core/widgets/menus.dart';
 import 'package:noir/core/widgets/reveal.dart';
+import 'package:noir/core/widgets/shelf_row.dart';
 import 'package:noir/core/widgets/states.dart';
 import 'package:noir/features/accounts/domain/account_connection.dart';
 import 'package:noir/features/library/application/library_providers.dart';
@@ -101,29 +102,31 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
       ],
       slivers: [
         SliverToBoxAdapter(child: _ScanBanner(scan)),
+        const SliverToBoxAdapter(child: _RecentlyPlayed()),
         SliverToBoxAdapter(
           child: Padding(
+            // The chips' [ShelfRow.lift] completes the top gap.
             padding: const EdgeInsets.only(
-              top: NoirSpacing.lg,
+              top: NoirSpacing.lg - ShelfRow.lift,
               bottom: NoirSpacing.md,
             ),
             child: Row(
               children: [
                 Expanded(
-                  child: SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      children: [
-                        for (final t in tabs) ...[
-                          PillChip(
+                  child: ShelfRow(
+                    height: MediaQuery.textScalerOf(context).scale(22) + 22,
+                    spacing: NoirSpacing.xs,
+                    arrowSize: 32,
+                    children: [
+                      for (final t in tabs)
+                        Center(
+                          child: PillChip(
                             label: _label(t),
                             selected: t == tab,
                             onSelected: () => setState(() => _tab = t),
                           ),
-                          const SizedBox(width: NoirSpacing.xs),
-                        ],
-                      ],
-                    ),
+                        ),
+                    ],
                   ),
                 ),
                 if (tab == LibraryTab.tracks)
@@ -351,6 +354,62 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
         ),
       ),
     ];
+  }
+}
+
+/// Last played albums (or single tracks), newest first, above the tabs.
+class _RecentlyPlayed extends ConsumerWidget {
+  const _RecentlyPlayed();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final recent = ref.watch(recentTracksProvider).value ?? const <Track>[];
+    // Distinct albums (or loose tracks) in order of last play.
+    final items = <Track>[];
+    final seenAlbums = <String>{};
+    for (final t in recent) {
+      if (t.album == null || seenAlbums.add('${t.album}|${t.artist}')) {
+        items.add(t);
+      }
+    }
+    if (items.isEmpty) return const SizedBox.shrink();
+    final compact =
+        WindowClass.of(MediaQuery.sizeOf(context).width) == WindowClass.compact;
+    final tile = compact ? 128.0 : 150.0;
+    return Padding(
+      padding: const EdgeInsets.only(top: NoirSpacing.lg),
+      child: TileRow(
+        title: 'Recently played',
+        tileWidth: tile,
+        children: [
+          for (final t in items)
+            MediaTile(
+              key: ValueKey(t.id),
+              width: tile,
+              title: t.album ?? t.title,
+              subtitle: t.artistOrUnknown,
+              artwork: (s) => Artwork(path: t.artworkPath, size: s),
+              onTap: () => _open(context, ref, t),
+            ),
+        ],
+      ),
+    );
+  }
+
+  void _open(BuildContext context, WidgetRef ref, Track t) {
+    if (t.album == null) {
+      unawaited(ref.read(playbackProvider.notifier).playTracks([t]));
+    } else {
+      context.go(
+        '/library/album',
+        extra: Album(
+          title: t.album!,
+          artist: t.artistOrUnknown,
+          trackCount: 0,
+          artworkPath: t.artworkPath,
+        ),
+      );
+    }
   }
 }
 

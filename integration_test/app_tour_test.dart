@@ -121,8 +121,8 @@ void main() {
     );
     await _settle(tester);
 
-    // 1. First launch shows the welcome card.
-    expect(find.text('Bring your music'), findsOneWidget);
+    // 1. First launch: Home greets; importing music lives in Library.
+    expect(find.text("Here's what's playing today."), findsOneWidget);
     await _shot(tester, '01_first_launch');
 
     // 2. Index the folder (same code path as "Choose a music folder").
@@ -131,7 +131,6 @@ void main() {
       await container.read(libraryIndexerProvider).scanFolder(music);
     });
     await _settle(tester, 1500);
-    expect(find.text('Bring your music'), findsNothing);
     await _shot(tester, '02_home');
 
     // 3. Real playback: the position must advance, pause must hold.

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:noir/app/theme/design_tokens.dart';
 import 'package:noir/app/theme/glass_theme.dart';
 import 'package:noir/core/widgets/artwork.dart';
+import 'package:noir/core/widgets/shelf_row.dart';
 
 /// Square artwork with title and subtitle, as in "Recently played".
 class MediaTile extends StatefulWidget {
@@ -95,25 +96,37 @@ class _MediaTileState extends State<MediaTile> {
   }
 }
 
-/// Horizontally scrolling row of [MediaTile]s with a fixed height.
+/// [ShelfRow] of [MediaTile]s [tileWidth] wide, optionally titled.
 class TileRow extends StatelessWidget {
-  const TileRow({required this.children, this.tileWidth = 150, super.key});
+  const TileRow({
+    required this.children,
+    this.tileWidth = 150,
+    this.title,
+    this.eyebrow,
+    this.actionLabel,
+    this.onAction,
+    super.key,
+  });
 
   final List<Widget> children;
   final double tileWidth;
+  final String? title;
+  final String? eyebrow;
+  final String? actionLabel;
+  final VoidCallback? onAction;
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
+    return ShelfRow(
       // Title + subtitle grow with the user's text size.
       height: tileWidth + 16 + MediaQuery.textScalerOf(context).scale(38),
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        clipBehavior: Clip.none,
-        itemCount: children.length,
-        separatorBuilder: (_, _) => const SizedBox(width: NoirSpacing.lg),
-        itemBuilder: (_, i) => children[i],
-      ),
+      itemExtent: tileWidth + NoirSpacing.lg,
+      arrowCenter: tileWidth / 2,
+      title: title,
+      eyebrow: eyebrow,
+      actionLabel: actionLabel,
+      onAction: onAction,
+      children: children,
     );
   }
 }

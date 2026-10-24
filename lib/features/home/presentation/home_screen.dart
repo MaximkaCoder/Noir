@@ -1,22 +1,13 @@
-import 'dart:async';
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:noir/app/theme/design_tokens.dart';
 import 'package:noir/core/formatters.dart';
 import 'package:noir/core/widgets/artwork.dart';
-import 'package:noir/core/widgets/buttons.dart';
-import 'package:noir/core/widgets/glass_surface.dart';
 import 'package:noir/core/widgets/menus.dart';
-import 'package:noir/core/widgets/states.dart';
 import 'package:noir/features/discover/presentation/discover_section.dart';
 import 'package:noir/features/home/application/pinned_playlists.dart';
 import 'package:noir/features/library/application/library_providers.dart';
-import 'package:noir/features/library/application/library_scan_controller.dart';
-import 'package:noir/features/library/data/library_repository.dart';
-import 'package:noir/features/playback/application/playback_controller.dart';
 import 'package:noir/features/playlists/application/playlist_providers.dart';
 import 'package:noir/features/youtube/application/youtube_providers.dart';
 import 'package:noir/features/youtube/data/youtube_repository.dart';
@@ -24,24 +15,30 @@ import 'package:noir/shared/models/media.dart';
 import 'package:noir/shared/widgets/media_tiles.dart';
 import 'package:noir/shared/widgets/page_scaffold.dart';
 
-/// Quiet, editorial start page: the user's own music first, then Discover
-/// (YouTube Music's anonymous home feed).
+/// Quiet, editorial start page: the user's saved collections in one row,
+/// then Discover (YouTube Music's anonymous home feed). The player island
+/// already shows what's playing; local music lives in Library.
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final count = ref.watch(trackCountProvider);
-    return switch (count) {
-      AsyncData(value: 0) => const _Refreshable(child: _Welcome()),
-      AsyncError() => const ErrorState(
-        message:
-            "Your library couldn't be opened. Restart NOIR; if it keeps "
-            'happening, export diagnostics from Settings → About.',
+    final compact =
+        WindowClass.of(MediaQuery.sizeOf(context).width) == WindowClass.compact;
+    final tile = compact ? 128.0 : 150.0;
+    // Pull to refresh (touch) reloads Discover.
+    return RefreshIndicator(
+      onRefresh: () => refreshDiscover(ref, force: true, context: context),
+      child: PageScaffold(
+        slivers: [
+          const SliverToBoxAdapter(
+            child: _Greeting(subtitle: "Here's what's playing today."),
+          ),
+          SliverToBoxAdapter(child: _PlaylistsRow(tile: tile)),
+          DiscoverSection(tileWidth: tile),
+        ],
       ),
-      AsyncData() => const _Refreshable(child: _Dashboard()),
-      _ => const SizedBox.shrink(),
-    };
+    );
   }
 }
 
@@ -70,602 +67,118 @@ class _Greeting extends StatelessWidget {
   }
 }
 
-class _Dashboard extends ConsumerWidget {
-  const _Dashboard();
+typedef _Collection = ({
+  String title,
+  String subtitle,
+  Widget Function(double size) artwork,
+});
 
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final recent = ref.watch(recentTracksProvider).value ?? const <Track>[];
-    final playlists = ref.watch(playlistsProvider).value ?? const <Playlist>[];
-    final albums = ref.watch(albumsProvider).value ?? const <Album>[];
-    final compact =
-        WindowClass.of(MediaQuery.sizeOf(context).width) == WindowClass.compact;
-    final tile = compact ? 128.0 : 150.0;
-
-    // Distinct albums (or loose tracks) in order of last play.
-    final recentItems = <Track>[];
-    final seenAlbums = <String>{};
-    for (final t in recent) {
-      if (t.album == null || seenAlbums.add('${t.album}|${t.artist}')) {
-        recentItems.add(t);
-      }
-    }
-
-    return PageScaffold(
-      slivers: [
-        const SliverToBoxAdapter(
-          child: _Greeting(subtitle: "Here's what's playing today."),
-        ),
-        SliverToBoxAdapter(
-          child: _HeroRow(resume: recent.firstOrNull, compact: compact),
-        ),
-        SliverToBoxAdapter(child: _PinnedRow(tile: tile)),
-        if (recentItems.isNotEmpty) ...[
-          const SliverToBoxAdapter(child: SizedBox(height: 36)),
-          SliverToBoxAdapter(
-            child: SectionHeader(
-              'Recently played',
-              action: 'See all',
-              onAction: () => context.go('/library'),
-            ),
-          ),
-          SliverToBoxAdapter(
-            child: TileRow(
-              tileWidth: tile,
-              children: [
-                for (final t in recentItems)
-                  MediaTile(
-                    key: ValueKey(t.id),
-                    width: tile,
-                    title: t.album ?? t.title,
-                    subtitle: t.artistOrUnknown,
-                    artwork: (s) => Artwork(path: t.artworkPath, size: s),
-                    onTap: () => _openRecent(context, ref, t),
-                  ),
-              ],
-            ),
-          ),
-        ],
-        if (playlists.isNotEmpty) ...[
-          const SliverToBoxAdapter(child: SizedBox(height: 28)),
-          const SliverToBoxAdapter(child: SectionHeader('Your playlists')),
-          SliverToBoxAdapter(
-            child: TileRow(
-              tileWidth: tile,
-              children: [
-                for (final p in playlists)
-                  MediaTile(
-                    key: ValueKey(p.id),
-                    width: tile,
-                    title: p.name,
-                    subtitle: songCount(p.trackCount),
-                    artwork: (s) =>
-                        ArtworkCollage(paths: p.artworkPaths, size: s),
-                    onTap: () => context.go('/library/playlist/${p.id}'),
-                  ),
-              ],
-            ),
-          ),
-        ],
-        if (albums.isNotEmpty) ...[
-          const SliverToBoxAdapter(child: SizedBox(height: 28)),
-          SliverToBoxAdapter(
-            child: SectionHeader(
-              'Albums',
-              action: 'See all',
-              onAction: () => context.go('/library?tab=albums'),
-            ),
-          ),
-          SliverToBoxAdapter(
-            child: TileRow(
-              tileWidth: tile,
-              children: [
-                for (final a in albums.take(20))
-                  MediaTile(
-                    key: ValueKey('${a.title}|${a.artist}'),
-                    width: tile,
-                    title: a.title,
-                    subtitle: a.artist,
-                    artwork: (s) => Artwork(path: a.artworkPath, size: s),
-                    onTap: () => context.go('/library/album', extra: a),
-                  ),
-              ],
-            ),
-          ),
-        ],
-        DiscoverSection(tileWidth: tile),
-      ],
-    );
-  }
-
-  void _openRecent(BuildContext context, WidgetRef ref, Track t) {
-    if (t.album == null) {
-      unawaited(ref.read(playbackProvider.notifier).playTracks([t]));
-    } else {
-      context.go(
-        '/library/album',
-        extra: Album(
-          title: t.album!,
-          artist: t.artistOrUnknown,
-          trackCount: 0,
-          artworkPath: t.artworkPath,
-        ),
-      );
-    }
-  }
-}
-
-/// Collections the user pinned to Home (local playlists, YouTube playlists,
-/// Liked videos, Favorites). Right-click or long-press a tile to unpin.
-class _PinnedRow extends ConsumerWidget {
-  const _PinnedRow({required this.tile});
+/// Every saved collection in one row: pinned first (newest pin first), then
+/// Liked music, Favorites, this device's playlists and YouTube playlists.
+/// Right-click or long-press a tile to pin or unpin it.
+class _PlaylistsRow extends ConsumerWidget {
+  const _PlaylistsRow({required this.tile});
 
   final double tile;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final pins = ref.watch(pinnedProvider);
-    if (pins.isEmpty) return const SizedBox.shrink();
-    final local = {
-      for (final p in ref.watch(playlistsProvider).value ?? const <Playlist>[])
-        '${p.id}': p,
-    };
-    final youtube = {
-      for (final p
-          in ref.watch(youTubePlaylistsProvider).value ??
-              const <YouTubePlaylist>[])
-        p.id: p,
-    };
+    final playlists = ref.watch(playlistsProvider).value ?? const <Playlist>[];
+    final youtube =
+        ref.watch(youTubePlaylistsProvider).value ?? const <YouTubePlaylist>[];
     final likes = ref.watch(youTubeLikesProvider).value ?? const <Track>[];
     final favorites = ref.watch(favoritesProvider).value ?? const <Track>[];
+    final likesTitle = ref.watch(youTubeLikesTitleProvider);
 
-    final tiles = <Widget>[];
-    for (final pin in pins) {
-      final (String title, String subtitle, Widget Function(double) art)? data =
-          switch (pin.kind) {
-            PinKind.local => switch (local[pin.id]) {
-              final p? => (
-                p.name,
-                songCount(p.trackCount),
-                (s) => ArtworkCollage(paths: p.artworkPaths, size: s),
-              ),
-              null => null,
-            },
-            PinKind.youtube => switch (youtube[pin.id]) {
-              final p? => (
-                p.title,
-                'YouTube · ${songCount(p.trackCount)}',
-                (s) => Artwork(path: p.thumbnailUrl, size: s),
-              ),
-              null => null,
-            },
-            PinKind.youtubeLiked => (
-              ref.watch(youTubeLikesTitleProvider),
-              'YouTube · ${songCount(likes.length)}',
-              (s) => Artwork(
-                path: likes.firstOrNull?.artwork,
-                size: s,
-                icon: Icons.thumb_up_alt_outlined,
-              ),
-            ),
-            PinKind.favorites => (
-              'Favorites',
-              songCount(favorites.length),
-              (s) => Artwork(
-                path: favorites.firstOrNull?.artwork,
-                size: s,
-                icon: Icons.favorite_rounded,
-              ),
-            ),
-          };
-      // Pinned items deleted elsewhere simply don't show.
-      if (data == null) continue;
-      tiles.add(
-        MediaTile(
-          key: ValueKey('pin-${pin.kind.name}-${pin.id}'),
-          width: tile,
-          title: data.$1,
-          subtitle: data.$2,
-          artwork: data.$3,
-          onTap: () => context.go(pin.location),
-          onContextMenu: (position) async {
-            final action = await showNoirMenu<String>(
-              context,
-              anchor: position & Size.zero,
-              items: const [
-                NoirMenuItem(
-                  'unpin',
-                  'Unpin from Home',
-                  icon: Icons.push_pin_outlined,
-                ),
-              ],
-            );
-            if (action == 'unpin') {
-              ref.read(pinnedProvider.notifier).toggle(pin);
-            }
-          },
-        ),
-      );
-    }
-    if (tiles.isEmpty) return const SizedBox.shrink();
-    return Padding(
-      padding: const EdgeInsets.only(top: 36),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const SectionHeader('Pinned'),
-          TileRow(tileWidth: tile, children: tiles),
-        ],
+    _Collection liked() => (
+      title: likesTitle,
+      subtitle: 'YouTube · ${songCount(likes.length)}',
+      artwork: (s) => Artwork(
+        path: likes.firstOrNull?.artwork,
+        size: s,
+        icon: Icons.thumb_up_alt_outlined,
       ),
     );
-  }
-}
+    _Collection favorite() => (
+      title: 'Favorites',
+      subtitle: songCount(favorites.length),
+      artwork: (s) => Artwork(
+        path: favorites.firstOrNull?.artwork,
+        size: s,
+        icon: Icons.favorite_rounded,
+      ),
+    );
 
-/// Wide "continue listening" card plus a smaller shuffle card.
-class _HeroRow extends ConsumerWidget {
-  const _HeroRow({required this.resume, required this.compact});
+    // Unpinned order. Empty Liked / Favorites only show when pinned.
+    final all = <PinnedRef, _Collection>{
+      if (likes.isNotEmpty) PinnedRef.youtubeLiked: liked(),
+      if (favorites.isNotEmpty) PinnedRef.favorites: favorite(),
+      for (final p in playlists)
+        PinnedRef(PinKind.local, '${p.id}'): (
+          title: p.name,
+          subtitle: songCount(p.trackCount),
+          artwork: (s) => ArtworkCollage(paths: p.artworkPaths, size: s),
+        ),
+      for (final p in youtube)
+        PinnedRef(PinKind.youtube, p.id): (
+          title: p.title,
+          subtitle: 'YouTube · ${songCount(p.trackCount)}',
+          artwork: (s) => Artwork(path: p.thumbnailUrl, size: s),
+        ),
+    };
+    final items = <(PinnedRef, _Collection, bool)>[
+      for (final pin in pins)
+        // Pinned items deleted elsewhere simply don't show.
+        if (switch (pin.kind) {
+              PinKind.youtubeLiked => liked(),
+              PinKind.favorites => favorite(),
+              _ => all[pin],
+            }
+            case final c?)
+          (pin, c, true),
+      for (final MapEntry(:key, :value) in all.entries)
+        if (!pins.contains(key)) (key, value, false),
+    ];
+    if (items.isEmpty) return const SizedBox.shrink();
 
-  final Track? resume;
-  final bool compact;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final playback = ref.read(playbackProvider.notifier);
-    final current = ref.watch(playbackProvider.select((s) => s.current?.track));
-    final isPlaying = ref.watch(playbackProvider.select((s) => s.isPlaying));
-    final hero = current ?? resume;
-    final count = ref.watch(trackCountProvider).value ?? 0;
-
-    final main = hero == null
-        ? null
-        : _HeroCard(
-            // YouTube: the wide 1280×720 frame suits this wide card.
-            artworkPath: hero.source == MediaSource.youtube
-                ? 'https://i.ytimg.com/vi/${hero.uri}/maxresdefault.jpg'
-                : hero.artworkPath,
-            title: hero.title,
-            subtitle: current != null
-                ? '${hero.artistOrUnknown} · now playing'
-                : '${hero.artistOrUnknown} · pick up where you left off',
-            playing: current != null && isPlaying,
-            onPlay: () async {
-              if (current != null) {
-                await playback.togglePlayPause();
-              } else {
-                await playback.playTracks([hero]);
+    return TileRow(
+      title: 'Your playlists',
+      tileWidth: tile,
+      children: [
+        for (final (pin, c, pinned) in items)
+          MediaTile(
+            key: ValueKey('${pin.kind.name}-${pin.id}'),
+            width: tile,
+            title: c.title,
+            subtitle: c.subtitle,
+            artwork: c.artwork,
+            onTap: () => context.go(pin.location),
+            onContextMenu: (position) async {
+              final action = await showNoirMenu<String>(
+                context,
+                anchor: position & Size.zero,
+                items: [
+                  if (pinned)
+                    const NoirMenuItem(
+                      'pin',
+                      'Unpin from Home',
+                      icon: Icons.push_pin_outlined,
+                    )
+                  else
+                    const NoirMenuItem(
+                      'pin',
+                      'Pin to Home',
+                      icon: Icons.push_pin_rounded,
+                    ),
+                ],
+              );
+              if (action == 'pin') {
+                ref.read(pinnedProvider.notifier).toggle(pin);
               }
             },
-          );
-    final shuffle = _SmallCard(
-      title: 'Shuffle library',
-      subtitle: songCount(count),
-      icon: Icons.shuffle_rounded,
-      onTap: () async {
-        final all = await ref
-            .read(libraryRepositoryProvider)
-            .watchTracks()
-            .first;
-        await playback.shuffleTracks(all);
-      },
-    );
-
-    final scaler = MediaQuery.textScalerOf(context);
-    return LayoutBuilder(
-      builder: (context, box) {
-        // Side by side only while the small card has room for its text
-        // (large text sizes in medium windows stack them instead).
-        final sideBySide =
-            !compact &&
-            main != null &&
-            (box.maxWidth - NoirSpacing.lg) * 0.3 >= scaler.scale(160);
-        if (!sideBySide) {
-          return Column(
-            children: [
-              ?main,
-              if (main != null) const SizedBox(height: NoirSpacing.md),
-              shuffle,
-            ],
-          );
-        }
-        return SizedBox(
-          height: 120 + scaler.scale(52),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Expanded(flex: 7, child: main),
-              const SizedBox(width: NoirSpacing.lg),
-              Expanded(flex: 3, child: shuffle),
-            ],
           ),
-        );
-      },
-    );
-  }
-}
-
-class _HeroCard extends StatelessWidget {
-  const _HeroCard({
-    required this.artworkPath,
-    required this.title,
-    required this.subtitle,
-    required this.playing,
-    required this.onPlay,
-  });
-
-  final String? artworkPath;
-  final String title;
-  final String subtitle;
-  final bool playing;
-  final Future<void> Function() onPlay;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = Theme.of(context).textTheme;
-    final dpr = MediaQuery.devicePixelRatioOf(context);
-    return Semantics(
-      container: true,
-      label: 'Continue listening: $title',
-      child: ClipRRect(
-        borderRadius: NoirRadii.xlAll,
-        child: SizedBox(
-          height: 120 + MediaQuery.textScalerOf(context).scale(52),
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              if (artworkPath != null && isRemoteImage(artworkPath!))
-                Image.network(
-                  artworkPath!,
-                  fit: BoxFit.cover,
-                  cacheWidth: (720 * dpr).round(),
-                  color: Colors.black.withValues(alpha: 0.35),
-                  colorBlendMode: BlendMode.darken,
-                  errorBuilder: (_, _, _) => const SizedBox.shrink(),
-                )
-              else if (artworkPath != null)
-                Image.file(
-                  File(artworkPath!),
-                  fit: BoxFit.cover,
-                  cacheWidth: (720 * dpr).round(),
-                  color: Colors.black.withValues(alpha: 0.35),
-                  colorBlendMode: BlendMode.darken,
-                  errorBuilder: (_, _, _) => const SizedBox.shrink(),
-                )
-              else
-                ColoredBox(color: context.noir.surfaceElevated),
-              // Scrim keeps the white text readable on any artwork.
-              const DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.bottomCenter,
-                    end: Alignment.topCenter,
-                    colors: [Color(0xCC000000), Color(0x00000000)],
-                  ),
-                ),
-              ),
-              DecoratedBox(
-                decoration: BoxDecoration(
-                  borderRadius: NoirRadii.xlAll,
-                  border: Border.all(color: context.noir.glassBorder),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.all(20),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          Text(
-                            title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: t.titleMedium?.copyWith(color: Colors.white),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            subtitle,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: t.bodySmall?.copyWith(
-                              color: Colors.white.withValues(alpha: 0.75),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Theme(
-                      data: Theme.of(context)
-                          .copyWith(extensions: [NoirPalette.dark]),
-                      child: PrimaryPlayButton(
-                        playing: playing,
-                        onPressed: () => unawaited(onPlay()),
-                        size: 44,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _SmallCard extends StatelessWidget {
-  const _SmallCard({
-    required this.title,
-    required this.subtitle,
-    required this.icon,
-    required this.onTap,
-  });
-
-  final String title;
-  final String subtitle;
-  final IconData icon;
-  final Future<void> Function() onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = Theme.of(context).textTheme;
-    return Semantics(
-      button: true,
-      label: '$title, $subtitle',
-      child: GestureDetector(
-        onTap: () => unawaited(onTap()),
-        child: MouseRegion(
-          cursor: SystemMouseCursors.click,
-          child: GlassSurface(
-            interactive: true,
-            borderRadius: NoirRadii.xlAll,
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Icon(icon, color: context.noir.textSecondary),
-                const SizedBox(height: NoirSpacing.xl),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(title, style: t.titleSmall),
-                          const SizedBox(height: 2),
-                          Text(subtitle, style: t.labelSmall),
-                        ],
-                      ),
-                    ),
-                    Icon(
-                      Icons.arrow_forward_rounded,
-                      size: 18,
-                      color: context.noir.textSecondary,
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// First launch / empty library.
-class _Welcome extends ConsumerWidget {
-  const _Welcome();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final t = Theme.of(context).textTheme;
-    final scan = ref.watch(libraryScanProvider);
-    final ctrl = ref.read(libraryScanProvider.notifier);
-    final compact =
-        WindowClass.of(MediaQuery.sizeOf(context).width) == WindowClass.compact;
-    return PageScaffold(
-      slivers: [
-        const SliverToBoxAdapter(
-          child: _Greeting(subtitle: 'Less interface. More music.'),
-        ),
-        SliverToBoxAdapter(
-          child: GlassSurface(
-            borderRadius: NoirRadii.xlAll,
-            padding: const EdgeInsets.all(28),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Bring your music', style: t.titleLarge),
-                const SizedBox(height: NoirSpacing.sm),
-                Text(
-                  'NOIR plays audio files you own. Choose a folder and NOIR '
-                  'indexes it on this device — nothing is uploaded.',
-                  style: t.bodyLarge,
-                ),
-                const SizedBox(height: NoirSpacing.xl),
-                if (scan is Scanning)
-                  Row(
-                    children: [
-                      const SizedBox.square(
-                        dimension: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                      const SizedBox(width: NoirSpacing.md),
-                      Text(scan.label, style: t.bodyMedium),
-                    ],
-                  )
-                else
-                  Wrap(
-                    spacing: NoirSpacing.md,
-                    runSpacing: NoirSpacing.md,
-                    children: [
-                      if (LibraryScanController.supportsFolders)
-                        PillButton(
-                          label: 'Choose a music folder',
-                          icon: Icons.create_new_folder_outlined,
-                          filled: true,
-                          onPressed: () => unawaited(ctrl.addFolder()),
-                        ),
-                      PillButton(
-                        label: 'Add files',
-                        icon: Icons.library_add_outlined,
-                        filled: !LibraryScanController.supportsFolders,
-                        onPressed: () => unawaited(ctrl.importFiles()),
-                      ),
-                    ],
-                  ),
-                if (scan case ScanFailed(:final message)) ...[
-                  const SizedBox(height: NoirSpacing.lg),
-                  Text(
-                    message,
-                    style: t.bodySmall?.copyWith(
-                      color: context.noir.destructive,
-                    ),
-                  ),
-                ],
-                if (scan case ScanFinished(:final summary)
-                    when summary.indexed == 0) ...[
-                  const SizedBox(height: NoirSpacing.lg),
-                  Text(
-                    'No supported audio files were found there. NOIR reads '
-                    'MP3, M4A, AAC, FLAC, OGG, Opus and WAV.',
-                    style: t.bodySmall,
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ),
-        const SliverToBoxAdapter(child: SizedBox(height: NoirSpacing.lg)),
-        SliverToBoxAdapter(
-          child: Text(
-            'Google / YouTube connection is planned for a later version. '
-            'See Settings → Accounts for what it will and will not be able '
-            'to do.',
-            style: t.bodySmall,
-          ),
-        ),
-        DiscoverSection(tileWidth: compact ? 128 : 150),
       ],
     );
   }
-}
-
-/// Pull to refresh (touch) reloads Discover.
-class _Refreshable extends ConsumerWidget {
-  const _Refreshable({required this.child});
-
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) => RefreshIndicator(
-    onRefresh: () => refreshDiscover(ref, force: true, context: context),
-    child: child,
-  );
 }
