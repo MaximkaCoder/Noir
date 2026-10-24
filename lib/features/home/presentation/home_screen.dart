@@ -287,24 +287,24 @@ class _HeroCard extends StatelessWidget {
           child: Stack(
             fit: StackFit.expand,
             children: [
-              if (artworkPath != null)
-                isRemoteImage(artworkPath!)
-                    ? Image.network(
-                        artworkPath!,
-                        fit: BoxFit.cover,
-                        cacheWidth: (720 * dpr).round(),
-                        color: Colors.black.withValues(alpha: 0.35),
-                        colorBlendMode: BlendMode.darken,
-                        errorBuilder: (_, _, _) => const SizedBox.shrink(),
-                      )
-                    : Image.file(
-                        File(artworkPath!),
-                        fit: BoxFit.cover,
-                        cacheWidth: (720 * dpr).round(),
-                        color: Colors.black.withValues(alpha: 0.35),
-                        colorBlendMode: BlendMode.darken,
-                        errorBuilder: (_, _, _) => const SizedBox.shrink(),
-                      )
+              if (artworkPath != null && isRemoteImage(artworkPath!))
+                Image.network(
+                  artworkPath!,
+                  fit: BoxFit.cover,
+                  cacheWidth: (720 * dpr).round(),
+                  color: Colors.black.withValues(alpha: 0.35),
+                  colorBlendMode: BlendMode.darken,
+                  errorBuilder: (_, _, _) => const SizedBox.shrink(),
+                )
+              else if (artworkPath != null)
+                Image.file(
+                  File(artworkPath!),
+                  fit: BoxFit.cover,
+                  cacheWidth: (720 * dpr).round(),
+                  color: Colors.black.withValues(alpha: 0.35),
+                  colorBlendMode: BlendMode.darken,
+                  errorBuilder: (_, _, _) => const SizedBox.shrink(),
+                )
               else
                 ColoredBox(color: context.noir.surfaceElevated),
               // Scrim keeps the white text readable on any artwork.
