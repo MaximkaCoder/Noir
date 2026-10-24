@@ -173,7 +173,7 @@ void main() {
     expect(tracks.map((t) => t.uri), ['v1', 'v2']);
     expect(tracks.first.artist, 'Mara Vale', reason: '" - Topic" stripped');
     expect(tracks.first.duration, const Duration(minutes: 3, seconds: 21));
-    expect(tracks.first.artworkUrl, 'https://i.ytimg.com/v1.jpg');
+    expect(tracks.first.artworkUrl, 'https://i.ytimg.com/vi/v1/mqdefault.jpg');
 
     final likes = await repo.watchLikes().first;
     expect(

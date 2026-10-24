@@ -205,7 +205,10 @@ class _HeroRow extends ConsumerWidget {
     final main = hero == null
         ? null
         : _HeroCard(
-            artworkPath: hero.artworkPath,
+            // YouTube: the wide 1280×720 frame suits this wide card.
+            artworkPath: hero.source == MediaSource.youtube
+                ? 'https://i.ytimg.com/vi/${hero.uri}/maxresdefault.jpg'
+                : hero.artworkPath,
             title: hero.title,
             subtitle: current != null
                 ? '${hero.artistOrUnknown} · now playing'
@@ -285,14 +288,23 @@ class _HeroCard extends StatelessWidget {
             fit: StackFit.expand,
             children: [
               if (artworkPath != null)
-                Image.file(
-                  File(artworkPath!),
-                  fit: BoxFit.cover,
-                  cacheWidth: (720 * dpr).round(),
-                  color: Colors.black.withValues(alpha: 0.35),
-                  colorBlendMode: BlendMode.darken,
-                  errorBuilder: (_, _, _) => const SizedBox.shrink(),
-                )
+                isRemoteImage(artworkPath!)
+                    ? Image.network(
+                        artworkPath!,
+                        fit: BoxFit.cover,
+                        cacheWidth: (720 * dpr).round(),
+                        color: Colors.black.withValues(alpha: 0.35),
+                        colorBlendMode: BlendMode.darken,
+                        errorBuilder: (_, _, _) => const SizedBox.shrink(),
+                      )
+                    : Image.file(
+                        File(artworkPath!),
+                        fit: BoxFit.cover,
+                        cacheWidth: (720 * dpr).round(),
+                        color: Colors.black.withValues(alpha: 0.35),
+                        colorBlendMode: BlendMode.darken,
+                        errorBuilder: (_, _, _) => const SizedBox.shrink(),
+                      )
               else
                 ColoredBox(color: context.noir.surfaceElevated),
               // Scrim keeps the white text readable on any artwork.

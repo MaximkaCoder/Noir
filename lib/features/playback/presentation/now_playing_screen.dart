@@ -18,6 +18,7 @@ import 'package:noir/features/playback/presentation/youtube_video_layer.dart';
 import 'package:noir/features/playlists/presentation/add_to_playlist.dart';
 import 'package:noir/features/queue/presentation/queue_panel.dart';
 import 'package:noir/features/youtube/application/youtube_providers.dart';
+import 'package:noir/features/youtube/presentation/youtube_cover.dart';
 import 'package:noir/shared/models/media.dart';
 import 'package:noir/shared/models/playback.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -194,6 +195,10 @@ class _NarrowLayout extends StatelessWidget {
           _TrackInfo(state: state, large: false),
           const SizedBox(height: 20),
           const PlaybackControls(large: true),
+          if (state.current!.track.source == MediaSource.youtube) ...[
+            const SizedBox(height: 24),
+            const _YouTubePlayerTile(),
+          ],
           const SizedBox(height: 24),
           _UpNext(state: state),
         ],
@@ -211,11 +216,6 @@ class _LargeArtwork extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final track = state.current!.track;
-    if (track.source == MediaSource.youtube) {
-      // 16:9 video, never smaller than YouTube's 200×200 minimum.
-      final width = (size * 1.45).clamp(200.0, 760.0);
-      return VideoSlot(size: Size(width, (width * 9 / 16).clamp(200, 430)));
-    }
     return DecoratedBox(
       decoration: BoxDecoration(
         borderRadius: NoirRadii.xlAll,
@@ -229,12 +229,14 @@ class _LargeArtwork extends StatelessWidget {
       ),
       child: Hero(
         tag: 'now-playing-art',
-        child: Artwork(
-          path: track.artwork,
-          size: size,
-          radius: NoirRadii.xl,
-          semanticLabel: 'Artwork for ${track.album ?? track.title}',
-        ),
+        child: track.source == MediaSource.youtube
+            ? YouTubeCover(videoId: track.uri, size: size)
+            : Artwork(
+                path: track.artwork,
+                size: size,
+                radius: NoirRadii.xl,
+                semanticLabel: 'Artwork for ${track.album ?? track.title}',
+              ),
       ),
     );
   }
@@ -338,7 +340,35 @@ class _TrackInfo extends ConsumerWidget {
         ],
         SizedBox(height: large ? 28 : 20),
         const ProgressSlider(),
+        if (large && track.source == MediaSource.youtube) ...[
+          const SizedBox(height: 20),
+          const _YouTubePlayerTile(),
+        ],
       ],
+    );
+  }
+}
+
+/// YouTube requires its player to stay visible (≥ 200×200, nothing on top)
+/// while it plays, so NOIR keeps a compact player next to the cover.
+class _YouTubePlayerTile extends StatelessWidget {
+  const _YouTubePlayerTile();
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, box) {
+        final width = YouTubeVideoLayer.miniSize.width.clamp(
+          200.0,
+          box.maxWidth,
+        );
+        return Align(
+          alignment: Alignment.centerLeft,
+          child: VideoSlot(
+            size: Size(width, YouTubeVideoLayer.miniSize.height),
+          ),
+        );
+      },
     );
   }
 }

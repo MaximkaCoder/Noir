@@ -2,6 +2,7 @@ import 'package:drift/drift.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:noir/core/database/app_database.dart';
 import 'package:noir/core/database/database_provider.dart';
+import 'package:noir/features/youtube/presentation/youtube_cover.dart';
 import 'package:noir/integrations/youtube_data/youtube_api.dart';
 import 'package:noir/shared/models/media.dart';
 
@@ -37,7 +38,8 @@ extension YtVideoRowX on YtVideoRow {
     uri: id,
     artist: artistFromChannel(channelTitle),
     duration: durationMs == null ? null : Duration(milliseconds: durationMs!),
-    artworkUrl: thumbnailUrl,
+    // 16:9 frame without letterbox bars; its center square is the cover.
+    artworkUrl: YouTubeCover.thumbnail(id),
   );
 }
 
