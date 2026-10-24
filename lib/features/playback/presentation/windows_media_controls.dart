@@ -3,8 +3,11 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:noir/features/artwork/application/artwork_providers.dart';
+import 'package:noir/features/artwork/domain/resolved_art.dart';
 import 'package:noir/features/playback/application/media_commands.dart';
 import 'package:noir/features/playback/application/playback_controller.dart';
+import 'package:noir/shared/models/media.dart';
 import 'package:noir/shared/models/playback.dart';
 
 /// Implemented by the Windows runner (windows/runner/smtc_bridge.cpp).
@@ -43,6 +46,10 @@ class WindowsMediaControls {
 
   final _subscriptions = <StreamSubscription<Object?>>[];
   ProviderSubscription<PlaybackState>? _stateSub;
+
+  /// Album art lookup for the current YouTube track.
+  ProviderSubscription<ResolvedArt?>? _artSub;
+  String? _artVideoId;
   bool _failed = false;
 
   Map<String, Object?>? _metadata;
@@ -66,6 +73,7 @@ class WindowsMediaControls {
 
   void dispose() {
     _stateSub?.close();
+    _artSub?.close();
     for (final sub in _subscriptions) {
       unawaited(sub.cancel());
     }
@@ -102,8 +110,8 @@ class WindowsMediaControls {
       'title': track.title,
       'artist': track.artist ?? '',
       'album': track.album ?? '',
-      // Local file path or https thumbnail; the runner handles both.
-      'artwork': track.artwork ?? '',
+      // Local file path or https image; the runner handles both.
+      'artwork': _artworkFor(track),
     };
     if (!mapEquals(metadata, _metadata)) {
       _metadata = metadata;
@@ -131,6 +139,24 @@ class WindowsMediaControls {
       _send('playback', playback);
     }
     _syncTimeline();
+  }
+
+  /// YouTube: the square album art (544 px) once it is found, the video
+  /// thumbnail until then.
+  String _artworkFor(Track track) {
+    final videoId = track.source == MediaSource.youtube ? track.uri : null;
+    if (videoId != _artVideoId) {
+      _artSub?.close();
+      _artSub = null;
+      _artVideoId = videoId;
+      if (videoId != null) {
+        _artSub = _container.listen<ResolvedArt?>(
+          resolvedArtProvider(videoId),
+          (_, _) => _sync(_container.read(playbackProvider)),
+        );
+      }
+    }
+    return _artSub?.read()?.squareUrl(544) ?? track.artwork ?? '';
   }
 
   /// Sends the timeline when the track, duration or play state changed,

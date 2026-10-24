@@ -141,6 +141,8 @@ FakeResponse recordedYouTubeMusic(SeenRequest r) {
       );
     case '/youtubei/v1/music/get_search_suggestions':
       return jsonReply(fixture('search_suggestions'));
+    case '/youtubei/v1/music/get_queue':
+      return jsonReply(fixture('get_queue'));
   }
   return jsonReply({'error': 'not found'}, status: 404);
 }

@@ -176,3 +176,74 @@ class YtmCollection {
   /// Token for `InnerTubeClient.playlistMore`; null when complete.
   final String? continuation;
 }
+
+/// One video as `music/get_queue` describes it: enough to pick its artwork.
+@immutable
+class YtmQueueEntry {
+  const YtmQueueEntry({
+    required this.videoId,
+    required this.title,
+    this.artist,
+    this.duration,
+    this.thumbnailUrl,
+    this.videoType,
+    this.artists = const [],
+    this.album,
+    this.counterpart,
+  });
+
+  final String videoId;
+  final String title;
+  final String? artist;
+  final Duration? duration;
+
+  /// Largest thumbnail: square album art (`*.googleusercontent.com`) for
+  /// songs, an `i.ytimg.com` video frame for music videos.
+  final String? thumbnailUrl;
+
+  /// `MUSIC_VIDEO_TYPE_ATV` (song), `_OMV` (official video), `_UGC`, …
+  final String? videoType;
+
+  /// Linked artist names in the byline (channel ids `UC…`).
+  final List<YtmLink> artists;
+
+  /// Linked album in the byline (`MPREb_…`); songs only, as a rule.
+  final YtmLink? album;
+
+  /// The song/video twin YouTube Music pairs this entry with, if any.
+  final YtmQueueEntry? counterpart;
+
+  YtmTrackLinks get links => YtmTrackLinks(artists: artists, album: album);
+
+  /// An audio track ("Art Track") rather than a music video.
+  bool get isSong => videoType == 'MUSIC_VIDEO_TYPE_ATV';
+}
+
+/// A name in a byline and the page it opens (`InnerTubeClient.album` for
+/// `MPREb_…`, an artist page for `UC…`).
+typedef YtmLink = ({String name, String browseId});
+
+/// Where a track's artist and album names lead on YouTube Music.
+@immutable
+class YtmTrackLinks {
+  const YtmTrackLinks({this.artists = const [], this.album});
+
+  final List<YtmLink> artists;
+  final YtmLink? album;
+
+  bool get isEmpty => artists.isEmpty && album == null;
+
+  @override
+  bool operator ==(Object other) =>
+      other is YtmTrackLinks &&
+      other.album == album &&
+      other.artists.length == artists.length &&
+      Iterable<int>.generate(artists.length)
+          .every((i) => other.artists[i] == artists[i]);
+
+  @override
+  int get hashCode => Object.hash(album, Object.hashAll(artists));
+
+  @override
+  String toString() => 'YtmTrackLinks($artists, $album)';
+}

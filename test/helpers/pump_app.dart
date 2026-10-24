@@ -6,6 +6,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:noir/app/app.dart';
 import 'package:noir/core/database/app_database.dart';
 import 'package:noir/core/database/database_provider.dart';
+import 'package:noir/features/artwork/application/artwork_providers.dart';
+import 'package:noir/features/artwork/application/artwork_resolver.dart';
 import 'package:noir/features/library/application/library_scan_controller.dart';
 import 'package:noir/features/library/data/library_repository.dart';
 import 'package:noir/features/playback/application/playback_controller.dart';
@@ -46,6 +48,8 @@ class TestApp {
         databaseProvider.overrideWithValue(db),
         playbackEngineProvider.overrideWithValue(engine),
         initialSettingsProvider.overrideWithValue(settings),
+        // No YouTube Music lookups in widget tests: thumbnails stay.
+        artworkResolverProvider.overrideWithValue(ArtworkResolver.offline()),
         appDirectoriesProvider.overrideWithValue(
           AppDirectories(
             artwork: Directory('${tmp.path}/artwork'),

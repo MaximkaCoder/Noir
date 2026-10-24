@@ -1,0 +1,315 @@
+{
+  "responseContext": {
+    "visitorData": "CgtGQUtFVklTSVRPUijAgICAgA%3D%3D"
+  },
+  "queueDatas": [
+    {
+      "content": {
+        "playlistPanelVideoRenderer": {
+          "title": {
+            "runs": [
+              {
+                "text": "Never Gonna Give You Up"
+              }
+            ]
+          },
+          "longBylineText": {
+            "runs": [
+              {
+                "text": "Rick Astley",
+                "navigationEndpoint": {
+                  "browseEndpoint": {
+                    "browseId": "UCwZEU0wAwIyZb4x5G_KJp2w",
+                    "browseEndpointContextSupportedConfigs": {
+                      "browseEndpointContextMusicConfig": {
+                        "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "text": " • "
+              },
+              {
+                "text": "1.8B views"
+              },
+              {
+                "text": " • "
+              },
+              {
+                "text": "19M likes"
+              }
+            ]
+          },
+          "thumbnail": {
+            "thumbnails": [
+              {
+                "url": "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3lrEQLVd7aUH6RTaLjc4JkVVNINHQ",
+                "width": 400,
+                "height": 225
+              },
+              {
+                "url": "https://i.ytimg.com/vi/dQw4w9WgXcQ/hq720.jpg?sqp=-oaymwEKCKAGEMIDIABIWg&rs=AMzJL3lfpZeEOiVk4TdFkCMcOh0F7fbuiQ",
+                "width": 800,
+                "height": 450
+              },
+              {
+                "url": "https://i.ytimg.com/vi/dQw4w9WgXcQ/hq720.jpg?sqp=-oaymwEKCNUGEN8DIABIWg&rs=AMzJL3nLqpAFoB_PJT8x1nZhejChLHwnKg",
+                "width": 853,
+                "height": 479
+              }
+            ]
+          },
+          "lengthText": {
+            "runs": [
+              {
+                "text": "3:34"
+              }
+            ]
+          },
+          "navigationEndpoint": {
+            "watchEndpoint": {
+              "videoId": "dQw4w9WgXcQ",
+              "watchEndpointMusicSupportedConfigs": {
+                "watchEndpointMusicConfig": {
+                  "hasPersistentPlaylistPanel": true,
+                  "musicVideoType": "MUSIC_VIDEO_TYPE_OMV"
+                }
+              }
+            }
+          },
+          "videoId": "dQw4w9WgXcQ",
+          "shortBylineText": {
+            "runs": [
+              {
+                "text": "Rick Astley"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "content": {
+        "playlistPanelVideoRenderer": {
+          "title": {
+            "runs": [
+              {
+                "text": "Despacito"
+              }
+            ]
+          },
+          "longBylineText": {
+            "runs": [
+              {
+                "text": "Luis Fonsi",
+                "navigationEndpoint": {
+                  "browseEndpoint": {
+                    "browseId": "UCk91oFc2hY2CdHirU93baLg",
+                    "browseEndpointContextSupportedConfigs": {
+                      "browseEndpointContextMusicConfig": {
+                        "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "text": " & "
+              },
+              {
+                "text": "Daddy Yankee",
+                "navigationEndpoint": {
+                  "browseEndpoint": {
+                    "browseId": "UCXRloA7YFgCfd6sU2_Y12cA",
+                    "browseEndpointContextSupportedConfigs": {
+                      "browseEndpointContextMusicConfig": {
+                        "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "text": " • "
+              },
+              {
+                "text": "9.1B views"
+              },
+              {
+                "text": " • "
+              },
+              {
+                "text": "56M likes"
+              }
+            ]
+          },
+          "thumbnail": {
+            "thumbnails": [
+              {
+                "url": "https://i.ytimg.com/vi/kJQP7kiw5Fk/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3nr-rLhL8G8crb0v2dM0JYRyPK0Sw",
+                "width": 400,
+                "height": 225
+              },
+              {
+                "url": "https://i.ytimg.com/vi/kJQP7kiw5Fk/hq720.jpg?sqp=-oaymwEKCKAGEMIDIABIWg&rs=AMzJL3nRUb1HoB-Qnztn5z74sFTagFuIZw",
+                "width": 800,
+                "height": 450
+              },
+              {
+                "url": "https://i.ytimg.com/vi/kJQP7kiw5Fk/hq720.jpg?sqp=-oaymwEKCNUGEN8DIABIWg&rs=AMzJL3mqr24X3n-Mv2CNVofGmO12PxuaBQ",
+                "width": 853,
+                "height": 479
+              }
+            ]
+          },
+          "lengthText": {
+            "runs": [
+              {
+                "text": "4:42"
+              }
+            ]
+          },
+          "navigationEndpoint": {
+            "watchEndpoint": {
+              "videoId": "kJQP7kiw5Fk",
+              "watchEndpointMusicSupportedConfigs": {
+                "watchEndpointMusicConfig": {
+                  "hasPersistentPlaylistPanel": true,
+                  "musicVideoType": "MUSIC_VIDEO_TYPE_OMV"
+                }
+              }
+            }
+          },
+          "videoId": "kJQP7kiw5Fk",
+          "shortBylineText": {
+            "runs": [
+              {
+                "text": "Luis Fonsi"
+              },
+              {
+                "text": " & "
+              },
+              {
+                "text": "Daddy Yankee"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "content": {
+        "playlistPanelVideoRenderer": {
+          "title": {
+            "runs": [
+              {
+                "text": "Thriller"
+              }
+            ]
+          },
+          "longBylineText": {
+            "runs": [
+              {
+                "text": "Michael Jackson",
+                "navigationEndpoint": {
+                  "browseEndpoint": {
+                    "browseId": "UCoIOOL7QKuBhQHVKL8y7BEQ",
+                    "browseEndpointContextSupportedConfigs": {
+                      "browseEndpointContextMusicConfig": {
+                        "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "text": " • "
+              },
+              {
+                "text": "Thriller",
+                "navigationEndpoint": {
+                  "browseEndpoint": {
+                    "browseId": "MPREb_dqWTncCjkSp",
+                    "browseEndpointContextSupportedConfigs": {
+                      "browseEndpointContextMusicConfig": {
+                        "pageType": "MUSIC_PAGE_TYPE_ALBUM"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "text": " • "
+              },
+              {
+                "text": "1982"
+              }
+            ]
+          },
+          "thumbnail": {
+            "thumbnails": [
+              {
+                "url": "https://yt3.googleusercontent.com/URvHCfI2iyGAlAwqqBFeaFhU9DeKk_iuX40OIIIj8Zp0wIT3BVsJ2JRMwLLbUB9EZS7t7oDlMrI2S3OvGA=w60-h60-l90-rj",
+                "width": 60,
+                "height": 60
+              },
+              {
+                "url": "https://yt3.googleusercontent.com/URvHCfI2iyGAlAwqqBFeaFhU9DeKk_iuX40OIIIj8Zp0wIT3BVsJ2JRMwLLbUB9EZS7t7oDlMrI2S3OvGA=w120-h120-l90-rj",
+                "width": 120,
+                "height": 120
+              },
+              {
+                "url": "https://yt3.googleusercontent.com/URvHCfI2iyGAlAwqqBFeaFhU9DeKk_iuX40OIIIj8Zp0wIT3BVsJ2JRMwLLbUB9EZS7t7oDlMrI2S3OvGA=w180-h180-l90-rj",
+                "width": 180,
+                "height": 180
+              },
+              {
+                "url": "https://yt3.googleusercontent.com/URvHCfI2iyGAlAwqqBFeaFhU9DeKk_iuX40OIIIj8Zp0wIT3BVsJ2JRMwLLbUB9EZS7t7oDlMrI2S3OvGA=w226-h226-l90-rj",
+                "width": 226,
+                "height": 226
+              },
+              {
+                "url": "https://yt3.googleusercontent.com/URvHCfI2iyGAlAwqqBFeaFhU9DeKk_iuX40OIIIj8Zp0wIT3BVsJ2JRMwLLbUB9EZS7t7oDlMrI2S3OvGA=w302-h302-l90-rj",
+                "width": 302,
+                "height": 302
+              },
+              {
+                "url": "https://yt3.googleusercontent.com/URvHCfI2iyGAlAwqqBFeaFhU9DeKk_iuX40OIIIj8Zp0wIT3BVsJ2JRMwLLbUB9EZS7t7oDlMrI2S3OvGA=w544-h544-l90-rj",
+                "width": 544,
+                "height": 544
+              }
+            ]
+          },
+          "lengthText": {
+            "runs": [
+              {
+                "text": "5:58"
+              }
+            ]
+          },
+          "navigationEndpoint": {
+            "watchEndpoint": {
+              "videoId": "Z85lxckrtzg",
+              "watchEndpointMusicSupportedConfigs": {
+                "watchEndpointMusicConfig": {
+                  "hasPersistentPlaylistPanel": true,
+                  "musicVideoType": "MUSIC_VIDEO_TYPE_ATV"
+                }
+              }
+            }
+          },
+          "videoId": "Z85lxckrtzg",
+          "shortBylineText": {
+            "runs": [
+              {
+                "text": "Michael Jackson"
+              }
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

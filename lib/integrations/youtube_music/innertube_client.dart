@@ -153,6 +153,28 @@ class InnerTubeClient {
     'continuation': continuation,
   }, parsePlaylistContinuation);
 
+  /// Most video ids `music/get_queue` takes in one request.
+  static const queueBatchSize = 50;
+
+  /// What YouTube Music knows about [videoIds] (title, artist, duration,
+  /// artwork), keyed by video id; ids it does not know are missing.
+  /// Asks in batches of [queueBatchSize].
+  Future<Map<String, YtmQueueEntry>> queue(List<String> videoIds) async {
+    final ids = videoIds.toSet().toList();
+    final entries = <String, YtmQueueEntry>{};
+    for (var i = 0; i < ids.length; i += queueBatchSize) {
+      final end = i + queueBatchSize < ids.length
+          ? i + queueBatchSize
+          : ids.length;
+      entries.addAll(
+        await _call('music/get_queue', {
+          'videoIds': ids.sublist(i, end),
+        }, parseQueue),
+      );
+    }
+    return entries;
+  }
+
   // ---------------------------------------------------------- requests --
 
   Future<T> _call<T>(

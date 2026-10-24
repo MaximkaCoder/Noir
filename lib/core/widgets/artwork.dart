@@ -2,10 +2,17 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:noir/app/theme/design_tokens.dart';
+import 'package:noir/features/artwork/domain/art_urls.dart';
+import 'package:noir/features/youtube/presentation/youtube_cover.dart';
 
-/// Square artwork decoded at display size (`cacheWidth`) to keep memory and
-/// decode time proportional to what is on screen. Missing or broken artwork
-/// falls back to a quiet placeholder.
+/// Square artwork decoded at display size × device pixel ratio
+/// (`cacheWidth`) to keep memory and decode time proportional to what is on
+/// screen. Missing or broken artwork falls back to a quiet placeholder.
+///
+/// Remote artwork is fetched at the size shown: YouTube Music art
+/// (googleusercontent) is re-requested at the matching size, and YouTube
+/// video thumbnails become a [YouTubeCover] (real album art when YouTube
+/// Music has it).
 class Artwork extends StatelessWidget {
   const Artwork({
     required this.path,
@@ -28,15 +35,30 @@ class Artwork extends StatelessWidget {
     final dpr = MediaQuery.devicePixelRatioOf(context);
     final placeholder = _Placeholder(size: size, icon: icon);
     final source = path;
+    final px = size * dpr;
+    final videoId = source == null ? null : youtubeThumbnailVideoId(source);
+    if (videoId != null) {
+      return YouTubeCover(
+        videoId: videoId,
+        size: size,
+        radius: radius,
+        semanticLabel: semanticLabel,
+        placeholder: placeholder,
+      );
+    }
+    final googleArt = source != null && isGoogleArt(source);
     final image = source == null
         ? placeholder
         : isRemoteImage(source)
         ? Image.network(
-            source,
+            googleArt ? resizeGoogleArt(source, px) : source,
             width: size,
             height: size,
             fit: BoxFit.cover,
-            cacheWidth: (size * dpr).round(),
+            // Google art is square. Other images may be wide, and a
+            // width-only decode would leave them short of `size` once
+            // cropped to a square: decode those whole.
+            cacheWidth: googleArt ? artBucket(px) : null,
             gaplessPlayback: true,
             semanticLabel: semanticLabel,
             errorBuilder: (_, _, _) => placeholder,
@@ -46,7 +68,7 @@ class Artwork extends StatelessWidget {
             width: size,
             height: size,
             fit: BoxFit.cover,
-            cacheWidth: (size * dpr).round(),
+            cacheWidth: px.ceil(),
             gaplessPlayback: true,
             semanticLabel: semanticLabel,
             errorBuilder: (_, _, _) => placeholder,
