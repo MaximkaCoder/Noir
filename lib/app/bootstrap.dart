@@ -12,6 +12,7 @@ import 'package:noir/core/database/database_provider.dart';
 import 'package:noir/features/library/application/library_scan_controller.dart';
 import 'package:noir/features/playback/application/playback_controller.dart';
 import 'package:noir/features/playback/presentation/media_session.dart';
+import 'package:noir/features/playback/presentation/windows_media_controls.dart';
 import 'package:noir/features/settings/data/settings_repository.dart';
 import 'package:noir/features/settings/presentation/settings_controller.dart';
 import 'package:noir/features/youtube/application/youtube_sync.dart';
@@ -46,6 +47,7 @@ Future<void> bootstrap() async {
   if (Platform.isAndroid || Platform.isIOS || Platform.isMacOS) {
     await startMediaSession(container);
   }
+  if (Platform.isWindows) startWindowsMediaControls(container);
   unawaited(container.read(playbackProvider.notifier).restoreSession());
   // Keeps YouTube sync alive for the app's lifetime (Riverpod pauses
   // providers nobody listens to).

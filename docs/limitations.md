@@ -17,10 +17,17 @@
 
 - **Google / YouTube is not connected yet.** The capability audit, OAuth design
   and a working WebView2 embed spike exist; the integration is Phase 5.
-- **Windows media controls (SMTC / media keys) are not integrated.** The
-  available Flutter packages are immature or need a Rust toolchain. In-app
-  shortcuts: Space (play/pause), Ctrl+←/→ (previous/next), Ctrl+K (search),
-  Ctrl+P (Now Playing), Ctrl+, (Settings), Esc (close player).
+- **Windows media controls** use System Media Transport Controls through
+  NOIR's own runner code (no Rust-based package): media keys work while the
+  window is unfocused or minimized, and the Windows media flyout shows the
+  track with play/pause/next/previous. When NOIR is focused the same key
+  press may arrive both as a key event and from SMTC; a press seen from both
+  within 400 ms acts once. If another app owns the current Windows media
+  session, unfocused media keys go to that app. Keys pressed while the
+  YouTube video has focus go to the video's WebView2. In-app shortcuts:
+  Space (play/pause), Ctrl+←/→ (previous/next), Ctrl+K (search), Ctrl+P (Now
+  Playing), Ctrl+, (Settings), Esc (close player), Alt+← or the mouse Back
+  button (go back).
 - **No system tray or global hotkeys.**
 - **Crossfade** applies to local files only and is skipped for tracks shorter
   than twice the fade length and in repeat-one mode.
