@@ -27,10 +27,12 @@ Future<T?> showGlassDialog<T>(
             padding: const EdgeInsets.all(NoirSpacing.lg),
             child: Material(
               type: MaterialType.transparency,
+              // A scrim keeps the text legible on clear glass.
               child: GlassSurface(
                 borderRadius: NoirRadii.xlAll,
+                floating: true,
                 shadow: 1,
-                fillOpacity: fx.glass ? 2.5 : 1,
+                fillOpacity: 4,
                 padding: const EdgeInsets.all(NoirSpacing.xl),
                 child: builder(context),
               ),
@@ -44,8 +46,10 @@ Future<T?> showGlassDialog<T>(
         parent: animation,
         curve: NoirMotion.standard,
       );
-      return FadeTransition(
-        opacity: curved,
+      return AnimatedBuilder(
+        animation: curved,
+        builder: (context, child) =>
+            GlassFade(opacity: curved.value, child: child!),
         child: ScaleTransition(
           scale: Tween<double>(begin: 0.97, end: 1).animate(curved),
           child: child,
@@ -293,15 +297,16 @@ class _ToastState extends State<_Toast> with SingleTickerProviderStateMixin {
   @override
   Widget build(BuildContext context) {
     final c = context.noir;
-    final fx = NoirEffects.of(context);
     return Positioned(
       left: NoirSpacing.lg,
       right: NoirSpacing.lg,
       bottom: widget.bottom,
       child: IgnorePointer(
         child: Center(
-          child: FadeTransition(
-            opacity: _shown,
+          child: AnimatedBuilder(
+            animation: _shown,
+            builder: (context, child) =>
+                GlassFade(opacity: _shown.value, child: child!),
             child: ScaleTransition(
               scale: Tween<double>(begin: 0.94, end: 1).animate(_shown),
               child: ConstrainedBox(
@@ -310,8 +315,9 @@ class _ToastState extends State<_Toast> with SingleTickerProviderStateMixin {
                   liveRegion: true,
                   child: GlassSurface(
                     borderRadius: NoirRadii.mdAll,
+                    floating: true,
                     shadow: 0.8,
-                    fillOpacity: fx.glass ? 3 : 1,
+                    fillOpacity: 4,
                     padding: const EdgeInsets.symmetric(
                       horizontal: NoirSpacing.lg,
                       vertical: NoirSpacing.md,

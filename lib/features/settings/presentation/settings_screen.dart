@@ -10,6 +10,7 @@ import 'package:noir/app/theme/glass_theme.dart';
 import 'package:noir/core/widgets/buttons.dart';
 import 'package:noir/core/widgets/dialogs.dart';
 import 'package:noir/core/widgets/glass_surface.dart';
+import 'package:noir/core/widgets/liquid_press.dart';
 import 'package:noir/core/widgets/reveal.dart';
 import 'package:noir/features/accounts/presentation/account_card.dart';
 import 'package:noir/features/home/data/history_repository.dart';
@@ -238,37 +239,40 @@ class _ThemePicker extends StatelessWidget {
               onTap: () => onChanged(mode),
               child: MouseRegion(
                 cursor: SystemMouseCursors.click,
-                child: GlassSurface(
-                  interactive: true,
-                  selected: value == mode,
-                  blur: 0,
-                  borderOpacity: value == mode ? 2.5 : 1,
-                  child: SizedBox(
-                    width: 104,
-                    height: 76,
-                    child: ExcludeSemantics(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          TweenAnimationBuilder<Color?>(
-                            tween: ColorTween(
-                              end: value == mode
-                                  ? c.textPrimary
-                                  : c.textSecondary,
+                child: LiquidPress(
+                  pressedScale: 0.95,
+                  bubbleScale: 1.06,
+                  child: GlassSurface(
+                    interactive: true,
+                    selected: value == mode,
+                    borderOpacity: value == mode ? 2.5 : 1,
+                    child: SizedBox(
+                      width: 104,
+                      height: 76,
+                      child: ExcludeSemantics(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            TweenAnimationBuilder<Color?>(
+                              tween: ColorTween(
+                                end: value == mode
+                                    ? c.textPrimary
+                                    : c.textSecondary,
+                              ),
+                              duration: fx.motion(NoirMotion.medium),
+                              builder: (_, color, _) =>
+                                  Icon(icon, size: 20, color: color),
                             ),
-                            duration: fx.motion(NoirMotion.medium),
-                            builder: (_, color, _) =>
-                                Icon(icon, size: 20, color: color),
-                          ),
-                          const SizedBox(height: 6),
-                          AnimatedDefaultTextStyle(
-                            duration: fx.motion(NoirMotion.medium),
-                            style: t.labelMedium!.copyWith(
-                              color: value == mode ? c.textPrimary : null,
+                            const SizedBox(height: 6),
+                            AnimatedDefaultTextStyle(
+                              duration: fx.motion(NoirMotion.medium),
+                              style: t.labelMedium!.copyWith(
+                                color: value == mode ? c.textPrimary : null,
+                              ),
+                              child: Text(label),
                             ),
-                            child: Text(label),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
                   ),

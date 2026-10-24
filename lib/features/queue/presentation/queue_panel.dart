@@ -78,8 +78,11 @@ Future<void> showQueueSheet(BuildContext context, WidgetRef ref) async {
           curve: NoirMotion.emphasized,
           reverseCurve: Curves.easeInCubic,
         );
-        return FadeTransition(
-          opacity: CurvedAnimation(parent: animation, curve: Curves.easeOut),
+        final fade = CurvedAnimation(parent: animation, curve: Curves.easeOut);
+        return AnimatedBuilder(
+          animation: fade,
+          builder: (context, child) =>
+              GlassFade(opacity: fade.value, child: child!),
           child: SlideTransition(
             position: Tween(
               begin: const Offset(1, 0),
@@ -103,7 +106,6 @@ class _QueueSheet extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final t = Theme.of(context).textTheme;
-    final fx = NoirEffects.of(context);
     final width = min(MediaQuery.sizeOf(context).width, maxWidth);
     void close() => Navigator.of(context).maybePop();
     final showVideo =
@@ -128,7 +130,10 @@ class _QueueSheet extends ConsumerWidget {
                     ),
               shadow: 1,
               highlight: 0.4,
-              fillOpacity: fx.glass ? 2.5 : 1,
+              fillOpacity: 2.5,
+              floating: true,
+              // Too large for the lens shader: saturate in the blur.
+              refract: false,
               child: SafeArea(
                 left: false,
                 child: Column(

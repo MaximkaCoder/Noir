@@ -1,12 +1,16 @@
-import 'dart:ui';
-
 import 'package:flutter/material.dart';
 import 'package:noir/app/theme/design_tokens.dart';
-import 'package:noir/app/theme/glass_theme.dart';
+import 'package:noir/core/widgets/liquid_glass.dart';
 
-/// NOIR's material. With Liquid Glass on: backdrop blur, translucent fill,
-/// hairline border and a soft specular highlight. With it off: an opaque
-/// surface with the exact same geometry, so layout never changes.
+/// NOIR's material: the same Liquid Glass as the player island
+/// ([LiquidGlassMaterial]) in any shape, driven by the same Glass slider.
+/// With Liquid Glass off: an opaque surface with the exact same geometry,
+/// so layout never changes.
+///
+/// [floating] surfaces (menus, dialogs, toasts, arrows over a shelf) blur
+/// and refract the content under them, through the lens shader when they
+/// are small. The rest sit on NOIR's smooth canvas and paint the same glass
+/// without a backdrop pass.
 ///
 /// Use sparingly — navigation, player, panels, dialogs, menus — never per
 /// list row.
@@ -22,17 +26,27 @@ class GlassSurface extends StatefulWidget {
     this.interactive = false,
     this.selected = false,
     this.padding,
+    this.floating = false,
+    this.refract = true,
     super.key,
   });
+
+  /// Above this size (longer side, logical px) a painted band stands in
+  /// for the lens shader.
+  static const double maxLensExtent = 480;
 
   final Widget child;
   final BorderRadius borderRadius;
 
-  /// Overrides the effect-level blur sigma.
+  /// Overrides the Glass level's blur sigma ([floating] surfaces).
   final double? blur;
 
-  /// Multipliers over the palette's glass tokens (0–1+).
+  /// Tint density: above 1 lays a scrim over the glass for text-heavy
+  /// surfaces (see [LiquidGlassStyle.of]).
   final double fillOpacity;
+
+  /// Multipliers over the hairline border and over the sheen and specular
+  /// rim (0–1+).
   final double borderOpacity;
   final double highlight;
 
@@ -44,6 +58,15 @@ class GlassSurface extends StatefulWidget {
   final bool selected;
   final EdgeInsetsGeometry? padding;
 
+  /// Floats over content, which it blurs and refracts; see
+  /// [LiquidGlassMaterial.backdrop].
+  final bool floating;
+
+  /// Whether the lens shader may refract the backdrop of a [floating]
+  /// surface (small ones only; see [maxLensExtent]). [GlassFade] switches
+  /// it off while it fades.
+  final bool refract;
+
   @override
   State<GlassSurface> createState() => _GlassSurfaceState();
 }
@@ -54,71 +77,36 @@ class _GlassSurfaceState extends State<GlassSurface> {
   @override
   Widget build(BuildContext context) {
     final c = context.noir;
-    final fx = NoirEffects.of(context);
     final active = widget.selected || (widget.interactive && _hovered);
+    final refract = widget.refract && GlassFade.settled(context);
 
-    final baseFill = fx.glass ? c.glassFill : c.surfaceSolid;
-    final fill = Color.alphaBlend(
-      active ? (widget.selected ? c.selected : c.hover) : Colors.transparent,
-      baseFill.withValues(alpha: baseFill.a * widget.fillOpacity),
-    );
-    final border = c.glassBorder.withValues(
-      alpha: (c.glassBorder.a * widget.borderOpacity).clamp(0, 1),
-    );
-
-    Widget content = AnimatedContainer(
-      duration: fx.motion(NoirMotion.fast),
-      curve: NoirMotion.standard,
-      padding: widget.padding,
-      decoration: BoxDecoration(
-        color: fill,
-        borderRadius: widget.borderRadius,
-        border: Border.all(color: border),
-      ),
-      foregroundDecoration: fx.highlights && widget.highlight > 0
-          ? BoxDecoration(
-              borderRadius: widget.borderRadius,
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: const Alignment(0.2, 0.6),
-                colors: [
-                  c.glassHighlight.withValues(
-                    alpha: c.glassHighlight.a * widget.highlight,
-                  ),
-                  c.glassHighlight.withValues(alpha: 0),
-                ],
-              ),
-            )
+    Widget content = LiquidGlassMaterial(
+      borderRadius: widget.borderRadius,
+      // Inside the 1 px rim, as with a bordered box: layouts stay put.
+      padding: (widget.padding ?? EdgeInsets.zero).add(const EdgeInsets.all(1)),
+      blur: widget.blur,
+      density: widget.fillOpacity,
+      borderOpacity: widget.borderOpacity,
+      highlight: widget.highlight,
+      wash: widget.interactive || widget.selected
+          ? (active
+                ? (widget.selected ? c.selected : c.hover)
+                : c.hover.withValues(alpha: 0))
           : null,
+      shadows: [
+        if (widget.shadow > 0)
+          BoxShadow(
+            color: c.shadow.withValues(alpha: c.shadow.a * widget.shadow),
+            blurRadius: 40 * widget.shadow,
+            offset: Offset(0, 16 * widget.shadow),
+          ),
+      ],
+      backdrop: widget.floating,
+      refract: refract,
+      maxLensExtent: GlassSurface.maxLensExtent,
+      maxLensDepth: 18,
       child: widget.child,
     );
-
-    final sigma = widget.blur ?? fx.blurSigma;
-    if (fx.glass && sigma > 0) {
-      content = ClipRRect(
-        borderRadius: widget.borderRadius,
-        child: BackdropFilter.grouped(
-          filter: ImageFilter.blur(sigmaX: sigma, sigmaY: sigma),
-          child: content,
-        ),
-      );
-    }
-
-    if (widget.shadow > 0) {
-      content = DecoratedBox(
-        decoration: BoxDecoration(
-          borderRadius: widget.borderRadius,
-          boxShadow: [
-            BoxShadow(
-              color: c.shadow.withValues(alpha: c.shadow.a * widget.shadow),
-              blurRadius: 40 * widget.shadow,
-              offset: Offset(0, 16 * widget.shadow),
-            ),
-          ],
-        ),
-        child: content,
-      );
-    }
 
     if (widget.interactive) {
       content = MouseRegion(
@@ -127,6 +115,41 @@ class _GlassSurfaceState extends State<GlassSurface> {
         child: content,
       );
     }
-    return RepaintBoundary(child: content);
+    return content;
   }
+}
+
+/// Fades glass surfaces below it with a plain [Opacity], which leaves no
+/// layer behind once opaque (a `FadeTransition` / `AnimatedOpacity` keeps
+/// one, and inside it the lens shader cannot see the backdrop). While the
+/// fade runs, [GlassSurface]s below swap the lens shader for the painted
+/// band.
+class GlassFade extends StatelessWidget {
+  const GlassFade({required this.opacity, required this.child, super.key});
+
+  final double opacity;
+  final Widget child;
+
+  /// False while a [GlassFade] above [context] is translucent.
+  static bool settled(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<_GlassFadeScope>()?.settled ??
+      true;
+
+  @override
+  Widget build(BuildContext context) {
+    return _GlassFadeScope(
+      settled: opacity >= 1,
+      child: Opacity(opacity: opacity.clamp(0.0, 1.0), child: child),
+    );
+  }
+}
+
+class _GlassFadeScope extends InheritedWidget {
+  const _GlassFadeScope({required this.settled, required super.child});
+
+  final bool settled;
+
+  @override
+  bool updateShouldNotify(_GlassFadeScope oldWidget) =>
+      settled != oldWidget.settled;
 }

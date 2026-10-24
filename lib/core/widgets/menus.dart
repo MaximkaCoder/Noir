@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:noir/app/theme/design_tokens.dart';
 import 'package:noir/app/theme/glass_theme.dart';
 import 'package:noir/core/widgets/buttons.dart';
+import 'package:noir/core/widgets/glass_surface.dart';
+import 'package:noir/core/widgets/liquid_press.dart';
 
 /// One action in a [showNoirMenu] menu.
 @immutable
@@ -112,8 +114,10 @@ class _MenuRoute<T> extends PopupRoute<T> {
     );
     return CustomSingleChildLayout(
       delegate: _MenuLayout(anchor),
-      child: FadeTransition(
-        opacity: curved,
+      child: AnimatedBuilder(
+        animation: curved,
+        builder: (context, child) =>
+            GlassFade(opacity: curved.value, child: child!),
         child: ScaleTransition(
           scale: Tween<double>(begin: 0.94, end: 1).animate(curved),
           child: _MenuPanel<T>(items: items),
@@ -170,60 +174,64 @@ class _MenuPanel<T> extends StatelessWidget {
       namesRoute: true,
       explicitChildNodes: true,
       label: 'Menu',
-      child: Material(
-        color: c.surfaceElevated,
-        elevation: 12,
-        shadowColor: c.shadow,
-        shape: RoundedRectangleBorder(
-          borderRadius: NoirRadii.mdAll,
-          side: BorderSide(color: c.glassBorder),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(vertical: NoirSpacing.xs),
-          child: IntrinsicWidth(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                for (final (i, item) in items.indexed)
-                  InkWell(
-                    autofocus: i == 0,
-                    onTap: () => Navigator.of(context).pop(item.value),
-                    hoverColor: c.hover,
-                    focusColor: c.selected,
-                    hoverDuration: fx.motion(NoirMotion.fast),
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(minHeight: 40),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: NoirSpacing.lg,
-                          vertical: NoirSpacing.sm,
-                        ),
-                        child: Row(
-                          children: [
-                            if (item.icon != null) ...[
-                              Icon(item.icon, size: 18),
-                              const SizedBox(width: NoirSpacing.md),
-                            ],
-                            Expanded(
-                              child: Text(item.label, style: t.bodyMedium),
+      // Liquid Glass with a scrim, so items stay legible on clear glass.
+      child: GlassSurface(
+        borderRadius: NoirRadii.mdAll,
+        floating: true,
+        shadow: 0.6,
+        fillOpacity: 4,
+        child: Material(
+          type: MaterialType.transparency,
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(vertical: NoirSpacing.xs),
+            child: IntrinsicWidth(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (final (i, item) in items.indexed)
+                    LiquidPress(
+                      pressedScale: 0.98,
+                      bubbleScale: 1,
+                      child: InkWell(
+                        autofocus: i == 0,
+                        onTap: () => Navigator.of(context).pop(item.value),
+                        hoverColor: c.hover,
+                        focusColor: c.selected,
+                        hoverDuration: fx.motion(NoirMotion.fast),
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(minHeight: 40),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: NoirSpacing.lg,
+                              vertical: NoirSpacing.sm,
                             ),
-                            if (item.checked) ...[
-                              const SizedBox(width: NoirSpacing.md),
-                              Icon(
-                                Icons.check_rounded,
-                                size: 18,
-                                color: c.textPrimary,
-                                semanticLabel: 'Selected',
-                              ),
-                            ],
-                          ],
+                            child: Row(
+                              children: [
+                                if (item.icon != null) ...[
+                                  Icon(item.icon, size: 18),
+                                  const SizedBox(width: NoirSpacing.md),
+                                ],
+                                Expanded(
+                                  child: Text(item.label, style: t.bodyMedium),
+                                ),
+                                if (item.checked) ...[
+                                  const SizedBox(width: NoirSpacing.md),
+                                  Icon(
+                                    Icons.check_rounded,
+                                    size: 18,
+                                    color: c.textPrimary,
+                                    semanticLabel: 'Selected',
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
                         ),
                       ),
                     ),
-                  ),
-              ],
+                ],
+              ),
             ),
           ),
         ),

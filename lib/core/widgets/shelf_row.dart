@@ -5,6 +5,7 @@ import 'package:noir/app/theme/design_tokens.dart';
 import 'package:noir/app/theme/glass_theme.dart';
 import 'package:noir/core/widgets/buttons.dart';
 import 'package:noir/core/widgets/glass_surface.dart';
+import 'package:noir/core/widgets/liquid_press.dart';
 import 'package:noir/core/widgets/smooth_scroll.dart';
 
 /// Horizontally scrolling shelf (tiles, chips) with an optional title.
@@ -302,26 +303,32 @@ class _Arrow extends StatelessWidget {
       ignoring: !visible,
       child: ExcludeFocus(
         excluding: !visible,
-        child: AnimatedOpacity(
-          opacity: visible ? 1 : 0,
+        child: TweenAnimationBuilder<double>(
+          tween: Tween(end: visible ? 1 : 0),
           duration: fx.motion(NoirMotion.medium),
           curve: NoirMotion.standard,
+          builder: (context, opacity, child) =>
+              GlassFade(opacity: opacity, child: child!),
           child: AnimatedScale(
             scale: visible || !fx.animations ? 1 : 0.9,
             duration: fx.motion(NoirMotion.medium),
             curve: NoirMotion.standard,
-            child: SizedBox.square(
-              dimension: size,
-              child: GlassSurface(
-                borderRadius: NoirRadii.pillAll,
-                shadow: 0.4,
-                child: Center(
-                  child: NoirIconButton(
-                    icon: icon,
-                    tooltip: tooltip,
-                    size: size * 0.55,
-                    color: context.noir.textPrimary,
-                    onPressed: onPressed,
+            child: LiquidPress(
+              enabled: visible,
+              child: SizedBox.square(
+                dimension: size,
+                child: GlassSurface(
+                  borderRadius: NoirRadii.pillAll,
+                  shadow: 0.4,
+                  floating: true,
+                  child: Center(
+                    child: NoirIconButton(
+                      icon: icon,
+                      tooltip: tooltip,
+                      size: size * 0.55,
+                      color: context.noir.textPrimary,
+                      onPressed: onPressed,
+                    ),
                   ),
                 ),
               ),
