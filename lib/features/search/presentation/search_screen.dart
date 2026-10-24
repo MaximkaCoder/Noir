@@ -11,8 +11,10 @@ import 'package:noir/core/widgets/buttons.dart';
 import 'package:noir/core/widgets/glass_surface.dart';
 import 'package:noir/core/widgets/states.dart';
 import 'package:noir/features/playback/application/playback_controller.dart';
+import 'package:noir/features/search/application/music_search_controller.dart';
 import 'package:noir/features/search/application/search_controller.dart';
 import 'package:noir/features/search/data/search_history_repository.dart';
+import 'package:noir/features/search/presentation/music_results.dart';
 import 'package:noir/shared/models/media.dart';
 import 'package:noir/shared/widgets/media_tiles.dart';
 import 'package:noir/shared/widgets/page_scaffold.dart';
@@ -40,15 +42,37 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   }
 
   void _setQuery(String q) {
-    _controller.value = TextEditingValue(
-      text: q,
-      selection: TextSelection.collapsed(offset: q.length),
-    );
+    _showText(q);
     ref.read(searchProvider.notifier).setQuery(q);
+    final music = ref.read(musicSearchControllerProvider.notifier);
+    if (q.trim().isEmpty) {
+      music.setQuery(q);
+    } else {
+      unawaited(music.submit(q));
+    }
+  }
+
+  void _showText(String q) => _controller.value = TextEditingValue(
+    text: q,
+    selection: TextSelection.collapsed(offset: q.length),
+  );
+
+  void _onChanged(String q) {
+    ref.read(searchProvider.notifier).setQuery(q);
+    ref.read(musicSearchControllerProvider.notifier).setQuery(q);
+  }
+
+  void _onSubmitted(String q) {
+    unawaited(ref.read(searchProvider.notifier).commit());
+    unawaited(ref.read(musicSearchControllerProvider.notifier).submit(q));
   }
 
   @override
   Widget build(BuildContext context) {
+    // A search started elsewhere (an artist on Home) shows its query here.
+    ref.listen(searchProvider.select((s) => s.query), (_, q) {
+      if (q != _controller.text) _showText(q);
+    });
     final search = ref.watch(searchProvider);
     final results = search.results;
     return PageScaffold(
@@ -59,9 +83,8 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
             child: _SearchField(
               controller: _controller,
               focusNode: ref.watch(searchFocusProvider),
-              onChanged: ref.read(searchProvider.notifier).setQuery,
-              onSubmitted: (_) =>
-                  unawaited(ref.read(searchProvider.notifier).commit()),
+              onChanged: _onChanged,
+              onSubmitted: _onSubmitted,
               onClear: () => _setQuery(''),
             ),
           ),
@@ -103,12 +126,13 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
             ..._results(results)
           else
             const SliverToBoxAdapter(child: LoadingState(rows: 4)),
+          const MusicResults(),
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.only(top: NoirSpacing.xl),
               child: Text(
-                'Searching your library on this device. YouTube search '
-                'arrives with Google account support in a later version.',
+                'Your library is searched on this device. YouTube Music '
+                'results come from its public catalog, without your account.',
                 style: Theme.of(context).textTheme.labelSmall,
               ),
             ),
