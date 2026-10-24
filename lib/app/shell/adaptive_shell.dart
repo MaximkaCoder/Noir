@@ -40,7 +40,7 @@ class AdaptiveShell extends ConsumerWidget {
     );
     final queueOpen = ref.watch(queuePanelOpenProvider);
     final artwork = ref.watch(
-      playbackProvider.select((s) => s.current?.track.artworkPath),
+      playbackProvider.select((s) => s.current?.track.artwork),
     );
     final fx = NoirEffects.of(context);
 

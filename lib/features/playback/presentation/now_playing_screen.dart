@@ -14,9 +14,13 @@ import 'package:noir/core/widgets/noir_backdrop.dart';
 import 'package:noir/core/widgets/states.dart';
 import 'package:noir/features/playback/application/playback_controller.dart';
 import 'package:noir/features/playback/presentation/playback_controls.dart';
+import 'package:noir/features/playback/presentation/youtube_video_layer.dart';
 import 'package:noir/features/playlists/presentation/add_to_playlist.dart';
 import 'package:noir/features/queue/presentation/queue_panel.dart';
+import 'package:noir/features/youtube/application/youtube_providers.dart';
+import 'package:noir/shared/models/media.dart';
 import 'package:noir/shared/models/playback.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 /// NOIR's signature screen: large artwork, title, progress, transport and
 /// what plays next. Dismiss with the chevron, Esc, or a downward swipe.
@@ -38,7 +42,7 @@ class NowPlayingScreen extends ConsumerWidget {
           body: Stack(
             fit: StackFit.expand,
             children: [
-              NoirBackdrop(artworkPath: current?.track.artworkPath),
+              NoirBackdrop(artworkPath: current?.track.artwork),
               SafeArea(
                 child: GestureDetector(
                   onVerticalDragEnd: (d) {
@@ -207,6 +211,11 @@ class _LargeArtwork extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final track = state.current!.track;
+    if (track.source == MediaSource.youtube) {
+      // 16:9 video, never smaller than YouTube's 200×200 minimum.
+      final width = (size * 1.45).clamp(200.0, 760.0);
+      return VideoSlot(size: Size(width, (width * 9 / 16).clamp(200, 430)));
+    }
     return DecoratedBox(
       decoration: BoxDecoration(
         borderRadius: NoirRadii.xlAll,
@@ -221,7 +230,7 @@ class _LargeArtwork extends StatelessWidget {
       child: Hero(
         tag: 'now-playing-art',
         child: Artwork(
-          path: track.artworkPath,
+          path: track.artwork,
           size: size,
           radius: NoirRadii.xl,
           semanticLabel: 'Artwork for ${track.album ?? track.title}',
@@ -291,6 +300,35 @@ class _TrackInfo extends ConsumerWidget {
             style: t.bodyLarge?.copyWith(color: c.textTertiary),
           ),
         ],
+        if (track.source == MediaSource.youtube) ...[
+          const SizedBox(height: 10),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.smart_display_outlined,
+                size: 16,
+                color: c.textSecondary,
+              ),
+              const SizedBox(width: 6),
+              Text('Playing from YouTube', style: t.labelMedium),
+              const SizedBox(width: 4),
+              TextButton(
+                onPressed: () => unawaited(
+                  launchUrl(
+                    youTubeMusicUrl(videoId: track.uri),
+                    mode: LaunchMode.externalApplication,
+                  ),
+                ),
+                style: TextButton.styleFrom(
+                  foregroundColor: c.textPrimary,
+                  textStyle: t.labelMedium,
+                ),
+                child: const Text('Open in YouTube Music'),
+              ),
+            ],
+          ),
+        ],
         if (failed) ...[
           const SizedBox(height: 12),
           Text(
@@ -355,7 +393,7 @@ class _UpNext extends ConsumerWidget {
                         ),
                       ),
                     ),
-                    Artwork(path: item.track.artworkPath, size: 40, radius: 6),
+                    Artwork(path: item.track.artwork, size: 40, radius: 6),
                     const SizedBox(width: NoirSpacing.md),
                     Expanded(
                       child: Column(

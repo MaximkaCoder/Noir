@@ -8,12 +8,15 @@ import 'package:noir/core/formatters.dart';
 import 'package:noir/core/widgets/artwork.dart';
 import 'package:noir/core/widgets/buttons.dart';
 import 'package:noir/core/widgets/states.dart';
+import 'package:noir/features/accounts/domain/account_connection.dart';
 import 'package:noir/features/library/application/library_providers.dart';
 import 'package:noir/features/library/application/library_scan_controller.dart';
 import 'package:noir/features/library/data/library_repository.dart';
 import 'package:noir/features/playback/application/playback_controller.dart';
 import 'package:noir/features/playlists/application/playlist_providers.dart';
 import 'package:noir/features/playlists/presentation/add_to_playlist.dart';
+import 'package:noir/features/youtube/application/youtube_providers.dart';
+import 'package:noir/features/youtube/data/youtube_repository.dart';
 import 'package:noir/shared/models/media.dart';
 import 'package:noir/shared/widgets/media_tiles.dart';
 import 'package:noir/shared/widgets/page_scaffold.dart';
@@ -216,6 +219,55 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
             },
           ),
         ),
+      ..._youTubePlaylists(),
+    ];
+  }
+
+  /// Playlists synced from the connected YouTube account, clearly labeled.
+  List<Widget> _youTubePlaylists() {
+    final playlists = [
+      for (final p
+          in ref.watch(youTubePlaylistsProvider).value ??
+              const <YouTubePlaylist>[])
+        if (_matches(p.title)) p,
+    ];
+    final likes = ref.watch(youTubeLikesProvider).value ?? const <Track>[];
+    final connected =
+        ref.watch(accountConnectionProvider).value?.isConnected ?? false;
+    if (!connected && playlists.isEmpty) return const [];
+    return [
+      const SliverToBoxAdapter(
+        child: Padding(
+          padding: EdgeInsets.only(top: NoirSpacing.xl),
+          child: SectionHeader('From YouTube'),
+        ),
+      ),
+      if (likes.isNotEmpty && _matches('Liked videos'))
+        SliverToBoxAdapter(
+          child: CollectionRow(
+            title: 'Liked videos',
+            subtitle: songCount(likes.length),
+            leading: Artwork(
+              path: likes.first.artworkUrl,
+              size: 48,
+              icon: Icons.thumb_up_alt_outlined,
+            ),
+            onTap: () => context.go('/library/youtube/liked'),
+          ),
+        ),
+      SliverList.builder(
+        itemCount: playlists.length,
+        itemBuilder: (context, i) {
+          final p = playlists[i];
+          return CollectionRow(
+            key: ValueKey('yt-${p.id}'),
+            title: p.title,
+            subtitle: songCount(p.trackCount),
+            leading: Artwork(path: p.thumbnailUrl, size: 48),
+            onTap: () => context.go('/library/youtube/${p.id}'),
+          );
+        },
+      ),
     ];
   }
 

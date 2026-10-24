@@ -13,6 +13,7 @@ import 'package:noir/features/playlists/presentation/playlist_screen.dart';
 import 'package:noir/features/queue/presentation/queue_panel.dart';
 import 'package:noir/features/search/presentation/search_screen.dart';
 import 'package:noir/features/settings/presentation/settings_screen.dart';
+import 'package:noir/features/youtube/presentation/youtube_playlist_screen.dart';
 import 'package:noir/shared/models/media.dart';
 
 final _rootKey = GlobalKey<NavigatorState>(debugLabel: 'root');
@@ -70,6 +71,17 @@ final routerProvider = Provider<GoRouter>((ref) {
                   GoRoute(
                     path: 'favorites',
                     builder: (_, _) => const FavoritesScreen(),
+                  ),
+                  GoRoute(
+                    path: 'youtube/liked',
+                    builder: (_, _) => const YouTubeLikesScreen(),
+                  ),
+                  GoRoute(
+                    path: 'youtube/:id',
+                    builder: (_, state) => YouTubePlaylistScreen(
+                      key: ValueKey(state.pathParameters['id']),
+                      id: state.pathParameters['id']!,
+                    ),
                   ),
                 ],
               ),

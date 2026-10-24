@@ -1,21 +1,34 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:noir/app/theme/design_tokens.dart';
+import 'package:noir/core/widgets/buttons.dart';
+import 'package:noir/core/widgets/dialogs.dart';
 import 'package:noir/core/widgets/glass_surface.dart';
 import 'package:noir/features/accounts/domain/account_connection.dart';
+import 'package:noir/features/youtube/application/youtube_sync.dart';
+import 'package:noir/integrations/google_auth/google_oauth_config.dart';
+import 'package:url_launcher/url_launcher.dart';
 
-/// Google / YouTube connection status with an honest summary of what the
-/// official APIs allow (see docs/youtube-capability-matrix.md).
+/// Google / YouTube connection: status, what is shared, sync, disconnect.
+/// Explains the permissions before the browser opens.
 class AccountConnectionCard extends ConsumerWidget {
   const AccountConnectionCard({super.key});
+
+  static final _permissionsPage = Uri.https(
+    'myaccount.google.com',
+    '/permissions',
+  );
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final t = Theme.of(context).textTheme;
     final c = context.noir;
-    final status =
-        ref.watch(accountConnectionProvider).value?.status ??
-        AccountStatus.notConfigured;
+    final service = ref.watch(accountServiceProvider);
+    final account =
+        ref.watch(accountConnectionProvider).value ?? service.current;
+    final sync = ref.watch(youTubeSyncProvider);
 
     Widget line(IconData icon, String text) => Padding(
       padding: const EdgeInsets.only(top: 6),
@@ -28,6 +41,62 @@ class AccountConnectionCard extends ConsumerWidget {
         ],
       ),
     );
+
+    final status = switch (account.status) {
+      AccountStatus.notConfigured => 'Not available in this build',
+      AccountStatus.disconnected => 'Not connected',
+      AccountStatus.connecting => 'Waiting for your browser…',
+      AccountStatus.connected =>
+        account.email ?? account.displayName ?? 'Connected',
+      AccountStatus.needsReconnect => 'Session ended — connect again',
+    };
+
+    final actions = <Widget>[
+      if (account.status == AccountStatus.disconnected ||
+          account.status == AccountStatus.needsReconnect)
+        PillButton(
+          label: account.status == AccountStatus.needsReconnect
+              ? 'Reconnect'
+              : 'Connect Google account',
+          icon: Icons.login_rounded,
+          filled: true,
+          onPressed: () => unawaited(service.connect()),
+        ),
+      if (account.status == AccountStatus.connecting)
+        PillButton(
+          label: 'Cancel',
+          icon: Icons.close_rounded,
+          onPressed: service.cancelConnect,
+        ),
+      if (account.status == AccountStatus.connected) ...[
+        PillButton(
+          label: sync.status == SyncStatus.syncing ? 'Syncing…' : 'Sync now',
+          icon: Icons.sync_rounded,
+          onPressed: sync.status == SyncStatus.syncing
+              ? null
+              : () => unawaited(
+                  ref.read(youTubeSyncProvider.notifier).sync(force: true),
+                ),
+        ),
+        PillButton(
+          label: 'Disconnect',
+          icon: Icons.logout_rounded,
+          onPressed: () async {
+            final ok = await confirm(
+              context,
+              title: 'Disconnect Google account?',
+              message:
+                  'NOIR revokes its access at Google and deletes every '
+                  'YouTube playlist and video it saved on this device. '
+                  'Nothing changes on YouTube.',
+              confirmLabel: 'Disconnect',
+              destructive: true,
+            );
+            if (ok) await service.disconnect();
+          },
+        ),
+      ],
+    ];
 
     return GlassSurface(
       blur: 0,
@@ -51,63 +120,107 @@ class AccountConnectionCard extends ConsumerWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text('Google / YouTube', style: t.titleSmall),
-                    Text(
-                      status == AccountStatus.notConfigured
-                          ? 'Not available in this version'
-                          : status.name,
-                      style: t.bodySmall,
-                    ),
+                    Text(status, style: t.bodySmall),
                   ],
                 ),
               ),
             ],
           ),
+          if (account.message != null) ...[
+            const SizedBox(height: NoirSpacing.md),
+            Text(
+              account.message!,
+              style: t.bodySmall?.copyWith(color: c.destructive),
+            ),
+          ],
+          if (account.status == AccountStatus.connected) ...[
+            const SizedBox(height: NoirSpacing.md),
+            line(
+              Icons.schedule_rounded,
+              sync.lastSyncAt == null
+                  ? 'Not synced yet'
+                  : 'Last synced ${_ago(sync.lastSyncAt!)} · updates every '
+                        '15 minutes while NOIR is open',
+            ),
+            if (sync.status == SyncStatus.failed && sync.message != null)
+              line(Icons.error_outline_rounded, sync.message!),
+            line(
+              Icons.lock_outline_rounded,
+              account.grantedScopes.contains(
+                    GoogleOAuthConfig.playlistWriteScope,
+                  )
+                  ? 'Access: view and manage your YouTube account'
+                  : 'Access: view your YouTube account (read-only)',
+            ),
+          ] else ...[
+            const SizedBox(height: NoirSpacing.md),
+            Text(
+              'Connecting lets NOIR read your YouTube account. Here is what '
+              "YouTube's official APIs allow:",
+              style: t.bodySmall?.copyWith(color: c.textPrimary),
+            ),
+            const SizedBox(height: NoirSpacing.xs),
+            line(
+              Icons.check_rounded,
+              'Your playlists (also those made in YouTube Music), liked '
+              'videos and subscriptions — read-only.',
+            ),
+            line(
+              Icons.check_rounded,
+              'Playback through the official YouTube player, with the video '
+              'visible.',
+            ),
+            line(
+              Icons.close_rounded,
+              'Saved albums, songs and artists from the YouTube Music '
+              'library — no official API.',
+            ),
+            line(
+              Icons.close_rounded,
+              'Background, screen-off, audio-only or offline YouTube '
+              'playback — not permitted.',
+            ),
+          ],
+          if (actions.isNotEmpty) ...[
+            const SizedBox(height: NoirSpacing.lg),
+            Wrap(
+              spacing: NoirSpacing.sm,
+              runSpacing: NoirSpacing.sm,
+              children: actions,
+            ),
+          ],
           const SizedBox(height: NoirSpacing.md),
           Text(
-            'Connecting a Google account is planned for a later version. '
-            "Here is what YouTube's official APIs will and won't allow:",
-            style: t.bodySmall?.copyWith(color: c.textPrimary),
-          ),
-          const SizedBox(height: NoirSpacing.xs),
-          line(
-            Icons.check_rounded,
-            'Your YouTube playlists, liked videos and subscriptions '
-            '(read-only by default).',
-          ),
-          line(
-            Icons.check_rounded,
-            'Playback through the official YouTube player, with the '
-            'video visible.',
-          ),
-          line(
-            Icons.check_rounded,
-            'YouTube search, limited to a small daily quota shared by '
-            'all NOIR users.',
-          ),
-          line(
-            Icons.close_rounded,
-            'YouTube Music library (saved albums, songs, artists) — '
-            'no official API.',
-          ),
-          line(
-            Icons.close_rounded,
-            'Background, screen-off or audio-only YouTube playback — '
-            'not permitted.',
-          ),
-          line(
-            Icons.close_rounded,
-            'Downloading YouTube content for offline use — not '
-            'permitted.',
-          ),
-          const SizedBox(height: NoirSpacing.md),
-          Text(
-            'NOIR will never ask for your Google password; sign-in happens in '
-            'your browser and you can revoke access at any time at '
-            'myaccount.google.com/permissions.',
+            'Sign-in happens in your browser — NOIR never sees your Google '
+            'password. You can also revoke access at any time in your Google '
+            'Account.',
             style: t.labelSmall,
           ),
+          if (account.status != AccountStatus.notConfigured)
+            TextButton(
+              onPressed: () => unawaited(
+                launchUrl(
+                  _permissionsPage,
+                  mode: LaunchMode.externalApplication,
+                ),
+              ),
+              style: TextButton.styleFrom(
+                foregroundColor: c.textSecondary,
+                padding: EdgeInsets.zero,
+                textStyle: t.labelSmall,
+              ),
+              child: const Text('Open Google Account permissions'),
+            ),
         ],
       ),
     );
+  }
+
+  static String _ago(DateTime time) {
+    final d = DateTime.now().difference(time);
+    if (d.inMinutes < 1) return 'just now';
+    if (d.inMinutes < 60) return '${d.inMinutes} min ago';
+    if (d.inHours < 24) return '${d.inHours} h ago';
+    return '${d.inDays} d ago';
   }
 }

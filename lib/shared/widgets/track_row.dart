@@ -11,7 +11,9 @@ import 'package:noir/features/playback/application/playback_controller.dart';
 import 'package:noir/features/playlists/presentation/add_to_playlist.dart';
 import 'package:noir/features/settings/domain/app_settings.dart';
 import 'package:noir/features/settings/presentation/settings_controller.dart';
+import 'package:noir/features/youtube/application/youtube_providers.dart';
 import 'package:noir/shared/models/media.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 /// A track in any list: number or artwork, title/artist, duration, and a
 /// context menu (right-click, long-press, or the "more" button).
@@ -99,7 +101,7 @@ class _TrackRowState extends ConsumerState<TrackRow> {
                             ),
                     ),
                   if (widget.showArtwork) ...[
-                    Artwork(path: track.artworkPath, size: art, radius: 6),
+                    Artwork(path: track.artwork, size: art, radius: 6),
                     const SizedBox(width: NoirSpacing.md),
                   ],
                   Expanded(
@@ -194,6 +196,8 @@ class _TrackRowState extends ConsumerState<TrackRow> {
             track.isFavorite ? 'Remove from favorites' : 'Add to favorites',
           ),
         ],
+        if (track.source == MediaSource.youtube)
+          _item('open', Icons.open_in_new_rounded, 'Open in YouTube Music'),
         if (widget.onRemove != null)
           _item('remove', Icons.remove_circle_outline, widget.removeLabel),
       ],
@@ -212,6 +216,13 @@ class _TrackRowState extends ConsumerState<TrackRow> {
         await addToPlaylist(context, ref, [track]);
       case 'favorite':
         unawaited(playback.toggleFavorite(track));
+      case 'open':
+        unawaited(
+          launchUrl(
+            youTubeMusicUrl(videoId: track.uri),
+            mode: LaunchMode.externalApplication,
+          ),
+        );
       case 'remove':
         widget.onRemove?.call();
     }

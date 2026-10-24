@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:noir/app/router.dart';
 import 'package:noir/app/theme/app_theme.dart';
 import 'package:noir/app/theme/glass_theme.dart';
+import 'package:noir/features/playback/presentation/youtube_video_layer.dart';
 import 'package:noir/features/settings/presentation/settings_controller.dart';
 
 class NoirApp extends ConsumerWidget {
@@ -25,7 +26,24 @@ class NoirApp extends ConsumerWidget {
           settings,
           systemReducedMotion: MediaQuery.disableAnimationsOf(context),
         ),
-        child: child!,
+        // The YouTube video sits above every route so it can move between
+        // Now Playing and its floating mini position without reloading.
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            child!,
+            Overlay(
+              initialEntries: [
+                OverlayEntry(
+                  builder: (_) => const Material(
+                    type: MaterialType.transparency,
+                    child: YouTubeVideoLayer(),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }

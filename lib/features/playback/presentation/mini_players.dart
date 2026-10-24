@@ -73,10 +73,7 @@ class SidebarPlayerCard extends ConsumerWidget {
                 children: [
                   Hero(
                     tag: 'now-playing-art',
-                    child: Artwork(
-                      path: s.current!.track.artworkPath,
-                      size: 40,
-                    ),
+                    child: Artwork(path: s.current!.track.artwork, size: 40),
                   ),
                   const SizedBox(width: NoirSpacing.sm + 2),
                   Expanded(child: _NowPlayingText(s)),
@@ -143,7 +140,7 @@ class PlayerBar extends ConsumerWidget {
                       Hero(
                         tag: 'now-playing-art',
                         child: Artwork(
-                          path: s.current!.track.artworkPath,
+                          path: s.current!.track.artwork,
                           size: 44,
                         ),
                       ),
@@ -217,10 +214,7 @@ class MobileMiniPlayer extends ConsumerWidget {
                   children: [
                     Hero(
                       tag: 'now-playing-art',
-                      child: Artwork(
-                        path: s.current!.track.artworkPath,
-                        size: 40,
-                      ),
+                      child: Artwork(path: s.current!.track.artwork, size: 40),
                     ),
                     const SizedBox(width: NoirSpacing.md),
                     Expanded(child: _NowPlayingText(s)),

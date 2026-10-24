@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:noir/app/theme/design_tokens.dart';
 import 'package:noir/app/theme/glass_theme.dart';
+import 'package:noir/core/widgets/artwork.dart';
 
 /// The canvas behind every screen: near-black with soft light falloff, and —
 /// when Liquid Glass is on in Balanced mode — a faint monochrome wash of the
@@ -55,12 +56,19 @@ class NoirBackdrop extends StatelessWidget {
                 opacity: dark ? 0.18 : 0.12,
                 child: ColorFiltered(
                   colorFilter: _grayscale,
-                  child: Image.file(
-                    File(artworkPath!),
-                    fit: BoxFit.cover,
-                    cacheWidth: 24,
-                    errorBuilder: (_, _, _) => const SizedBox.shrink(),
-                  ),
+                  child: isRemoteImage(artworkPath!)
+                      ? Image.network(
+                          artworkPath!,
+                          fit: BoxFit.cover,
+                          cacheWidth: 24,
+                          errorBuilder: (_, _, _) => const SizedBox.shrink(),
+                        )
+                      : Image.file(
+                          File(artworkPath!),
+                          fit: BoxFit.cover,
+                          cacheWidth: 24,
+                          errorBuilder: (_, _, _) => const SizedBox.shrink(),
+                        ),
                 ),
               ),
             ),

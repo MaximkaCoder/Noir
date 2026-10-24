@@ -35,6 +35,9 @@ abstract class Track with _$Track {
       source == MediaSource.local ? int.tryParse(id.substring(6)) : null;
 
   String get artistOrUnknown => artist ?? 'Unknown artist';
+
+  /// Local artwork file or remote thumbnail URL, whichever exists.
+  String? get artwork => artworkPath ?? artworkUrl;
 }
 
 @freezed

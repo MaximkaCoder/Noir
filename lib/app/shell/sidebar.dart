@@ -12,6 +12,7 @@ import 'package:noir/features/playback/presentation/mini_players.dart';
 import 'package:noir/features/playlists/application/playlist_providers.dart';
 import 'package:noir/features/playlists/presentation/add_to_playlist.dart';
 import 'package:noir/features/settings/presentation/settings_controller.dart';
+import 'package:noir/features/youtube/application/youtube_providers.dart';
 
 const List<Branch> _primaryBranches = [
   Branch.home,
@@ -53,6 +54,9 @@ class Sidebar extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final t = Theme.of(context).textTheme;
     final playlists = ref.watch(playlistsProvider).value ?? const [];
+    final ytPlaylists = ref.watch(youTubePlaylistsProvider).value ?? const [];
+    final hasLikes =
+        (ref.watch(youTubeLikesProvider).value ?? const []).isNotEmpty;
     final location = GoRouterState.of(context).uri.path;
 
     return SizedBox(
@@ -81,6 +85,7 @@ class Sidebar extends ConsumerWidget {
                 selected:
                     shell.currentIndex == b.index &&
                     !location.startsWith('/library/playlist') &&
+                    !location.startsWith('/library/youtube') &&
                     location != '/library/favorites',
                 onTap: () => _goBranch(b),
               ),
@@ -123,6 +128,28 @@ class Sidebar extends ConsumerWidget {
                       ),
                     ),
                   ),
+                  if (ytPlaylists.isNotEmpty || hasLikes) ...[
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(26, 8, 16, 8),
+                      child: Text('YouTube', style: t.labelMedium),
+                    ),
+                    if (hasLikes)
+                      _NavItem(
+                        label: 'Liked videos',
+                        icon: Icons.thumb_up_alt_outlined,
+                        dense: true,
+                        selected: location == '/library/youtube/liked',
+                        onTap: () => context.go('/library/youtube/liked'),
+                      ),
+                    for (final p in ytPlaylists)
+                      _NavItem(
+                        label: p.title,
+                        icon: Icons.smart_display_outlined,
+                        dense: true,
+                        selected: location == '/library/youtube/${p.id}',
+                        onTap: () => context.go('/library/youtube/${p.id}'),
+                      ),
+                  ],
                 ],
               ),
             ),

@@ -1,22 +1,43 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:noir/features/home/data/history_repository.dart';
+import 'package:noir/features/library/application/library_scan_controller.dart';
 import 'package:noir/features/library/data/library_repository.dart';
 import 'package:noir/features/playback/domain/playback_engine.dart';
+import 'package:noir/features/playback/domain/routing_engine.dart';
 import 'package:noir/features/settings/data/settings_repository.dart';
 import 'package:noir/features/settings/domain/app_settings.dart';
 import 'package:noir/features/settings/presentation/settings_controller.dart';
 import 'package:noir/integrations/local_audio/local_audio_engine.dart';
+import 'package:noir/integrations/youtube_playback/youtube_embed_engine.dart';
 import 'package:noir/shared/models/media.dart';
 import 'package:noir/shared/models/playback.dart';
+import 'package:path/path.dart' as p;
 
 final playbackEngineProvider = Provider<PlaybackEngine>((ref) {
-  final engine = LocalAudioEngine();
+  final dirs = ref.watch(appDirectoriesProvider);
+  final engine = RoutingEngine({
+    MediaSource.local: LocalAudioEngine(),
+    if (YouTubeEmbedEngine.isSupported)
+      MediaSource.youtube: YouTubeEmbedEngine(
+        pageDir: Directory(p.join(dirs.artwork.parent.path, 'yt_player')),
+      ),
+  });
   ref.onDispose(engine.dispose);
   return engine;
+});
+
+/// The embedded YouTube player, for the video layer. Null when this platform
+/// has no YouTube engine (or in tests with a fake engine).
+final youTubeEngineProvider = Provider<YouTubeEmbedEngine?>((ref) {
+  final engine = ref.watch(playbackEngineProvider);
+  return engine is RoutingEngine
+      ? engine.engineFor(MediaSource.youtube) as YouTubeEmbedEngine?
+      : null;
 });
 
 final playbackProvider = NotifierProvider<PlaybackController, PlaybackState>(
@@ -273,8 +294,21 @@ class PlaybackController extends Notifier<PlaybackState> {
         .readJson(sessionKey);
     if (json == null) return;
     try {
-      final ids = (json['trackIds']! as List<Object?>).cast<int>();
-      final tracks = await ref.read(libraryRepositoryProvider).tracksByIds(ids);
+      final saved = [
+        for (final t in json['tracks']! as List<Object?>)
+          Track.fromJson(t! as Map<String, Object?>),
+      ];
+      // Local tracks are re-read so deleted files and new favorites show up.
+      final local = {
+        for (final t in await ref.read(libraryRepositoryProvider).tracksByIds([
+          for (final t in saved) ?t.localId,
+        ]))
+          t.id: t,
+      };
+      final tracks = [
+        for (final t in saved)
+          if (t.source == MediaSource.local) ?local[t.id] else t,
+      ];
       if (tracks.isEmpty) return;
       final index = (json['index']! as int).clamp(0, tracks.length - 1);
       state = state.copyWith(
@@ -303,11 +337,10 @@ class PlaybackController extends Notifier<PlaybackState> {
       unawaited(repo.delete(sessionKey));
       return;
     }
-    final ids = [for (final q in state.queue) ?q.track.localId];
     unawaited(
       repo.writeJson(sessionKey, {
-        'trackIds': ids,
-        'index': ids.indexOf(current.track.localId ?? -1).clamp(0, ids.length),
+        'tracks': [for (final q in state.queue) q.track.toJson()],
+        'index': state.index,
         'positionMs': _engine.currentPosition.inMilliseconds,
         'repeat': state.repeat.name,
       }),
@@ -344,6 +377,8 @@ class PlaybackController extends Notifier<PlaybackState> {
     _crossfading = false;
     state = state.copyWith(status: PlaybackStatus.loading);
     final ok = await _engine.load(item.track);
+    // The engine may have switched source; controls follow its abilities.
+    state = state.copyWith(capabilities: _engine.capabilities);
     if (!ok || state.current?.uid != item.uid) return; // Failed/superseded.
     if (autoplay) await _engine.play();
     _recordPlay(item.track);
@@ -404,9 +439,11 @@ class PlaybackController extends Notifier<PlaybackState> {
         ? index + 1
         : (state.repeat == RepeatMode.all ? 0 : null);
     if (nextIndex == null) return;
+    final next = state.queue[nextIndex];
+    // No fades across sources (e.g. into a YouTube video).
+    if (next.track.source != state.queue[index].track.source) return;
 
     _crossfading = true;
-    final next = state.queue[nextIndex];
     state = state.copyWith(index: nextIndex);
     _recordPlay(next.track);
     unawaited(

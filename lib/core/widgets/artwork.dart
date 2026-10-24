@@ -16,6 +16,7 @@ class Artwork extends StatelessWidget {
     super.key,
   });
 
+  /// Local file path or http(s) URL.
   final String? path;
   final double size;
   final double radius;
@@ -26,10 +27,22 @@ class Artwork extends StatelessWidget {
   Widget build(BuildContext context) {
     final dpr = MediaQuery.devicePixelRatioOf(context);
     final placeholder = _Placeholder(size: size, icon: icon);
-    final image = path == null
+    final source = path;
+    final image = source == null
         ? placeholder
+        : isRemoteImage(source)
+        ? Image.network(
+            source,
+            width: size,
+            height: size,
+            fit: BoxFit.cover,
+            cacheWidth: (size * dpr).round(),
+            gaplessPlayback: true,
+            semanticLabel: semanticLabel,
+            errorBuilder: (_, _, _) => placeholder,
+          )
         : Image.file(
-            File(path!),
+            File(source),
             width: size,
             height: size,
             fit: BoxFit.cover,
@@ -44,6 +57,9 @@ class Artwork extends StatelessWidget {
     );
   }
 }
+
+bool isRemoteImage(String source) =>
+    source.startsWith('https://') || source.startsWith('http://');
 
 /// 2×2 collage of up to four covers, as used for playlists.
 class ArtworkCollage extends StatelessWidget {

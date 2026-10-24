@@ -310,7 +310,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       return (
         track.title,
         'Song · ${track.artistOrUnknown}',
-        Artwork(path: track.artworkPath, size: 64),
+        Artwork(path: track.artwork, size: 64),
         () =>
             unawaited(ref.read(playbackProvider.notifier).playTracks([track])),
       );
