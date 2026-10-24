@@ -9,6 +9,7 @@ import 'package:noir/core/formatters.dart';
 import 'package:noir/core/widgets/artwork.dart';
 import 'package:noir/core/widgets/dialogs.dart';
 import 'package:noir/core/widgets/menus.dart';
+import 'package:noir/features/analysis/presentation/track_analysis_dialog.dart';
 import 'package:noir/features/playback/application/playback_controller.dart';
 import 'package:noir/features/playlists/presentation/add_to_playlist.dart';
 import 'package:noir/features/settings/domain/app_settings.dart';
@@ -224,6 +225,11 @@ class _TrackRowState extends ConsumerState<TrackRow> {
             'Open in YouTube Music',
             icon: Icons.open_in_new_rounded,
           ),
+        const NoirMenuItem(
+          'analysis',
+          'Show analysis',
+          icon: Icons.graphic_eq_rounded,
+        ),
         if (widget.onRemove != null)
           NoirMenuItem(
             'remove',
@@ -255,6 +261,8 @@ class _TrackRowState extends ConsumerState<TrackRow> {
             mode: LaunchMode.externalApplication,
           ),
         );
+      case 'analysis':
+        unawaited(showTrackAnalysis(context, track));
       case 'remove':
         widget.onRemove?.call();
     }
