@@ -1,10 +1,8 @@
-import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
-import 'package:noir/app/theme/design_tokens.dart';
 import 'package:noir/features/lyrics/domain/lrc.dart';
 
 /// The playback position the karaoke fill shows: the engine's position,
@@ -68,15 +66,19 @@ class KaraokeClock extends ValueNotifier<Duration> {
   }
 }
 
-/// One line of the karaoke list: its plain text in [rest] while it is not
-/// sung; while [active], [activeScale] times larger with its words filling
-/// in [KaraokeLine]. Becoming active or not is animated over [duration]:
-/// the size, the fill colour and the dim colour tween together, and the
-/// line takes up its animated height so the list around it moves along.
-class KaraokeRow extends StatefulWidget {
+/// One line of the karaoke list: its plain text in [rest] while [grow] is 0;
+/// [activeScale] times larger with its words filling in [KaraokeLine] at 1.
+/// The list drives [grow] for the line coming in and the one going out from
+/// one animation, which also carries its scroll, so size, colour and
+/// position move together frame by frame.
+///
+/// Every row is laid out at the width it has at [activeScale], so growing
+/// or shrinking never rewraps it: only a transform and the row's height
+/// change.
+class KaraokeRow extends StatelessWidget {
   const KaraokeRow({
     required this.text,
-    required this.active,
+    required this.grow,
     required this.words,
     required this.position,
     required this.style,
@@ -84,15 +86,15 @@ class KaraokeRow extends StatefulWidget {
     required this.unlit,
     required this.rest,
     required this.activeScale,
-    required this.restScale,
-    required this.duration,
     super.key,
   });
 
   final String text;
-  final bool active;
 
-  /// Timed pieces of [text] (computed only when needed).
+  /// 0 at rest size, 1 sung (eased by the list).
+  final Animation<double> grow;
+
+  /// Timed pieces of [text], asked for only while the line is lit.
   final List<WordTiming> Function() words;
   final ValueListenable<Duration> position;
 
@@ -102,92 +104,44 @@ class KaraokeRow extends StatefulWidget {
   /// Sung words.
   final Color lit;
 
-  /// Words still to come in the active line.
+  /// Words still to come in the sung line.
   final Color unlit;
 
-  /// The whole line while not active (past or upcoming).
+  /// The whole line at rest (past or upcoming).
   final Color rest;
   final double activeScale;
-  final double restScale;
-  final Duration duration;
-
-  @override
-  State<KaraokeRow> createState() => _KaraokeRowState();
-}
-
-class _KaraokeRowState extends State<KaraokeRow>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _grow = AnimationController(
-    vsync: this,
-    value: widget.active ? 1 : 0,
-  );
-  List<WordTiming>? _words;
-
-  @override
-  void didUpdateWidget(KaraokeRow old) {
-    super.didUpdateWidget(old);
-    if (old.text != widget.text) _words = null;
-    if (old.active != widget.active) {
-      _grow.duration = widget.duration;
-      if (widget.duration == Duration.zero) {
-        _grow.value = widget.active ? 1 : 0;
-      } else if (widget.active) {
-        _grow.forward();
-      } else {
-        _grow.reverse();
-      }
-    }
-  }
-
-  @override
-  void dispose() {
-    _grow.dispose();
-    super.dispose();
-  }
 
   @override
   Widget build(BuildContext context) {
-    final text = widget.text.isEmpty ? '♪' : widget.text;
+    final shown = text.isEmpty ? '♪' : text;
     return AnimatedBuilder(
-      animation: _grow,
+      animation: grow,
       builder: (context, _) {
-        final g = NoirMotion.standard.transform(_grow.value);
-        final scale = lerpDouble(widget.restScale, widget.activeScale, g);
-        // Laid out for the larger of the two sizes while it changes, so it
-        // never rewraps mid-animation nor spills past the column.
-        final layoutScale = _grow.isAnimating
-            ? math.max(widget.restScale, widget.activeScale)
-            : scale;
+        final g = grow.value.clamp(0.0, 1.0);
         final Widget content;
-        if (g == 0 || widget.text.isEmpty) {
-          content = AnimatedDefaultTextStyle(
-            duration: widget.duration,
-            curve: NoirMotion.standard,
-            style: widget.style.copyWith(
-              color: Color.lerp(widget.rest, widget.lit, g),
-            ),
-            child: Text(text),
+        if (g == 0 || text.isEmpty) {
+          content = Text(
+            shown,
+            style: style.copyWith(color: Color.lerp(rest, lit, g)),
           );
         } else {
           content = KaraokeLine(
-            text: text,
-            words: _words ??= widget.words(),
-            position: widget.position,
-            style: widget.style,
-            lit: Color.lerp(widget.rest, widget.lit, g)!,
-            unlit: Color.lerp(widget.rest, widget.unlit, g)!,
+            text: shown,
+            words: words(),
+            position: position,
+            style: style,
+            lit: Color.lerp(rest, lit, g)!,
+            unlit: Color.lerp(rest, unlit, g)!,
           );
         }
         return LyricRowScale(
-          scale: scale,
-          layoutScale: layoutScale,
+          scale: 1 + (activeScale - 1) * g,
+          layoutScale: activeScale,
           child: content,
         );
       },
     );
   }
-
-  static double lerpDouble(double a, double b, double t) => a + (b - a) * t;
 }
 
 /// Draws [child] [scale] times its size from its top left corner, and

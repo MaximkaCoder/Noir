@@ -429,17 +429,18 @@ void main() {
 
   group('karaoke', () {
     Future<({ProviderContainer container, FakeEngine engine, FakeHttp http})>
-    pumpKaraoke(WidgetTester tester, {String? lyrics}) async {
+    pumpKaraoke(WidgetTester tester, {String? lyrics, String? synced}) async {
       final app = await pumpNowPlaying(
         tester,
-        lrclib: lyrics == null
+        lrclib: lyrics == null && synced == null
             ? null
             : (_) => ok({
                 'trackName': 'Ash & Ember',
                 'artistName': 'Mara Vale',
                 'duration': 180,
                 'instrumental': false,
-                'plainLyrics': lyrics,
+                'plainLyrics': lyrics ?? 'words',
+                'syncedLyrics': ?synced,
               }),
       );
       // Paused: while playing, the fill animates every frame.
@@ -509,6 +510,57 @@ void main() {
           epsilon: 1,
         ),
       );
+    });
+
+    testWidgets('moving on is smooth: no row goes back and forth', (
+      tester,
+    ) async {
+      const names = ['one', 'two', 'three', 'four', 'five', 'six'];
+      final app = await pumpKaraoke(
+        tester,
+        synced: [
+          for (final (i, n) in names.indexed)
+            '[00:${(i * 4).toString().padLeft(2, '0')}.00] Line $n',
+        ].join('\n'),
+      );
+      app.engine.tick(const Duration(milliseconds: 4600));
+      await tester.pumpAndSettle();
+
+      Rect rowOf(String text) => tester.getRect(
+        find
+            .ancestor(of: find.text(text), matching: find.byType(InkWell))
+            .first,
+      );
+      final outgoing = <Rect>[rowOf('Line two')];
+      final neighbour = <Rect>[rowOf('Line four')];
+      final scales = <double>[scaleOf(tester, 'Line two')];
+
+      app.engine.tick(const Duration(milliseconds: 8000));
+      for (var i = 0; i < 32; i++) {
+        await tester.pump(const Duration(milliseconds: 16));
+        outgoing.add(rowOf('Line two'));
+        neighbour.add(rowOf('Line four'));
+        scales.add(scaleOf(tester, 'Line two'));
+      }
+      await tester.pumpAndSettle();
+
+      void steady(List<double> values, String what) {
+        for (var i = 1; i < values.length; i++) {
+          expect(
+            values[i],
+            lessThanOrEqualTo(values[i - 1] + 1e-6),
+            reason: '$what went back at frame $i: $values',
+          );
+        }
+        expect(values.last, lessThan(values.first), reason: what);
+      }
+
+      steady([for (final r in outgoing) r.top], 'old line position');
+      steady([for (final r in outgoing) r.height], 'old line height');
+      steady(scales, 'old line scale');
+      steady([for (final r in neighbour) r.top], 'next lines position');
+      expect(scales.last, 1);
+      expect(scaleOf(tester, 'Line three'), SyncedLyricsList.karaokeScale);
     });
 
     testWidgets('with animations off the line changes at once', (tester) async {

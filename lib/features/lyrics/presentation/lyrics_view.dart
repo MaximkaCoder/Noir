@@ -250,13 +250,32 @@ class _SyncedLyricsListState extends ConsumerState<SyncedLyricsList>
   /// Karaoke: the interpolated position the fill and the active line follow.
   late final KaraokeClock _clock = KaraokeClock(this);
 
-  /// Karaoke: carries the scroll along while line sizes change.
-  late final AnimationController _glide = AnimationController(vsync: this)
-    ..addListener(_glideStep)
-    ..addStatusListener((status) {
-      if (status.isCompleted) _revealAfterFrame();
-    });
+  /// Karaoke: one animation moves on to the next line — the new line grows,
+  /// the old one shrinks and dims, and the scroll glides — so every part of
+  /// the change moves in step, frame by frame.
+  late final AnimationController _change =
+      AnimationController(vsync: this, value: 1)
+        ..addListener(_glideStep)
+        ..addStatusListener((status) {
+          if (status.isCompleted && _glideTo != null) {
+            _glideTo = null;
+            // A no-op unless the prediction missed (e.g. a resize meanwhile).
+            _revealAfterFrame();
+          }
+        });
+  late final Animation<double> _grow = CurvedAnimation(
+    parent: _change,
+    curve: NoirMotion.standard,
+  );
+  late final Animation<double> _shrink = ReverseAnimation(_grow);
+
+  /// The line that was sung before [_active], shrinking back.
+  int? _outgoing;
+
+  /// Where the scroll glides from and to during a change.
   double _glideFrom = 0;
+  double? _glideTo;
+  final _timings = <int, List<WordTiming>>{};
 
   @override
   void initState() {
@@ -308,13 +327,15 @@ class _SyncedLyricsListState extends ConsumerState<SyncedLyricsList>
     if (old.lines != widget.lines) {
       _keys = [for (final _ in widget.lines) GlobalKey()];
       _active = -1;
+      _outgoing = null;
+      _timings.clear();
     }
   }
 
   @override
   void dispose() {
     _resume?.cancel();
-    _glide.dispose();
+    _change.dispose();
     _clock.dispose();
     _scroll.dispose();
     super.dispose();
@@ -322,41 +343,93 @@ class _SyncedLyricsListState extends ConsumerState<SyncedLyricsList>
 
   void _setActive(int index) {
     if (index == _active || !mounted) return;
-    setState(() => _active = index);
-    if (!_following) return;
     if (widget.karaoke) {
-      _glideToActive();
-    } else {
-      _revealAfterFrame(animate: true);
+      _moveOn(index);
+      return;
     }
+    setState(() => _active = index);
+    if (_following) _revealAfterFrame(animate: true);
   }
 
   void _revealAfterFrame({bool animate = false}) => WidgetsBinding.instance
       .addPostFrameCallback((_) => _reveal(animate: animate));
 
-  /// Karaoke: moves the list along with the changing line sizes, reaching
-  /// the anchor for the new line's final size as they settle.
-  void _glideToActive() {
+  /// Karaoke: moves on from the sung line to [index].
+  void _moveOn(int index) {
     final duration = NoirEffects.of(context)
         .motion(SyncedLyricsList.karaokeChange);
-    if (duration == Duration.zero || !_scroll.hasClients) {
-      _revealAfterFrame();
+    // Predicted from the layout before anything moves.
+    final target = _following && duration > Duration.zero
+        ? _predictAnchor(from: _active, to: index)
+        : null;
+    setState(() {
+      _outgoing = _active >= 0 ? _active : null;
+      _active = index;
+    });
+    if (duration == Duration.zero) {
+      _change.value = 1;
+      if (_following) _revealAfterFrame();
       return;
     }
-    _glideFrom = _scroll.position.pixels;
-    _glide
+    _glideFrom = _scroll.hasClients ? _scroll.position.pixels : 0;
+    _glideTo = target;
+    _change
       ..duration = duration
       ..forward(from: 0);
+    if (target == null && _following) _revealAfterFrame(animate: true);
   }
 
+  /// Follows the change: the offset is a function of the same eased value
+  /// as the line sizes, so the list and the lines never drift apart.
   void _glideStep() {
-    if (!_glide.isAnimating || !_scroll.hasClients) return;
-    // From the last laid-out frame: the sizes keep changing, so the target
-    // moves with them; the end of the glide lands on it exactly.
-    final target = _anchorOffset();
-    if (target == null) return;
-    final t = NoirMotion.standard.transform(_glide.value);
-    _scroll.position.jumpTo(_glideFrom + (target - _glideFrom) * t);
+    final to = _glideTo;
+    if (to == null || !_following || !_scroll.hasClients) return;
+    _scroll.position.jumpTo(_glideFrom + (to - _glideFrom) * _grow.value);
+  }
+
+  /// The scroll offset that will put line [to] at the anchor once it has
+  /// grown and line [from] has shrunk back. Rows are laid out at a fixed
+  /// width, so their final heights follow from their scales alone.
+  double? _predictAnchor({required int from, required int to}) {
+    if (!_scroll.hasClients) return null;
+    final row = _rowBox(to);
+    if (row == null) return null;
+    final viewport = RenderAbstractViewport.maybeOf(row);
+    if (viewport == null) return null;
+    const big = SyncedLyricsList.karaokeScale;
+    final incoming = _scaleBoxOf(row);
+    final outgoing = from >= 0 ? _scaleBoxOf(_rowBox(from)) : null;
+    final grows = incoming?.child == null
+        ? 0.0
+        : incoming!.child!.size.height * (big - incoming.scale);
+    final shrinks = outgoing?.child == null
+        ? 0.0
+        : outgoing!.child!.size.height * (1 - outgoing.scale);
+    final top =
+        viewport.getOffsetToReveal(row, 0).offset +
+        (from >= 0 && from < to ? shrinks : 0);
+    final height = row.size.height + grows;
+    final position = _scroll.position;
+    final target =
+        top - SyncedLyricsList.anchor * (position.viewportDimension - height);
+    return target.clamp(
+      position.minScrollExtent,
+      position.maxScrollExtent + grows + shrinks,
+    );
+  }
+
+  RenderBox? _rowBox(int index) {
+    if (index < 0 || index >= _keys.length) return null;
+    final box = _keys[index].currentContext?.findRenderObject();
+    return box is RenderBox && box.attached && box.hasSize ? box : null;
+  }
+
+  static RenderLyricRowScale? _scaleBoxOf(RenderObject? root) {
+    if (root == null) return null;
+    if (root is RenderLyricRowScale) return root;
+    RenderLyricRowScale? found;
+    root.visitChildren((child) => found ??= _scaleBoxOf(child));
+    return found;
   }
 
   /// The scroll offset that puts the active line at the anchor.
@@ -399,7 +472,7 @@ class _SyncedLyricsListState extends ConsumerState<SyncedLyricsList>
 
   void _pauseFollow() {
     _following = false;
-    _glide.stop();
+    _glideTo = null;
     _resume?.cancel();
     _resume = Timer(SyncedLyricsList.followPause, () {
       _following = true;
@@ -429,8 +502,12 @@ class _SyncedLyricsListState extends ConsumerState<SyncedLyricsList>
         ? null
         : KaraokeRow(
             text: widget.lines[i].text,
-            active: i == _active,
-            words: () => lineWordTimings(widget.lines, i),
+            grow: i == _active
+                ? _grow
+                : i == _outgoing
+                ? _shrink
+                : kAlwaysDismissedAnimation,
+            words: () => _timings[i] ??= lineWordTimings(widget.lines, i),
             position: _clock,
             style: base,
             lit: c.textPrimary,
@@ -439,8 +516,6 @@ class _SyncedLyricsListState extends ConsumerState<SyncedLyricsList>
               alpha: i < _active ? _pastAlpha : _futureAlpha,
             ),
             activeScale: SyncedLyricsList.karaokeScale,
-            restScale: 1,
-            duration: fx.motion(SyncedLyricsList.karaokeChange),
           );
 
     return LayoutBuilder(

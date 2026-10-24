@@ -253,6 +253,28 @@ void main() {
       await cycle('lyrics #$i', trace: 'lyrics_open_$i');
     }
 
+    // Karaoke moving on from line to line while playing: each change
+    // grows one line, shrinks another and glides the list.
+    container
+        .read(settingsProvider.notifier)
+        .update((s) => s.copyWith(lyricsMode: LyricsMode.karaoke));
+    await tester.tap(openButton);
+    await wait(1500);
+    final karaoke = _Phase('karaoke line changes');
+    phases.add(karaoke);
+    for (var line = 3; line <= 8; line++) {
+      // Just before the line starts; the interpolated clock crosses it.
+      engine.tick(Duration(milliseconds: line * 4000 - 200));
+      recording = karaoke;
+      await wait(800);
+      recording = null;
+    }
+    router.pop();
+    await wait(800);
+    container
+        .read(settingsProvider.notifier)
+        .update((s) => s.copyWith(lyricsMode: LyricsMode.lines));
+
     if (_shotDir.isNotEmpty) {
       Future<void> shot(String name) async {
         await wait(900);
