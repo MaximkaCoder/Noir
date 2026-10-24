@@ -241,6 +241,15 @@ final ytmAlbumProvider = FutureProvider.autoDispose
       return ref.read(innerTubeClientProvider).album(browseId);
     }, retry: _noRetry);
 
+/// An artist page by channel id ([YtmArtistItem.browseId]).
+final ytmArtistProvider = FutureProvider.autoDispose.family<YtmArtist, String>((
+  ref,
+  browseId,
+) {
+  _cacheFor(ref, const Duration(minutes: 10));
+  return ref.read(innerTubeClientProvider).artist(browseId);
+}, retry: _noRetry);
+
 enum YtmCollectionKind { playlist, album }
 
 typedef YtmCollectionRef = ({YtmCollectionKind kind, String id});

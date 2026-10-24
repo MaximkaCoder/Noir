@@ -4,22 +4,35 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noir/app/app.dart';
 import 'package:noir/app/router.dart';
 import 'package:noir/core/database/database_provider.dart';
+import 'package:noir/core/widgets/artwork.dart';
 import 'package:noir/core/widgets/glass_surface.dart';
 import 'package:noir/features/accounts/domain/account_connection.dart';
+import 'package:noir/features/artwork/application/artwork_providers.dart';
+import 'package:noir/features/artwork/application/artwork_resolver.dart';
+import 'package:noir/features/artwork/domain/resolved_art.dart';
+import 'package:noir/features/discover/application/discover_providers.dart';
+import 'package:noir/features/discover/presentation/ytm_artist_screen.dart';
 import 'package:noir/features/library/application/library_scan_controller.dart';
 import 'package:noir/features/library/data/library_repository.dart';
+import 'package:noir/features/library/presentation/collection_screens.dart';
 import 'package:noir/features/lyrics/application/lyrics_providers.dart';
 import 'package:noir/features/playback/application/playback_controller.dart';
 import 'package:noir/features/playback/presentation/now_playing_screen.dart';
+import 'package:noir/features/playback/presentation/playback_controls.dart';
 import 'package:noir/features/settings/domain/app_settings.dart';
 import 'package:noir/features/settings/presentation/settings_controller.dart';
+import 'package:noir/integrations/youtube_music/ytm_models.dart';
+import 'package:noir/shared/models/media.dart';
 
+import '../discover/fake_artist_client.dart';
 import '../helpers/fake_engine.dart';
 import '../helpers/fake_http.dart';
+import '../helpers/fake_innertube_client.dart';
 import '../helpers/test_database.dart';
 
 const synced =
@@ -34,6 +47,10 @@ pumpNowPlaying(
   Size size = const Size(1360, 860),
   double textScale = 1,
   FakeReply Function(FakeRequest request)? lrclib,
+
+  /// Played instead of the two library tracks.
+  List<Track>? tracks,
+  List<Override> overrides = const [],
 }) async {
   tester.view
     ..physicalSize = size
@@ -69,6 +86,7 @@ pumpNowPlaying(
           importedMusic: Directory('${tmp.path}/imported'),
         ),
       ),
+      ...overrides,
     ],
   );
   await LibraryRepository(db).upsertScanned([
@@ -88,9 +106,9 @@ pumpNowPlaying(
 
   final rows = await db.select(db.tracks).get();
   rows.sort((a, b) => a.path.compareTo(b.path));
-  await container.read(playbackProvider.notifier).playTracks([
-    for (final r in rows) r.toTrack(),
-  ]);
+  await container
+      .read(playbackProvider.notifier)
+      .playTracks(tracks ?? [for (final r in rows) r.toTrack()]);
   unawaited(container.read(routerProvider).push<void>('/now-playing'));
   await tester.pumpAndSettle();
   expect(find.byTooltip('Close player (Esc)'), findsOneWidget);
@@ -256,6 +274,167 @@ void main() {
     });
   });
 
+  group('track change', () {
+    testWidgets('title and artist cross-fade to the next song', (tester) async {
+      final app = await pumpNowPlaying(tester);
+      expect(_inPlayer(find.text('Ash & Ember')), findsOneWidget);
+
+      await app.container.read(playbackProvider.notifier).next();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 120));
+      // Mid-way both are there, the old one fading out.
+      expect(_inPlayer(find.text('Ash & Ember')), findsOneWidget);
+      expect(_inPlayer(find.text('Quiet Harbor')), findsOneWidget);
+
+      await tester.pumpAndSettle();
+      expect(_inPlayer(find.text('Ash & Ember')), findsNothing);
+      expect(_inPlayer(find.text('Quiet Harbor')), findsOneWidget);
+    });
+
+    testWidgets('the cover cross-fades inside the shared Hero', (tester) async {
+      final app = await pumpNowPlaying(tester);
+      final hero = _inPlayer(find.byType(Hero));
+      expect(hero, findsOneWidget);
+      Finder cover(String title) => find.descendant(
+        of: hero,
+        matching: find.byWidgetPredicate(
+          (w) => w is Artwork && w.semanticLabel == 'Artwork for $title',
+        ),
+      );
+
+      await app.container.read(playbackProvider.notifier).next();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 120));
+      expect(cover('Ash & Ember'), findsOneWidget);
+      expect(cover('Quiet Harbor'), findsOneWidget);
+
+      await tester.pumpAndSettle();
+      expect(cover('Ash & Ember'), findsNothing);
+      expect(cover('Quiet Harbor'), findsOneWidget);
+    });
+
+    testWidgets('progress glides back to the start', (tester) async {
+      final app = await pumpNowPlaying(tester);
+      app.engine
+        ..durationValue = const Duration(minutes: 3)
+        ..tick(const Duration(seconds: 100));
+      await tester.pump();
+      double value() => tester
+          .widget<Slider>(
+            find.descendant(
+              of: _inPlayer(find.byType(ProgressSlider)),
+              matching: find.byType(Slider),
+            ),
+          )
+          .value;
+      expect(value(), 100000);
+
+      await app.container.read(playbackProvider.notifier).next();
+      app.engine.tick(Duration.zero);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(value(), inExclusiveRange(0, 100000));
+      expect(_inPlayer(find.text('1:40')), findsNothing);
+      expect(_inPlayer(find.text('0:00')), findsNothing);
+
+      await tester.pumpAndSettle();
+      expect(value(), 0);
+      expect(_inPlayer(find.text('0:00')), findsOneWidget);
+    });
+  });
+
+  group('artist and album links', () {
+    String location(ProviderContainer c) =>
+        c.read(routerProvider).routerDelegate.currentConfiguration.uri.path;
+
+    testWidgets('a local artist opens its library page, closing the player', (
+      tester,
+    ) async {
+      final app = await pumpNowPlaying(tester);
+      await tester.tap(_inPlayer(find.text('Mara Vale')));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(NowPlayingScreen), findsNothing);
+      expect(location(app.container), '/library/artist');
+      expect(find.byType(ArtistScreen), findsOneWidget);
+    });
+
+    final links = ArtworkResolver.offline({
+      'vidB': ResolvedArt.none(
+        checkedAt: DateTime(2026),
+        links: const YtmTrackLinks(
+          artists: [(name: 'Daft Punk', browseId: 'UCdaft')],
+          album: (name: 'Discovery', browseId: 'MPREb_disc'),
+        ),
+      ),
+    });
+    List<Override> youTubeMusic(FakeArtistInnerTube ytm) => [
+      innerTubeClientProvider.overrideWithValue(ytm),
+      artworkResolverProvider.overrideWithValue(links),
+    ];
+    final songs = [
+      ytTrack('vidA', title: 'One More Time', artist: 'Daft Punk'),
+      ytTrack('vidB', title: 'Aerodynamic', artist: 'Daft Punk'),
+    ];
+
+    testWidgets('YouTube artists link only once YouTube Music knows them', (
+      tester,
+    ) async {
+      final ytm = FakeArtistInnerTube()
+        ..artists['UCdaft'] = fakeArtist(browseId: 'UCdaft', name: 'Daft Punk');
+      final app = await pumpNowPlaying(
+        tester,
+        tracks: songs,
+        overrides: youTubeMusic(ytm),
+      );
+
+      // Not known yet: plain text, and no album line.
+      await tester.tap(_inPlayer(find.text('Daft Punk')));
+      await tester.pumpAndSettle();
+      expect(find.byType(NowPlayingScreen), findsOneWidget);
+      expect(_inPlayer(find.text('Discovery')), findsNothing);
+
+      await app.container.read(playbackProvider.notifier).next();
+      await tester.pumpAndSettle();
+      expect(_inPlayer(find.text('Discovery')), findsOneWidget);
+
+      await tester.tap(_inPlayer(find.text('Daft Punk')));
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.pumpAndSettle();
+      expect(find.byType(NowPlayingScreen), findsNothing);
+      expect(location(app.container), '/discover/artist/UCdaft');
+      expect(ytm.calls, contains('artist UCdaft'));
+      expect(find.byType(YtmArtistScreen), findsOneWidget);
+      // Lets the page cache expire so no timer outlives the test.
+      await tester.pump(const Duration(minutes: 11));
+    });
+
+    testWidgets('"Go to album" in the menu opens the YouTube Music album', (
+      tester,
+    ) async {
+      final ytm = FakeArtistInnerTube();
+      final app = await pumpNowPlaying(
+        tester,
+        tracks: songs.reversed.toList(),
+        overrides: youTubeMusic(ytm),
+      );
+
+      await tester.tap(_inPlayer(find.byTooltip('More')));
+      await tester.pumpAndSettle();
+      expect(find.text('Go to artist'), findsOneWidget);
+      await tester.tap(find.text('Go to album'));
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(NowPlayingScreen), findsNothing);
+      expect(location(app.container), '/discover/album/MPREb_disc');
+      expect(ytm.calls, contains('album MPREb_disc'));
+      await tester.pump(const Duration(minutes: 11));
+    });
+  });
+
   // Medium widths (640–1080) are left out: the shell's player bar under
   // this screen overflows there by itself, at any text size.
   for (final (size, scale) in const [
@@ -281,3 +460,6 @@ final _nowPlayingQueue = find.descendant(
   of: find.byType(NowPlayingScreen),
   matching: find.byTooltip('Queue'),
 );
+
+Finder _inPlayer(Finder finder) =>
+    find.descendant(of: find.byType(NowPlayingScreen), matching: finder);

@@ -46,8 +46,8 @@ enum YtmSearchFilter {
 
 /// Anonymous client for YouTube Music's internal web API (InnerTube,
 /// `WEB_REMIX`), used for discovery only: home feed, radio, search,
-/// playlists and albums. Metadata only — playback stays on the official
-/// player by video id.
+/// playlists, albums and artists. Metadata only — playback stays on the
+/// official player by video id.
 ///
 /// Hard rule: requests carry no cookies, OAuth tokens or anything else tied
 /// to the user's Google account. The only identifier is an anonymous
@@ -147,6 +147,11 @@ class InnerTubeClient {
   Future<YtmCollection> album(String browseId) => _call('browse', {
     'browseId': browseId,
   }, (json) => parseCollection(json, id: browseId));
+
+  /// An artist page by channel id (`UC…`).
+  Future<YtmArtist> artist(String browseId) => _call('browse', {
+    'browseId': browseId,
+  }, (json) => parseArtist(json, id: browseId));
 
   /// More tracks of a long playlist ([YtmCollection.continuation]).
   Future<YtmTrackPage> playlistMore(String continuation) => _call('browse', {

@@ -7,6 +7,7 @@ import 'package:noir/app/theme/design_tokens.dart';
 import 'package:noir/app/theme/glass_theme.dart';
 import 'package:noir/core/widgets/noir_backdrop.dart';
 import 'package:noir/features/discover/application/discover_providers.dart';
+import 'package:noir/features/discover/presentation/ytm_artist_screen.dart';
 import 'package:noir/features/discover/presentation/ytm_collection_screen.dart';
 import 'package:noir/features/home/presentation/home_screen.dart';
 import 'package:noir/features/library/presentation/collection_screens.dart';
@@ -43,6 +44,7 @@ final routerProvider = Provider<GoRouter>((ref) {
                     YtmCollectionKind.playlist,
                   ),
                   _ytmRoute('discover/album/:id', YtmCollectionKind.album),
+                  _ytmArtistRoute('discover/artist/:id', base: '/discover'),
                 ],
               ),
             ],
@@ -56,6 +58,7 @@ final routerProvider = Provider<GoRouter>((ref) {
                 routes: [
                   _ytmRoute('playlist/:id', YtmCollectionKind.playlist),
                   _ytmRoute('album/:id', YtmCollectionKind.album),
+                  _ytmArtistRoute('artist/:id', base: '/search'),
                 ],
               ),
             ],
@@ -202,6 +205,19 @@ GoRoute _ytmRoute(String path, YtmCollectionKind kind) => GoRoute(
         kind: kind,
         id: id,
       ),
+    );
+  },
+);
+
+/// A YouTube Music artist page; its albums and playlists open under [base].
+GoRoute _ytmArtistRoute(String path, {required String base}) => GoRoute(
+  path: path,
+  pageBuilder: (context, state) {
+    final id = state.pathParameters['id']!;
+    return _page(
+      context,
+      state,
+      YtmArtistScreen(key: ValueKey('artist:$id'), browseId: id, base: base),
     );
   },
 );

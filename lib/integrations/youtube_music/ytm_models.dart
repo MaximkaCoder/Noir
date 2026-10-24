@@ -177,6 +177,50 @@ class YtmCollection {
   final String? continuation;
 }
 
+/// An opened artist page (`UC…` channel).
+@immutable
+class YtmArtist {
+  const YtmArtist({
+    required this.browseId,
+    required this.name,
+    this.thumbnailUrl,
+    this.bannerUrl,
+    this.subscribers,
+    this.audience,
+    this.description,
+    this.topSongs = const [],
+    this.songsPlaylistId,
+    this.shelves = const [],
+  });
+
+  /// Channel id (`UC…`) it was opened with.
+  final String browseId;
+  final String name;
+
+  /// Square picture (avatar), when YouTube Music has one.
+  final String? thumbnailUrl;
+
+  /// Wide header image, full size.
+  final String? bannerUrl;
+
+  /// "7.2M subscribers".
+  final String? subscribers;
+
+  /// "68M monthly audience".
+  final String? audience;
+  final String? description;
+
+  /// The few most played songs shown on the page.
+  final List<Track> topSongs;
+
+  /// Playlist with all of the artist's songs (no `VL` prefix), for
+  /// `InnerTubeClient.playlist`; null when the page has no "Show all".
+  final String? songsPlaylistId;
+
+  /// Albums, singles, videos, related artists, … in page order.
+  final List<YtmShelf> shelves;
+}
+
 /// One video as `music/get_queue` describes it: enough to pick its artwork.
 @immutable
 class YtmQueueEntry {
