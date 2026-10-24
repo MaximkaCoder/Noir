@@ -65,3 +65,6 @@ key.properties
 # Spike build output
 spikes/**/build/
 spikes/**/.dart_tool/
+
+# Agent worktrees
+.claude/worktrees/
