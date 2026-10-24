@@ -26,8 +26,11 @@ playback, media notifications, crossfade, offline) apply to local files only.
 | Private playlists | Implied by `mine=true`; **unverified** in docs | `youtube.readonly` | — | Verify at runtime before advertising |
 | Playlist items | `playlistItems.list` (1 unit) | `youtube.readonly` | Watch History / Watch Later return errors | Supported, paginated. Phase 5 |
 | Search | `search.list` (1 unit, separate bucket of **100 calls/day per project**, since 2026-06-01) | API key or OAuth | Quota shared by every user of the app | Submit-only search (no live typing), cached results, explicit "search limit reached" state |
-| Liked videos | `videos.list myRating=like` (1 unit, max 1,000 results) | `youtube.readonly` | `playlistItems.list` on the `LL` playlist is **unverified** | Shown as "Liked videos" — never as "YouTube Music likes" |
-| YouTube Music library (albums, songs, artists, YT Music likes, recommendations) | **None.** Only unofficial cookie-based libraries exist | — | Not compliant | Not implemented. UI says so |
+| Liked videos | `videos.list myRating=like` (1 unit per 50, max 1,000 results) — **every** liked video, music or not | `youtube.readonly` | `playlistItems.list` on the `LL` playlist is **unverified** | "Liked music" page (heuristic filter, see below) with an "All likes" switch — never called "YouTube Music likes" |
+| YouTube Music library (albums, songs, artists, YT Music likes, recommendations) | **None.** No YouTube Music API or scope exists; only unofficial cookie-based libraries | — | Not compliant | Not implemented. UI says so |
+| YouTube Music "Liked music" (`LM`) | **None.** `LM` is a YouTube Music-internal list; the Data API documents only the channel's `likes` playlist (`LL`, all liked videos). Not tested live | — | — | Approximated by filtering liked videos |
+| Video category | `snippet.categoryId` in `videos.list part=snippet` (no extra cost: same call as details/likes) | `youtube.readonly` | Uploader-chosen | Stored per video; drives the music filter |
+| Change detection | Conditional requests: send the response `etag` as `If-None-Match`, get `304 Not Modified`. The docs say every request costs at least 1 unit, so a 304 is not free, just tiny. Not tested live | — | — | Opening a YouTube page re-checks it at most every 30 s |
 | Watch history | **No** (`watchHistoryNotAccessible`) | — | — | Not implemented. NOIR keeps its own local play history |
 | Subscriptions | `subscriptions.list mine=true` (1 unit) | `youtube.readonly` | — | Optional "Channels" view. Phase 5 |
 | Read playback state | IFrame Player API events (`onStateChange`, `getCurrentTime`) | none | OS WebView must send an HTTP Referer (else **Error 153**) | Player events drive `PlaybackState` |
@@ -41,6 +44,30 @@ playback, media notifications, crossfade, offline) apply to local files only.
 
 Default quota: 10,000 units/day for regular methods plus the separate 100/day
 `search.list` bucket. More quota requires an API Compliance Audit.
+
+## Liked music filter
+
+The Data API returns every liked video. NOIR's "Liked music" view keeps a video when
+any of these hold (`isMusicVideo`, `lib/features/youtube/domain/music_filter.dart`):
+
+- `snippet.categoryId == "10"` (Music);
+- the channel title ends with ` - Topic` (YouTube Music's auto-generated artist channels);
+- the channel title ends with `VEVO` or contains the word `VEVO` (not `VEVOR`).
+
+Limits: uploaders pick the category, so music on ordinary channels filed under
+Entertainment, People & Blogs, etc. is missed, and non-music videos filed under Music
+(podcasts, reactions, gaming music videos) are kept. "All likes" shows everything.
+Videos cached before the category was stored are filled in on the next sync with
+`videos.list` (1 unit per 50 videos; playlists are not downloaded again).
+
+## Refresh on open
+
+Opening a YouTube playlist or the likes page refreshes it in the background when it
+was last checked more than 30 s ago (and no full sync ran in that window). The check is
+`playlists.list id=…` (or the first likes page) with `If-None-Match`; items are only
+downloaded when the playlist etag differs from the one the cached items came from.
+Failures keep the cached list and show a toast. The Library's YouTube section can call
+`YouTubeSyncController.refreshPlaylists()` with the same 30 s throttle.
 
 ## Embedding rules (Required Minimum Functionality)
 
@@ -99,6 +126,11 @@ Testing mode: max 100 test users; authorizations expire after 7 days.
 
 1. Does `playlists.list mine=true` include private playlists?
 2. Does `playlistItems.list` on the `LL` playlist still work? (Fallback: `myRating=like`.)
+   Note: YouTube Music's `LM` ("Liked music") list is not part of the Data API at all.
+7. Does the API answer `If-None-Match` with 304 for `playlists.list id=…` and
+   `videos.list myRating=like`, and which etag form (quoted or not) does it accept?
+   NOIR sends the body `etag` wrapped in quotes; without 304 a check still costs 1 unit
+   and writes nothing when the playlist etag is unchanged.
 3. Is `youtube.readonly` classified sensitive in the Cloud Console Data Access screen?
 4. Does the Desktop token exchange succeed without `client_secret`?
 5. Does a minimized desktop window count as a background player? NOIR assumes yes and pauses.

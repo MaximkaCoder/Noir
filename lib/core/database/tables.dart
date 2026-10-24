@@ -107,6 +107,10 @@ class YtVideos extends Table {
   BoolColumn get embeddable => boolean().withDefault(const Constant(true))();
   DateTimeColumn get syncedAt => dateTime()();
 
+  /// `snippet.categoryId` ("10" is Music); empty when YouTube sent none.
+  /// Null for rows cached before schema v3 — the next sync backfills them.
+  TextColumn get categoryId => text().nullable()();
+
   @override
   Set<Column<Object>> get primaryKey => {id};
 }

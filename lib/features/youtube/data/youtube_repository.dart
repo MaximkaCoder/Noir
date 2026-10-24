@@ -2,6 +2,7 @@ import 'package:drift/drift.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:noir/core/database/app_database.dart';
 import 'package:noir/core/database/database_provider.dart';
+import 'package:noir/features/youtube/domain/music_filter.dart';
 import 'package:noir/features/youtube/presentation/youtube_cover.dart';
 import 'package:noir/integrations/youtube_data/youtube_api.dart';
 import 'package:noir/shared/models/media.dart';
@@ -94,13 +95,23 @@ class YouTubeRepository {
     );
   }
 
-  Stream<List<Track>> watchLikes() {
+  /// Liked videos, newest like first; with [musicOnly], only those
+  /// [isMusicVideo] accepts.
+  Stream<List<Track>> watchLikes({bool musicOnly = false}) {
     final l = _db.ytLikes;
     final v = _db.ytVideos;
     final query = _db.select(l).join([innerJoin(v, v.id.equalsExp(l.videoId))])
       ..orderBy([OrderingTerm.asc(l.position)]);
     return query.watch().map(
-      (rows) => [for (final r in rows) r.readTable(v).toTrack()],
+      (rows) => [
+        for (final r in rows.map((r) => r.readTable(v)))
+          if (!musicOnly ||
+              isMusicVideo(
+                categoryId: r.categoryId,
+                channelTitle: r.channelTitle,
+              ))
+            r.toTrack(),
+      ],
     );
   }
 
@@ -110,6 +121,23 @@ class YouTubeRepository {
       _db.ytLikes,
     )..addColumns([count])).map((r) => r.read(count) ?? 0).watchSingle();
   }
+
+  Future<YtPlaylistRow?> playlistRow(String id) => (_db.select(
+    _db.ytPlaylists,
+  )..where((p) => p.id.equals(id))).getSingleOrNull();
+
+  /// Updates one known playlist's details (not its position or items).
+  Future<void> updatePlaylist(YtPlaylist p) =>
+      (_db.update(_db.ytPlaylists)..where((r) => r.id.equals(p.id))).write(
+        YtPlaylistsCompanion(
+          title: Value(p.title),
+          itemCount: Value(p.itemCount),
+          etag: Value(p.etag),
+          thumbnailUrl: Value(p.thumbnailUrl),
+          privacy: Value(p.privacy),
+          syncedAt: Value(DateTime.now()),
+        ),
+      );
 
   /// Playlist id → etag of the items NOIR already has.
   Future<Map<String, String?>> itemEtags() async {
@@ -190,6 +218,7 @@ class YouTubeRepository {
             durationMs: Value(v.duration?.inMilliseconds),
             thumbnailUrl: Value(v.thumbnailUrl),
             embeddable: Value(v.embeddable),
+            categoryId: Value(v.categoryId),
             syncedAt: now,
           ),
           mode: InsertMode.insertOrReplace,
@@ -212,7 +241,8 @@ class YouTubeRepository {
     });
   });
 
-  /// Ids from [ids] that need details: unknown, or older than [refreshAge].
+  /// Ids from [ids] that need details: unknown, older than [refreshAge], or
+  /// cached before categories were stored (backfill; 1 unit per 50 videos).
   Future<List<String>> videosNeedingDetails(Iterable<String> ids) async {
     final wanted = ids.toSet();
     if (wanted.isEmpty) return const [];
@@ -223,7 +253,10 @@ class YouTubeRepository {
       final chunk = list.sublist(i, (i + 500).clamp(0, list.length));
       final rows =
           await (_db.select(_db.ytVideos)..where(
-                (v) => v.id.isIn(chunk) & v.syncedAt.isBiggerThanValue(cutoff),
+                (v) =>
+                    v.id.isIn(chunk) &
+                    v.syncedAt.isBiggerThanValue(cutoff) &
+                    v.categoryId.isNotNull(),
               ))
               .get();
       fresh.addAll(rows.map((r) => r.id));

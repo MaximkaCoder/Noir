@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noir/core/database/app_database.dart';
@@ -11,124 +9,20 @@ import 'package:noir/integrations/youtube_data/youtube_api.dart';
 
 import '../helpers/fake_http.dart';
 import '../helpers/test_database.dart';
-
-/// Account that is either connected or not, with a fixed token.
-
-class _FakeAccount implements AccountConnectionService {
-  final _changes = StreamController<AccountConnection>.broadcast();
-  AccountConnection _state = const AccountConnection(
-    status: AccountStatus.connected,
-  );
-  int refreshes = 0;
-
-  void set(AccountStatus status) {
-    _state = AccountConnection(status: status);
-    _changes.add(_state);
-  }
-
-  @override
-  AccountConnection get current => _state;
-  @override
-  Stream<AccountConnection> watch() async* {
-    yield _state;
-    yield* _changes.stream;
-  }
-
-  @override
-  Future<String> accessToken({bool forceRefresh = false}) async {
-    if (forceRefresh) refreshes++;
-    return 'token-$refreshes';
-  }
-
-  @override
-  Future<void> connect() async {}
-  @override
-  void cancelConnect() {}
-  @override
-  Future<void> disconnect() async => set(AccountStatus.disconnected);
-}
-
-Map<String, Object?> video(String id, {String duration = 'PT3M21S'}) => {
-  'id': id,
-  'snippet': {
-    'title': 'Song $id',
-    'channelTitle': 'Mara Vale - Topic',
-    'thumbnails': {
-      'high': {'url': 'https://i.ytimg.com/$id.jpg'},
-    },
-  },
-  'contentDetails': {'duration': duration},
-  'status': {'embeddable': true},
-};
-
-Map<String, Object?> item(String videoId, {String privacy = 'public'}) => {
-  'snippet': {
-    'resourceId': {'videoId': videoId},
-  },
-  'status': {'privacyStatus': privacy},
-};
-
-/// A small fake YouTube: two playlists, one paginated, plus likes.
-FakeReply youtube(FakeRequest r, {String etagA = 'eA1'}) {
-  final q = r.uri.queryParameters;
-  switch (r.uri.pathSegments.last) {
-    case 'playlists':
-      return ok({
-        'items': [
-          {
-            'id': 'PLa',
-            'etag': etagA,
-            'snippet': {'title': 'Night drive'},
-            'contentDetails': {'itemCount': 3},
-            'status': {'privacyStatus': 'private'},
-          },
-          {
-            'id': 'PLb',
-            'etag': 'eB1',
-            'snippet': {'title': 'Focus'},
-            'contentDetails': {'itemCount': 1},
-          },
-        ],
-      });
-    case 'playlistItems':
-      if (q['playlistId'] == 'PLb') {
-        return ok({
-          'items': [item('v4')],
-        });
-      }
-      return q['pageToken'] == null
-          ? ok({
-              'items': [item('v1'), item('gone', privacy: 'private')],
-              'nextPageToken': 'p2',
-            })
-          : ok({
-              'items': [item('v2')],
-            });
-    case 'videos':
-      if (q['myRating'] == 'like') {
-        return ok({
-          'items': [video('v9', duration: 'PT1H2M3S')],
-        });
-      }
-      return ok({
-        'items': [for (final id in q['id']!.split(',')) video(id)],
-      });
-  }
-  return error(404, {});
-}
+import 'youtube_fakes.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   late AppDatabase db;
   late FakeHttp http;
-  late _FakeAccount account;
+  late FakeAccount account;
   late ProviderContainer container;
   late YouTubeRepository repo;
 
   setUp(() {
     db = inMemoryDatabase();
     http = FakeHttp(youtube);
-    account = _FakeAccount();
+    account = FakeAccount();
     container = ProviderContainer(
       overrides: [
         databaseProvider.overrideWithValue(db),
@@ -201,6 +95,69 @@ void main() {
       'playlistItemsPLa',
       'playlistItemsPLap2',
     ]);
+  });
+
+  test('videos cached without a category are backfilled cheaply', () async {
+    await sync();
+    final stored = await db.select(db.ytVideos).get();
+    expect(
+      {for (final v in stored) v.id: v.categoryId},
+      {'v1': '10', 'v2': '10', 'v4': '10', 'v9': '22'},
+    );
+
+    // Rows cached by schema v2 have no category.
+    await db.customStatement('UPDATE yt_videos SET category_id = NULL');
+    http.requests.clear();
+    await sync();
+
+    expect(calls(), isNot(contains(startsWith('playlistItems'))));
+    final details = http.requests.where(
+      (r) =>
+          r.uri.pathSegments.last == 'videos' &&
+          r.uri.queryParameters['id'] != null,
+    );
+    expect(
+      details.single.uri.queryParameters['id']!.split(','),
+      unorderedEquals(['v1', 'v2', 'v4']),
+    );
+    expect(
+      (await db.select(db.ytVideos).get()).where((v) => v.categoryId == null),
+      isEmpty,
+    );
+
+    http.requests.clear();
+    await sync();
+    expect(
+      http.requests.where((r) => r.uri.queryParameters['id'] != null),
+      isEmpty,
+      reason: 'nothing left to backfill',
+    );
+  });
+
+  test('refreshPlaylists skips while the last sync is recent', () async {
+    var now = DateTime(2026, 10, 24, 12);
+    await container.read(youTubeSyncProvider.notifier).whenIdle();
+    container.dispose();
+    container = ProviderContainer(
+      overrides: [
+        databaseProvider.overrideWithValue(db),
+        httpClientProvider.overrideWithValue(http.dio()),
+        accountServiceProvider.overrideWithValue(account),
+        youTubeClockProvider.overrideWithValue(() => now),
+      ],
+    )..listen(youTubeSyncProvider, (_, _) {});
+    final controller = container.read(youTubeSyncProvider.notifier);
+    await pumpEventQueue(); // The connected event starts a sync.
+    await controller.whenIdle();
+    http.requests.clear();
+
+    now = now.add(const Duration(seconds: 20));
+    await controller.refreshPlaylists();
+    expect(http.requests, isEmpty);
+
+    now = now.add(const Duration(seconds: 11));
+    await controller.refreshPlaylists();
+    expect(calls(), contains('playlists'));
   });
 
   test('quota exhaustion keeps the cache and explains', () async {

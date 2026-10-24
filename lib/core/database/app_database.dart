@@ -37,7 +37,7 @@ class AppDatabase extends _$AppDatabase {
   );
 
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 3;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -57,6 +57,10 @@ class AppDatabase extends _$AppDatabase {
         await m.createTable(ytVideos);
         await m.createTable(ytPlaylistItems);
         await m.createTable(ytLikes);
+      } else if (from < 3) {
+        // v2 → v3: video category for the "Liked music" filter. Existing
+        // rows stay null until the next sync fills them in.
+        await m.addColumn(ytVideos, ytVideos.categoryId);
       }
     },
     beforeOpen: (details) async {

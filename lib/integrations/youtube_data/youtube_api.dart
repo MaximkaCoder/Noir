@@ -33,6 +33,7 @@ class YtVideo {
     this.duration,
     this.thumbnailUrl,
     this.embeddable = true,
+    this.categoryId = '',
   });
 
   final String id;
@@ -41,6 +42,20 @@ class YtVideo {
   final Duration? duration;
   final String? thumbnailUrl;
   final bool embeddable;
+
+  /// `snippet.categoryId` ("10" is Music); empty when YouTube sent none.
+  final String categoryId;
+}
+
+/// Result of a conditional request that was answered with data.
+class YtFetch<T> {
+  const YtFetch(this.value, this.etag);
+
+  final T value;
+
+  /// Etag of the response (first page for paged lists). Send it back as
+  /// `ifNoneMatch` to get HTTP 304 while nothing changed.
+  final String? etag;
 }
 
 enum YouTubeErrorKind { quota, auth, notFound, network, server, other }
@@ -77,42 +92,49 @@ class YouTubeApi {
   /// Playlists the user owns (including private ones and those created in
   /// YouTube Music).
   Future<List<YtPlaylist>> myPlaylists() async {
-    final items = await _paged('playlists', {
+    final page = await _paged('playlists', {
       'part': 'snippet,contentDetails,status',
       'mine': 'true',
       'maxResults': '50',
     });
-    return [
-      for (final p in items)
-        YtPlaylist(
-          id: p['id']! as String,
-          etag: p['etag']! as String,
-          title: _snippet(p)['title'] as String? ?? 'Untitled playlist',
-          itemCount:
-              ((p['contentDetails'] as Map?)?['itemCount'] as num?)?.toInt() ??
-              0,
-          thumbnailUrl: _thumbnail(_snippet(p)),
-          privacy: (p['status'] as Map?)?['privacyStatus'] as String?,
-        ),
-    ];
+    return page!.items.map(_playlist).toList();
+  }
+
+  /// One playlist's details, or null (HTTP 304) when nothing changed since
+  /// the response tagged [ifNoneMatch]. The value is null when the playlist
+  /// no longer exists or is no longer visible to the user.
+  Future<YtFetch<YtPlaylist?>?> playlist(
+    String id, {
+    String? ifNoneMatch,
+  }) async {
+    final page = await _request('playlists', {
+      'part': 'snippet,contentDetails,status',
+      'id': id,
+      'maxResults': '1',
+    }, ifNoneMatch: ifNoneMatch);
+    if (page == null) return null;
+    return YtFetch(
+      _items(page).map(_playlist).firstOrNull,
+      page['etag'] as String?,
+    );
   }
 
   /// Video ids of a playlist in order. Deleted and private videos are
   /// skipped — they cannot be played.
   Future<List<String>> playlistVideoIds(String playlistId) async {
-    final items = await _paged('playlistItems', {
+    final page = await _paged('playlistItems', {
       'part': 'snippet,status',
       'playlistId': playlistId,
       'maxResults': '50',
     });
     return [
-      for (final i in items)
+      for (final i in page!.items)
         if (_playable(i))
           ((_snippet(i)['resourceId'] as Map?)?['videoId'] as String?) ?? '',
     ].where((id) => id.isNotEmpty).toList();
   }
 
-  /// Full details (duration, embeddability) for up to any number of ids,
+  /// Full details (duration, embeddability, category) for any number of ids,
   /// fetched 50 per request.
   Future<List<YtVideo>> videos(List<String> ids) async {
     final result = <YtVideo>[];
@@ -129,35 +151,59 @@ class YouTubeApi {
   }
 
   /// Videos the user liked (YouTube caps this list at 1,000).
-  Future<List<YtVideo>> likedVideos() async {
-    final items = await _paged('videos', {
+  ///
+  /// This is every liked video, not only music: the Data API has no access
+  /// to YouTube Music's "Liked music" list.
+  Future<List<YtVideo>> likedVideos() async =>
+      (await likedVideosIfChanged())!.value;
+
+  /// [likedVideos], or null (HTTP 304 on the first page) when the list is
+  /// unchanged since the response tagged [ifNoneMatch]. New and removed
+  /// likes change the first page (newest first, and it carries the total).
+  Future<YtFetch<List<YtVideo>>?> likedVideosIfChanged({
+    String? ifNoneMatch,
+  }) async {
+    final page = await _paged('videos', {
       'part': 'snippet,contentDetails,status',
       'myRating': 'like',
       'maxResults': '50',
-    });
-    return items.map(_video).toList();
+    }, ifNoneMatch: ifNoneMatch);
+    if (page == null) return null;
+    return YtFetch(page.items.map(_video).toList(), page.etag);
   }
 
   // ----------------------------------------------------------- internals --
 
-  Future<List<Map<String, Object?>>> _paged(
+  /// All pages, or null when the first page is not modified.
+  Future<({List<Map<String, Object?>> items, String? etag})?> _paged(
     String resource,
-    Map<String, String> query,
-  ) async {
-    final all = <Map<String, Object?>>[];
-    String? pageToken;
-    do {
-      final page = await _get(resource, {...query, 'pageToken': ?pageToken});
+    Map<String, String> query, {
+    String? ifNoneMatch,
+  }) async {
+    final first = await _request(resource, query, ifNoneMatch: ifNoneMatch);
+    if (first == null) return null;
+    final all = [..._items(first)];
+    var pageToken = first['nextPageToken'] as String?;
+    while (pageToken != null) {
+      final page = await _get(resource, {...query, 'pageToken': pageToken});
       all.addAll(_items(page));
       pageToken = page['nextPageToken'] as String?;
-    } while (pageToken != null);
-    return all;
+    }
+    return (items: all, etag: first['etag'] as String?);
   }
 
   Future<Map<String, Object?>> _get(
     String resource,
     Map<String, String> query,
-  ) async {
+  ) async => (await _request(resource, query))!;
+
+  /// GET with retries. Returns null when [ifNoneMatch] is given and the
+  /// server answers 304 Not Modified.
+  Future<Map<String, Object?>?> _request(
+    String resource,
+    Map<String, String> query, {
+    String? ifNoneMatch,
+  }) async {
     var forceRefresh = false;
     for (var attempt = 1; ; attempt++) {
       final String token;
@@ -170,8 +216,19 @@ class YouTubeApi {
         final response = await _dio.get<Map<String, Object?>>(
           '$_base/$resource',
           queryParameters: query,
-          options: Options(headers: {'Authorization': 'Bearer $token'}),
+          options: Options(
+            headers: {
+              'Authorization': 'Bearer $token',
+              if (ifNoneMatch != null)
+                'If-None-Match': ifNoneMatch.startsWith('"')
+                    ? ifNoneMatch
+                    : '"$ifNoneMatch"',
+            },
+            validateStatus: (s) =>
+                s != null && (s >= 200 && s < 300 || s == 304),
+          ),
         );
+        if (response.statusCode == 304) return null;
         return response.data!;
       } on DioException catch (e) {
         final error = _classify(e);
@@ -262,6 +319,16 @@ class YouTubeApi {
     return null;
   }
 
+  static YtPlaylist _playlist(Map<String, Object?> p) => YtPlaylist(
+    id: p['id']! as String,
+    etag: p['etag']! as String,
+    title: _snippet(p)['title'] as String? ?? 'Untitled playlist',
+    itemCount:
+        ((p['contentDetails'] as Map?)?['itemCount'] as num?)?.toInt() ?? 0,
+    thumbnailUrl: _thumbnail(_snippet(p)),
+    privacy: (p['status'] as Map?)?['privacyStatus'] as String?,
+  );
+
   static YtVideo _video(Map<String, Object?> v) {
     final snippet = _snippet(v);
     return YtVideo(
@@ -273,6 +340,7 @@ class YouTubeApi {
       ),
       thumbnailUrl: _thumbnail(snippet),
       embeddable: (v['status'] as Map?)?['embeddable'] as bool? ?? true,
+      categoryId: snippet['categoryId'] as String? ?? '',
     );
   }
 }

@@ -15,6 +15,11 @@ final youTubeApiProvider = Provider<YouTubeApi>((ref) {
   );
 });
 
+/// Current time; overridden in tests to step over refresh throttles.
+final youTubeClockProvider = Provider<DateTime Function()>(
+  (ref) => DateTime.now,
+);
+
 enum SyncStatus { idle, syncing, failed }
 
 @immutable
@@ -57,6 +62,9 @@ class YouTubeSyncController extends Notifier<YouTubeSyncState>
     with WidgetsBindingObserver {
   static const interval = Duration(minutes: 15);
   static const foregroundGap = Duration(minutes: 5);
+
+  /// Opening a YouTube page refreshes it at most this often.
+  static const refreshGap = Duration(seconds: 30);
   static const _metaKey = 'youtube_sync';
 
   Timer? _timer;
@@ -100,11 +108,26 @@ class YouTubeSyncController extends Notifier<YouTubeSyncState>
   /// Completes when no sync is running.
   Future<void> whenIdle() => _running ?? Future.value();
 
+  /// Whether a sync is running or finished less than [refreshGap] ago, so a
+  /// page refresh would learn nothing new.
+  bool get isFresh {
+    final last = state.lastSyncAt;
+    return _running != null ||
+        (last != null && _now().difference(last) < refreshGap);
+  }
+
+  /// Re-reads the playlist list (and likes) when the user looks at it — the
+  /// Library's YouTube section — unless that happened in the last
+  /// [refreshGap]. Unchanged playlists are not downloaded again.
+  Future<void> refreshPlaylists() => isFresh ? whenIdle() : sync();
+
+  DateTime _now() => ref.read(youTubeClockProvider)();
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state != AppLifecycleState.resumed) return;
     final last = this.state.lastSyncAt;
-    if (last == null || DateTime.now().difference(last) > foregroundGap) {
+    if (last == null || _now().difference(last) > foregroundGap) {
       unawaited(sync());
     }
   }
@@ -146,7 +169,7 @@ class YouTubeSyncController extends Notifier<YouTubeSyncState>
       );
       if (missing.isNotEmpty) await repo.saveVideos(await api.videos(missing));
 
-      final now = DateTime.now();
+      final now = _now();
       await ref.read(settingsRepositoryProvider).writeJson(_metaKey, {
         'lastSyncAt': now.toIso8601String(),
       });

@@ -5,6 +5,8 @@
 | Not available | Why | NOIR instead |
 |---|---|---|
 | YouTube Music library (saved albums, songs, artists, YT Music likes) | No official API | YouTube playlists, liked videos, subscriptions (Phase 5) |
+| YouTube Music's own "Liked music" list | No YouTube Music API; the Data API only has all liked videos | "Liked music": liked videos filtered by a heuristic (Music category, "- Topic" and VEVO channels). It misses music filed under other categories and keeps non-music filed under Music; "All likes" shows everything |
+| Instant YouTube updates | The Data API cannot push changes | Full sync every 15 min / on foreground, plus a background re-check (throttled to 30 s) when a YouTube page is opened |
 | Background / screen-off / audio-only YouTube playback | YouTube Developer Policies III.I.7, III.I.9 | Visible embedded player; full audio features for local files |
 | Downloading YouTube content | Policy III.E.1.b | — |
 | YouTube watch history | Not exposed by the API | NOIR's own local history |
