@@ -11,6 +11,7 @@ import 'package:noir/core/widgets/artwork.dart';
 import 'package:noir/core/widgets/buttons.dart';
 import 'package:noir/core/widgets/glass_surface.dart';
 import 'package:noir/core/widgets/noir_backdrop.dart';
+import 'package:noir/core/widgets/smooth_scroll.dart';
 import 'package:noir/core/widgets/states.dart';
 import 'package:noir/features/playback/application/playback_controller.dart';
 import 'package:noir/features/playback/presentation/playback_controls.dart';
@@ -61,10 +62,20 @@ class NowPlayingScreen extends ConsumerWidget {
                                 message:
                                     'Pick a song from your library to start.',
                               )
-                            : LayoutBuilder(
-                                builder: (context, box) => box.maxWidth >= 760
-                                    ? _WideLayout(state: s, box: box)
-                                    : _NarrowLayout(state: s, box: box),
+                            : SmoothScroll(
+                                builder: (context, scroll) => LayoutBuilder(
+                                  builder: (context, box) => box.maxWidth >= 760
+                                      ? _WideLayout(
+                                          state: s,
+                                          box: box,
+                                          scroll: scroll,
+                                        )
+                                      : _NarrowLayout(
+                                          state: s,
+                                          box: box,
+                                          scroll: scroll,
+                                        ),
+                                ),
                               ),
                       ),
                     ],
@@ -134,16 +145,22 @@ class _TopBar extends ConsumerWidget {
 }
 
 class _WideLayout extends ConsumerWidget {
-  const _WideLayout({required this.state, required this.box});
+  const _WideLayout({
+    required this.state,
+    required this.box,
+    required this.scroll,
+  });
 
   final PlaybackState state;
   final BoxConstraints box;
+  final ScrollController scroll;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final art = (box.maxWidth * 0.32).clamp(240.0, 420.0);
     return Center(
       child: SingleChildScrollView(
+        controller: scroll,
         padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 16),
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 1040),
@@ -178,10 +195,15 @@ class _WideLayout extends ConsumerWidget {
 }
 
 class _NarrowLayout extends ConsumerWidget {
-  const _NarrowLayout({required this.state, required this.box});
+  const _NarrowLayout({
+    required this.state,
+    required this.box,
+    required this.scroll,
+  });
 
   final PlaybackState state;
   final BoxConstraints box;
+  final ScrollController scroll;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -190,6 +212,7 @@ class _NarrowLayout extends ConsumerWidget {
     );
     final art = (box.maxWidth - 48).clamp(160.0, box.maxHeight * 0.45);
     return SingleChildScrollView(
+      controller: scroll,
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
       child: Column(
         children: [

@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'package:noir/app/theme/design_tokens.dart';
 import 'package:noir/core/widgets/buttons.dart';
 import 'package:noir/core/widgets/dialogs.dart';
+import 'package:noir/core/widgets/smooth_scroll.dart';
 import 'package:noir/core/widgets/states.dart';
 import 'package:noir/features/playback/application/playback_controller.dart';
 import 'package:noir/shared/widgets/track_row.dart';
@@ -41,7 +42,10 @@ class QueueList extends ConsumerWidget {
   final EdgeInsets padding;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context, WidgetRef ref) =>
+      SmoothScroll(builder: (context, scroll) => _list(context, ref, scroll));
+
+  Widget _list(BuildContext context, WidgetRef ref, ScrollController scroll) {
     final s = ref.watch(playbackProvider);
     final ctrl = ref.read(playbackProvider.notifier);
     final t = Theme.of(context).textTheme;
@@ -58,6 +62,7 @@ class QueueList extends ConsumerWidget {
     final upcoming = s.upcoming;
 
     return CustomScrollView(
+      controller: scroll,
       slivers: [
         SliverPadding(
           padding: padding.copyWith(bottom: 0),

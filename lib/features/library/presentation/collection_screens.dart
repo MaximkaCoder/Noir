@@ -6,6 +6,8 @@ import 'package:noir/core/formatters.dart';
 import 'package:noir/core/widgets/artwork.dart';
 import 'package:noir/core/widgets/buttons.dart';
 import 'package:noir/core/widgets/states.dart';
+import 'package:noir/features/home/application/pinned_playlists.dart';
+import 'package:noir/features/home/presentation/pin_button.dart';
 import 'package:noir/features/library/application/library_providers.dart';
 import 'package:noir/features/library/data/library_repository.dart';
 import 'package:noir/features/playback/application/playback_controller.dart';
@@ -139,7 +141,10 @@ class AlbumScreen extends ConsumerWidget {
         onShuffle: tracks.isEmpty
             ? null
             : () => unawaited(playback.shuffleTracks(tracks)),
-        actions: _addAllAction(context, ref, tracks),
+        actions: [
+          const PinButton(PinnedRef.favorites),
+          ..._addAllAction(context, ref, tracks),
+        ],
       ),
     );
   }

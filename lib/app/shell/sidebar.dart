@@ -8,6 +8,7 @@ import 'package:noir/app/theme/glass_theme.dart';
 import 'package:noir/core/platform/window_controls.dart';
 import 'package:noir/core/widgets/buttons.dart';
 import 'package:noir/core/widgets/glass_surface.dart';
+import 'package:noir/core/widgets/smooth_scroll.dart';
 import 'package:noir/features/playback/presentation/mini_players.dart';
 import 'package:noir/features/playlists/application/playlist_providers.dart';
 import 'package:noir/features/playlists/presentation/add_to_playlist.dart';
@@ -94,63 +95,66 @@ class Sidebar extends ConsumerWidget {
               child: Text('Playlists', style: t.labelMedium),
             ),
             Expanded(
-              child: ListView(
-                padding: EdgeInsets.zero,
-                children: [
-                  _NavItem(
-                    label: 'Favorites',
-                    icon: Icons.favorite_border_rounded,
-                    dense: true,
-                    selected: location == '/library/favorites',
-                    onTap: () => context.go('/library/favorites'),
-                  ),
-                  for (final p in playlists)
+              child: SmoothScroll(
+                builder: (context, scroll) => ListView(
+                  controller: scroll,
+                  padding: EdgeInsets.zero,
+                  children: [
                     _NavItem(
-                      label: p.name,
-                      icon: Icons.music_note_outlined,
+                      label: 'Favorites',
+                      icon: Icons.favorite_border_rounded,
                       dense: true,
-                      selected: location == '/library/playlist/${p.id}',
-                      onTap: () => context.go('/library/playlist/${p.id}'),
+                      selected: location == '/library/favorites',
+                      onTap: () => context.go('/library/favorites'),
                     ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: PillButton(
-                        label: 'Create Playlist',
-                        icon: Icons.add_rounded,
-                        onPressed: () async {
-                          final id = await createPlaylist(context, ref);
-                          if (id != null && context.mounted) {
-                            context.go('/library/playlist/$id');
-                          }
-                        },
+                    for (final p in playlists)
+                      _NavItem(
+                        label: p.name,
+                        icon: Icons.music_note_outlined,
+                        dense: true,
+                        selected: location == '/library/playlist/${p.id}',
+                        onTap: () => context.go('/library/playlist/${p.id}'),
                       ),
-                    ),
-                  ),
-                  if (ytPlaylists.isNotEmpty || hasLikes) ...[
                     Padding(
-                      padding: const EdgeInsets.fromLTRB(26, 8, 16, 8),
-                      child: Text('YouTube', style: t.labelMedium),
+                      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: PillButton(
+                          label: 'Create Playlist',
+                          icon: Icons.add_rounded,
+                          onPressed: () async {
+                            final id = await createPlaylist(context, ref);
+                            if (id != null && context.mounted) {
+                              context.go('/library/playlist/$id');
+                            }
+                          },
+                        ),
+                      ),
                     ),
-                    if (hasLikes)
-                      _NavItem(
-                        label: 'Liked videos',
-                        icon: Icons.thumb_up_alt_outlined,
-                        dense: true,
-                        selected: location == '/library/youtube/liked',
-                        onTap: () => context.go('/library/youtube/liked'),
+                    if (ytPlaylists.isNotEmpty || hasLikes) ...[
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(26, 8, 16, 8),
+                        child: Text('YouTube', style: t.labelMedium),
                       ),
-                    for (final p in ytPlaylists)
-                      _NavItem(
-                        label: p.title,
-                        icon: Icons.smart_display_outlined,
-                        dense: true,
-                        selected: location == '/library/youtube/${p.id}',
-                        onTap: () => context.go('/library/youtube/${p.id}'),
-                      ),
+                      if (hasLikes)
+                        _NavItem(
+                          label: 'Liked videos',
+                          icon: Icons.thumb_up_alt_outlined,
+                          dense: true,
+                          selected: location == '/library/youtube/liked',
+                          onTap: () => context.go('/library/youtube/liked'),
+                        ),
+                      for (final p in ytPlaylists)
+                        _NavItem(
+                          label: p.title,
+                          icon: Icons.smart_display_outlined,
+                          dense: true,
+                          selected: location == '/library/youtube/${p.id}',
+                          onTap: () => context.go('/library/youtube/${p.id}'),
+                        ),
+                    ],
                   ],
-                ],
+                ),
               ),
             ),
             const Padding(

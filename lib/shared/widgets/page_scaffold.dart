@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:noir/app/theme/design_tokens.dart';
+import 'package:noir/core/widgets/smooth_scroll.dart';
 
 /// Horizontal page padding for the current width.
 double pagePadding(BuildContext context) =>
@@ -26,14 +27,20 @@ class PageScaffold extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final own = controller;
+    if (own != null) return _page(context, own);
+    return SmoothScroll(builder: _page);
+  }
+
+  Widget _page(BuildContext context, ScrollController scroll) {
     final pad = pagePadding(context);
     final t = Theme.of(context).textTheme;
     return Material(
       type: MaterialType.transparency,
       child: Scrollbar(
-        controller: controller,
+        controller: scroll,
         child: CustomScrollView(
-          controller: controller,
+          controller: scroll,
           slivers: [
             if (title != null)
               SliverPadding(

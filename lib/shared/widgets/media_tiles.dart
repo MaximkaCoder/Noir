@@ -11,6 +11,7 @@ class MediaTile extends StatefulWidget {
     required this.artwork,
     required this.onTap,
     this.width = 150,
+    this.onContextMenu,
     super.key,
   });
 
@@ -21,6 +22,9 @@ class MediaTile extends StatefulWidget {
   final Widget Function(double size) artwork;
   final VoidCallback onTap;
   final double width;
+
+  /// Right-click / long-press, with the pointer position.
+  final ValueChanged<Offset>? onContextMenu;
 
   @override
   State<MediaTile> createState() => _MediaTileState();
@@ -42,6 +46,12 @@ class _MediaTileState extends State<MediaTile> {
         onExit: (_) => setState(() => _hovered = false),
         child: GestureDetector(
           onTap: widget.onTap,
+          onSecondaryTapUp: widget.onContextMenu == null
+              ? null
+              : (d) => widget.onContextMenu!(d.globalPosition),
+          onLongPressStart: widget.onContextMenu == null
+              ? null
+              : (d) => widget.onContextMenu!(d.globalPosition),
           child: SizedBox(
             width: widget.width,
             child: ExcludeSemantics(

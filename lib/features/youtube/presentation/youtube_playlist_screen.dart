@@ -6,6 +6,8 @@ import 'package:noir/core/formatters.dart';
 import 'package:noir/core/widgets/artwork.dart';
 import 'package:noir/core/widgets/buttons.dart';
 import 'package:noir/core/widgets/states.dart';
+import 'package:noir/features/home/application/pinned_playlists.dart';
+import 'package:noir/features/home/presentation/pin_button.dart';
 import 'package:noir/features/playback/application/playback_controller.dart';
 import 'package:noir/features/youtube/application/youtube_providers.dart';
 import 'package:noir/shared/models/media.dart';
@@ -37,6 +39,7 @@ class YouTubePlaylistScreen extends ConsumerWidget {
       title: p?.title ?? '',
       artwork: p?.thumbnailUrl,
       eyebrow: 'YouTube playlist',
+      pin: PinnedRef(PinKind.youtube, id),
       openUrl: youTubeMusicUrl(playlistId: id),
       emptyMessage:
           'Nothing playable here yet. Deleted and private videos are skipped.',
@@ -55,6 +58,7 @@ class YouTubeLikesScreen extends ConsumerWidget {
       title: 'Liked videos',
       artwork: tracks.value?.firstOrNull?.artworkUrl,
       eyebrow: 'YouTube',
+      pin: PinnedRef.youtubeLiked,
       openUrl: youTubeMusicUrl(playlistId: 'LL'),
       emptyMessage: 'Videos you like on YouTube appear here after a sync.',
     );
@@ -67,6 +71,7 @@ class _YouTubeTrackList extends ConsumerWidget {
     required this.title,
     required this.artwork,
     required this.eyebrow,
+    required this.pin,
     required this.openUrl,
     required this.emptyMessage,
   });
@@ -75,6 +80,7 @@ class _YouTubeTrackList extends ConsumerWidget {
   final String title;
   final String? artwork;
   final String eyebrow;
+  final PinnedRef pin;
   final Uri openUrl;
   final String emptyMessage;
 
@@ -106,6 +112,7 @@ class _YouTubeTrackList extends ConsumerWidget {
                 ? null
                 : () => unawaited(playback.shuffleTracks(list)),
             actions: [
+              PinButton(pin),
               NoirIconButton(
                 icon: Icons.open_in_new_rounded,
                 tooltip: 'Open in YouTube Music',

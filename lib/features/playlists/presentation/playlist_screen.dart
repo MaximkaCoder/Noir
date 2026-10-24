@@ -9,6 +9,8 @@ import 'package:noir/core/formatters.dart';
 import 'package:noir/core/widgets/artwork.dart';
 import 'package:noir/core/widgets/dialogs.dart';
 import 'package:noir/core/widgets/states.dart';
+import 'package:noir/features/home/application/pinned_playlists.dart';
+import 'package:noir/features/home/presentation/pin_button.dart';
 import 'package:noir/features/playback/application/playback_controller.dart';
 import 'package:noir/features/playlists/application/playlist_providers.dart';
 import 'package:noir/features/playlists/data/playlist_repository.dart';
@@ -60,6 +62,7 @@ class PlaylistScreen extends ConsumerWidget {
                 ? null
                 : () => unawaited(playback.shuffleTracks(tracks)),
             actions: [
+              PinButton(PinnedRef(PinKind.local, '${p.id}')),
               PopupMenuButton<String>(
                 tooltip: 'More',
                 icon: Icon(

@@ -10,11 +10,14 @@ import 'package:noir/core/widgets/artwork.dart';
 import 'package:noir/core/widgets/buttons.dart';
 import 'package:noir/core/widgets/glass_surface.dart';
 import 'package:noir/core/widgets/states.dart';
+import 'package:noir/features/home/application/pinned_playlists.dart';
 import 'package:noir/features/library/application/library_providers.dart';
 import 'package:noir/features/library/application/library_scan_controller.dart';
 import 'package:noir/features/library/data/library_repository.dart';
 import 'package:noir/features/playback/application/playback_controller.dart';
 import 'package:noir/features/playlists/application/playlist_providers.dart';
+import 'package:noir/features/youtube/application/youtube_providers.dart';
+import 'package:noir/features/youtube/data/youtube_repository.dart';
 import 'package:noir/shared/models/media.dart';
 import 'package:noir/shared/widgets/media_tiles.dart';
 import 'package:noir/shared/widgets/page_scaffold.dart';
@@ -93,6 +96,7 @@ class _Dashboard extends ConsumerWidget {
         SliverToBoxAdapter(
           child: _HeroRow(resume: recent.firstOrNull, compact: compact),
         ),
+        SliverToBoxAdapter(child: _PinnedRow(tile: tile)),
         if (recentItems.isNotEmpty) ...[
           const SliverToBoxAdapter(child: SizedBox(height: 36)),
           SliverToBoxAdapter(
@@ -184,6 +188,113 @@ class _Dashboard extends ConsumerWidget {
         ),
       );
     }
+  }
+}
+
+/// Collections the user pinned to Home (local playlists, YouTube playlists,
+/// Liked videos, Favorites). Right-click or long-press a tile to unpin.
+class _PinnedRow extends ConsumerWidget {
+  const _PinnedRow({required this.tile});
+
+  final double tile;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final pins = ref.watch(pinnedProvider);
+    if (pins.isEmpty) return const SizedBox.shrink();
+    final local = {
+      for (final p in ref.watch(playlistsProvider).value ?? const <Playlist>[])
+        '${p.id}': p,
+    };
+    final youtube = {
+      for (final p
+          in ref.watch(youTubePlaylistsProvider).value ??
+              const <YouTubePlaylist>[])
+        p.id: p,
+    };
+    final likes = ref.watch(youTubeLikesProvider).value ?? const <Track>[];
+    final favorites = ref.watch(favoritesProvider).value ?? const <Track>[];
+
+    final tiles = <Widget>[];
+    for (final pin in pins) {
+      final (String title, String subtitle, Widget Function(double) art)? data =
+          switch (pin.kind) {
+            PinKind.local => switch (local[pin.id]) {
+              final p? => (
+                p.name,
+                songCount(p.trackCount),
+                (s) => ArtworkCollage(paths: p.artworkPaths, size: s),
+              ),
+              null => null,
+            },
+            PinKind.youtube => switch (youtube[pin.id]) {
+              final p? => (
+                p.title,
+                'YouTube · ${songCount(p.trackCount)}',
+                (s) => Artwork(path: p.thumbnailUrl, size: s),
+              ),
+              null => null,
+            },
+            PinKind.youtubeLiked => (
+              'Liked videos',
+              'YouTube · ${songCount(likes.length)}',
+              (s) => Artwork(
+                path: likes.firstOrNull?.artwork,
+                size: s,
+                icon: Icons.thumb_up_alt_outlined,
+              ),
+            ),
+            PinKind.favorites => (
+              'Favorites',
+              songCount(favorites.length),
+              (s) => Artwork(
+                path: favorites.firstOrNull?.artwork,
+                size: s,
+                icon: Icons.favorite_rounded,
+              ),
+            ),
+          };
+      // Pinned items deleted elsewhere simply don't show.
+      if (data == null) continue;
+      tiles.add(
+        MediaTile(
+          key: ValueKey('pin-${pin.kind.name}-${pin.id}'),
+          width: tile,
+          title: data.$1,
+          subtitle: data.$2,
+          artwork: data.$3,
+          onTap: () => context.go(pin.location),
+          onContextMenu: (position) async {
+            final overlay =
+                Overlay.of(context).context.findRenderObject()! as RenderBox;
+            final action = await showMenu<String>(
+              context: context,
+              position: RelativeRect.fromRect(
+                position & const Size(1, 1),
+                Offset.zero & overlay.size,
+              ),
+              items: const [
+                PopupMenuItem(value: 'unpin', child: Text('Unpin from Home')),
+              ],
+            );
+            if (action == 'unpin') {
+              ref.read(pinnedProvider.notifier).toggle(pin);
+            }
+          },
+        ),
+      );
+    }
+    if (tiles.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 36),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SectionHeader('Pinned'),
+          TileRow(tileWidth: tile, children: tiles),
+        ],
+      ),
+    );
   }
 }
 
