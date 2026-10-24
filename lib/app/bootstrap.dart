@@ -9,6 +9,7 @@ import 'package:just_audio_media_kit/just_audio_media_kit.dart';
 import 'package:noir/app/app.dart';
 import 'package:noir/core/database/app_database.dart';
 import 'package:noir/core/database/database_provider.dart';
+import 'package:noir/features/analysis/application/analysis_providers.dart';
 import 'package:noir/features/library/application/library_scan_controller.dart';
 import 'package:noir/features/playback/application/playback_controller.dart';
 import 'package:noir/features/playback/presentation/media_session.dart';
@@ -51,7 +52,10 @@ Future<void> bootstrap() async {
   unawaited(container.read(playbackProvider.notifier).restoreSession());
   // Keeps YouTube sync alive for the app's lifetime (Riverpod pauses
   // providers nobody listens to).
-  container.listen(youTubeSyncProvider, (_, _) {});
+  container
+    ..listen(youTubeSyncProvider, (_, _) {})
+    // Background track analysis (tempo, key, mix points) for transitions.
+    ..listen(analysisQueueProvider, (_, _) {});
 
   runApp(
     UncontrolledProviderScope(container: container, child: const NoirApp()),
