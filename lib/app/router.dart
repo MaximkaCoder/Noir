@@ -12,6 +12,7 @@ import 'package:noir/features/discover/presentation/ytm_collection_screen.dart';
 import 'package:noir/features/home/presentation/home_screen.dart';
 import 'package:noir/features/library/presentation/collection_screens.dart';
 import 'package:noir/features/library/presentation/library_screen.dart';
+import 'package:noir/features/playback/presentation/now_playing_route.dart';
 import 'package:noir/features/playback/presentation/now_playing_screen.dart';
 import 'package:noir/features/playlists/presentation/playlist_screen.dart';
 import 'package:noir/features/queue/presentation/queue_panel.dart';
@@ -152,31 +153,9 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/now-playing',
         parentNavigatorKey: _rootKey,
-        pageBuilder: (context, state) => CustomTransitionPage(
-          key: state.pageKey,
-          opaque: false,
-          transitionDuration: NoirEffects.of(context).motion(NoirMotion.slow),
-          reverseTransitionDuration: NoirEffects.of(context)
-              .motion(NoirMotion.medium),
-          child: const NowPlayingScreen(),
-          transitionsBuilder: (context, animation, _, child) {
-            final curved = CurvedAnimation(
-              parent: animation,
-              curve: NoirMotion.emphasized,
-              reverseCurve: Curves.easeInCubic,
-            );
-            return FadeTransition(
-              opacity: curved,
-              child: SlideTransition(
-                position: Tween(
-                  begin: const Offset(0, 0.06),
-                  end: Offset.zero,
-                ).animate(curved),
-                child: child,
-              ),
-            );
-          },
-        ),
+        // Grows out of the player island and shrinks back into it.
+        pageBuilder: (context, state) =>
+            nowPlayingPage(context, state, const NowPlayingScreen()),
       ),
       GoRoute(
         path: '/queue',

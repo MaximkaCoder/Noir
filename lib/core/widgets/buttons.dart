@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:noir/app/theme/design_tokens.dart';
 import 'package:noir/app/theme/glass_theme.dart';
 import 'package:noir/core/widgets/glass_surface.dart';
+import 'package:noir/core/widgets/liquid_press.dart';
 
 /// Borderless icon button with tooltip, hover feedback and a visible focus
-/// ring. Every icon-only action in NOIR goes through this.
+/// ring. Every icon-only action in NOIR goes through this. Under a
+/// [LiquidPressScope] it answers presses with [LiquidPress].
 class NoirIconButton extends StatelessWidget {
   const NoirIconButton({
     required this.icon,
@@ -28,8 +30,9 @@ class NoirIconButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.noir;
+    final liquid = LiquidPressScope.of(context);
     // Active / inactive color changes fade instead of snapping.
-    return TweenAnimationBuilder<Color?>(
+    final button = TweenAnimationBuilder<Color?>(
       tween: ColorTween(
         end: color ?? (active ? c.textPrimary : c.textSecondary),
       ),
@@ -48,10 +51,14 @@ class NoirIconButton extends StatelessWidget {
         ),
       ),
     );
+    return liquid
+        ? LiquidPress(enabled: onPressed != null, child: button)
+        : button;
   }
 }
 
-/// The white circular play/pause button from the reference design.
+/// The white circular play/pause button from the reference design. Under a
+/// [LiquidPressScope] it answers presses with [LiquidPress].
 class PrimaryPlayButton extends StatelessWidget {
   const PrimaryPlayButton({
     required this.playing,
@@ -70,14 +77,15 @@ class PrimaryPlayButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.noir;
     final fx = NoirEffects.of(context);
-    return Tooltip(
+    final liquid = LiquidPressScope.of(context);
+    final button = Tooltip(
       message: playing ? 'Pause' : playTooltip,
       child: Semantics(
         button: true,
         label: playing ? 'Pause' : playTooltip,
         child: _Pressable(
           onPressed: onPressed,
-          scale: fx.animations,
+          scale: fx.animations && !liquid,
           child: Container(
             width: size,
             height: size,
@@ -105,6 +113,9 @@ class PrimaryPlayButton extends StatelessWidget {
         ),
       ),
     );
+    return liquid
+        ? LiquidPress(enabled: onPressed != null, child: button)
+        : button;
   }
 }
 

@@ -312,31 +312,56 @@ void main() {
       expect(app.engine.calls.where((c) => c.startsWith('seek')), ['seek 90']);
     });
 
-    for (final animations in [true, false]) {
-      testWidgets('hover ${animations ? 'lifts' : 'leaves'} the capsule '
-          'with animations ${animations ? 'on' : 'off'}', (tester) async {
-        final app = await TestApp.pump(
-          tester,
-          settings: AppSettings(animations: animations),
-        );
-        await _play(app);
-        await tester.pumpAndSettle();
-        final lift = find
-            .descendant(
-              of: find.byType(LiquidGlass),
-              matching: find.byType(AnimatedScale),
-            )
-            .first;
-        expect(tester.widget<AnimatedScale>(lift).scale, 1);
+    testWidgets('hover leaves the capsule as it is', (tester) async {
+      final app = await TestApp.pump(tester);
+      await _play(app);
+      await tester.pumpAndSettle();
+      final glass = _glassRect(tester);
 
-        final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
-        addTearDown(mouse.removePointer);
-        await mouse.addPointer(location: Offset.zero);
-        await mouse.moveTo(_glassRect(tester).center);
-        await tester.pumpAndSettle();
-        expect(tester.widget<AnimatedScale>(lift).scale, animations ? 1.01 : 1);
-      });
-    }
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      addTearDown(mouse.removePointer);
+      await mouse.addPointer(location: Offset.zero);
+      await mouse.moveTo(glass.center);
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(_glassRect(tester), glass);
+      await tester.pumpAndSettle();
+      expect(_glassRect(tester), glass);
+      // Nothing between the capsule and its content scales.
+      expect(
+        find.ancestor(
+          of: find.byType(LiquidGlass),
+          matching: find.byType(AnimatedScale),
+        ),
+        findsNothing,
+      );
+      for (final scale in tester.widgetList<AnimatedScale>(
+        find.descendant(
+          of: find.byType(LiquidGlass),
+          matching: find.byType(AnimatedScale),
+        ),
+      )) {
+        expect(scale.scale, 1);
+      }
+    });
+
+    testWidgets('no dividers around the track block', (tester) async {
+      final app = await TestApp.pump(tester);
+      await _play(app);
+      await tester.pumpAndSettle();
+      // No vertical hairline: nothing painted 1 px wide and taller than a
+      // few pixels anywhere in the capsule.
+      final painted = find.descendant(
+        of: find.byType(LiquidGlass),
+        matching: find.byWidgetPredicate(
+          (w) => w is ColoredBox || w is DecoratedBox,
+        ),
+      );
+      expect(painted, findsWidgets);
+      final hairlines = tester
+          .renderObjectList<RenderBox>(painted)
+          .where((b) => b.size.width <= 1 && b.size.height > 8);
+      expect(hairlines, isEmpty);
+    });
 
     testWidgets('Liquid Glass off: a solid capsule of the same geometry', (
       tester,
