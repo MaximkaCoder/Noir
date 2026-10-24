@@ -6,6 +6,7 @@ import 'package:dio/dio.dart';
 import 'package:freezed_annotation/freezed_annotation.dart'
     show immutable, visibleForTesting;
 import 'package:noir/integrations/youtube_music/json_nav.dart';
+import 'package:noir/integrations/youtube_music/ytm_lyrics.dart';
 import 'package:noir/integrations/youtube_music/ytm_models.dart';
 import 'package:noir/integrations/youtube_music/ytm_parsers.dart';
 
@@ -46,8 +47,9 @@ enum YtmSearchFilter {
 
 /// Anonymous client for YouTube Music's internal web API (InnerTube,
 /// `WEB_REMIX`), used for discovery only: home feed, radio, search,
-/// playlists, albums and artists. Metadata only — playback stays on the
-/// official player by video id.
+/// playlists, albums and artists — and lyrics, whose timings only the
+/// Android app's client (`ANDROID_MUSIC`) is given. Metadata only —
+/// playback stays on the official player by video id.
 ///
 /// Hard rule: requests carry no cookies, OAuth tokens or anything else tied
 /// to the user's Google account. The only identifier is an anonymous
@@ -84,6 +86,15 @@ class InnerTubeClient {
   static const userAgent =
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
       '(KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36';
+
+  /// The Android app's client, asked only for time-synced lyrics.
+  static const androidClientName = 'ANDROID_MUSIC';
+  static const androidClientVersion = '7.27.52';
+  static const _androidClientNameId = '21';
+  static const androidUserAgent =
+      'com.google.android.apps.youtube.music/$androidClientVersion '
+      '(Linux; U; Android 14) gzip';
+
   static const _maxAttempts = 3;
   static const _maxRetryAfter = Duration(seconds: 10);
 
@@ -180,14 +191,44 @@ class InnerTubeClient {
     return entries;
   }
 
+  /// The browse id of [videoId]'s lyrics (`MPLY…`), or null when YouTube
+  /// Music has none.
+  Future<String?> lyricsBrowseId(String videoId) =>
+      _call('next', {'videoId': videoId}, parseLyricsBrowseId);
+
+  /// The lyrics behind [browseId] ([lyricsBrowseId]): time-synced when
+  /// YouTube Music has timings for them, otherwise plain; null when it has
+  /// neither.
+  Future<YtmLyrics?> lyrics(String browseId) async {
+    final body = {'browseId': browseId};
+    try {
+      final timed = await _call(
+        'browse',
+        body,
+        parseTimedLyrics,
+        android: true,
+      );
+      if (timed != null) return timed;
+    } on InnerTubeException catch (e) {
+      // The app client being refused or answering oddly only costs the
+      // timings; unreachable is unreachable for both.
+      if (e.kind != InnerTubeErrorKind.http &&
+          e.kind != InnerTubeErrorKind.parse) {
+        rethrow;
+      }
+    }
+    return await _call('browse', body, parsePlainLyrics);
+  }
+
   // ---------------------------------------------------------- requests --
 
   Future<T> _call<T>(
     String endpoint,
     Map<String, Object?> body,
-    T Function(Map<String, Object?> json) parser,
-  ) async {
-    final json = await _post(endpoint, body);
+    T Function(Map<String, Object?> json) parser, {
+    bool android = false,
+  }) async {
+    final json = await _post(endpoint, body, android: android);
     try {
       return parser(json);
     } on FormatException {
@@ -217,6 +258,31 @@ class InnerTubeClient {
     ...body,
   };
 
+  /// The body of a request made as the Android app: its client and
+  /// language only, no visitor id.
+  @visibleForTesting
+  Map<String, Object?> androidRequestBody(Map<String, Object?> body) => {
+    'context': {
+      'client': {
+        'clientName': androidClientName,
+        'clientVersion': androidClientVersion,
+        'androidSdkVersion': 34,
+        'hl': hl,
+        'gl': gl,
+      },
+    },
+    ...body,
+  };
+
+  @visibleForTesting
+  Map<String, String> androidRequestHeaders() => {
+    'Content-Type': 'application/json',
+    'Accept-Language': hl,
+    'User-Agent': androidUserAgent,
+    'X-YouTube-Client-Name': _androidClientNameId,
+    'X-YouTube-Client-Version': androidClientVersion,
+  };
+
   @visibleForTesting
   Map<String, String> requestHeaders(InnerTubeSession session) => {
     'Content-Type': 'application/json',
@@ -231,8 +297,9 @@ class InnerTubeClient {
 
   Future<Map<String, Object?>> _post(
     String endpoint,
-    Map<String, Object?> body,
-  ) async {
+    Map<String, Object?> body, {
+    bool android = false,
+  }) async {
     final session = await (_session ??= _bootstrap());
     for (var attempt = 1; ; attempt++) {
       try {
@@ -240,9 +307,13 @@ class InnerTubeClient {
             .post<Object?>(
               '$_base/$endpoint',
               queryParameters: const {'prettyPrint': 'false'},
-              data: requestBody(session, body),
+              data: android
+                  ? androidRequestBody(body)
+                  : requestBody(session, body),
               options: Options(
-                headers: requestHeaders(session),
+                headers: android
+                    ? androidRequestHeaders()
+                    : requestHeaders(session),
                 responseType: ResponseType.json,
                 sendTimeout: timeout,
                 receiveTimeout: timeout,
@@ -257,7 +328,9 @@ class InnerTubeClient {
           );
         }
         final json = data.cast<String, Object?>();
-        _visitorData ??= navString(json, ['responseContext', 'visitorData']);
+        if (!android) {
+          _visitorData ??= navString(json, ['responseContext', 'visitorData']);
+        }
         return json;
       } on TimeoutException {
         if (attempt < _maxAttempts) {

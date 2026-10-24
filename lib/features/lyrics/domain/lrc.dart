@@ -5,7 +5,7 @@ import 'package:flutter/foundation.dart';
 /// One time-synced lyric line.
 @immutable
 class LyricLine {
-  const LyricLine(this.time, this.text, {this.words, this.wordsEnd});
+  const LyricLine(this.time, this.text, {this.words, this.end});
 
   final Duration time;
 
@@ -16,8 +16,9 @@ class LyricLine {
   /// in order; null when the line has none.
   final List<LyricWord>? words;
 
-  /// When the last of [words] ends, if the line closes with a bare mark.
-  final Duration? wordsEnd;
+  /// When the line has been sung, if the source says: a closing word mark
+  /// in enhanced LRC, or the end of the line's cue.
+  final Duration? end;
 
   @override
   bool operator ==(Object other) =>
@@ -25,14 +26,14 @@ class LyricLine {
       other.time == time &&
       other.text == text &&
       listEquals(other.words, words) &&
-      other.wordsEnd == wordsEnd;
+      other.end == end;
 
   @override
   int get hashCode => Object.hash(
     time,
     text,
     words == null ? null : Object.hashAll(words!),
-    wordsEnd,
+    end,
   );
 
   @override
@@ -155,7 +156,7 @@ List<LyricLine> parseLrc(String source) {
                   for (final w in parsed.words!)
                     LyricWord(w.from, w.to, w.time + shift),
                 ],
-          wordsEnd: parsed.end == null ? null : parsed.end! + shift,
+          end: parsed.end == null ? null : parsed.end! + shift,
         ),
       );
     }
@@ -186,7 +187,7 @@ LyricLine _shift(LyricLine l, int ms) {
             for (final w in l.words!)
               LyricWord(w.from, w.to, _clampTime(w.time + by)),
           ],
-    wordsEnd: l.wordsEnd == null ? null : _clampTime(l.wordsEnd! + by),
+    end: l.end == null ? null : _clampTime(l.end! + by),
   );
 }
 
@@ -258,14 +259,17 @@ const maxLineDuration = Duration(seconds: 8);
 /// Rough singing pace, per character, for lines without word marks.
 const _perCharacter = Duration(milliseconds: 90);
 
-/// When line [index] has been sung: its closing word mark if it has one,
-/// otherwise the next line's start — but no longer than [maxLineDuration],
-/// nor much longer than its text takes to sing, so the fill doesn't crawl
-/// through an instrumental gap before the next line.
+/// When line [index] has been sung: its own [LyricLine.end] if the source
+/// gave one, otherwise the next line's start — but no longer than
+/// [maxLineDuration], nor (without a given end) much longer than its text
+/// takes to sing, so the fill doesn't crawl through an instrumental gap
+/// before the next line.
 Duration lineEnd(List<LyricLine> lines, int index) {
   final line = lines[index];
-  if (line.wordsEnd case final end? when end > line.time) return end;
   final start = line.time;
+  if (line.end case final end? when end > start) {
+    return end - start > maxLineDuration ? start + maxLineDuration : end;
+  }
   final next = index + 1 < lines.length
       ? lines[index + 1].time
       : start + maxLineDuration;

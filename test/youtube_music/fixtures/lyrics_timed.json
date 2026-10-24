@@ -1,0 +1,86 @@
+{
+ "responseContext": {
+  "visitorData": "CgtGQUtFVklTSVRPUijAgICAgA%3D%3D"
+ },
+ "contents": {
+  "elementRenderer": {
+   "newElement": {
+    "type": {
+     "componentType": {
+      "templateConfig": {},
+      "model": {
+       "timedLyricsModel": {
+        "lyricsData": {
+         "timedLyricsData": [
+          {
+           "lyricLine": "♪",
+           "cueRange": {
+            "startTimeMilliseconds": "0",
+            "endTimeMilliseconds": "18810",
+            "metadata": {
+             "id": "0"
+            }
+           }
+          },
+          {
+           "lyricLine": "First sung line here",
+           "cueRange": {
+            "startTimeMilliseconds": "18810",
+            "endTimeMilliseconds": "22870",
+            "metadata": {
+             "id": "1"
+            }
+           }
+          },
+          {
+           "lyricLine": "Second line of the verse",
+           "cueRange": {
+            "startTimeMilliseconds": "22870",
+            "endTimeMilliseconds": "27020",
+            "metadata": {
+             "id": "2"
+            }
+           }
+          },
+          {
+           "lyricLine": "Third line comes next",
+           "cueRange": {
+            "startTimeMilliseconds": "27020",
+            "endTimeMilliseconds": "31330",
+            "metadata": {
+             "id": "3"
+            }
+           }
+          },
+          {
+           "lyricLine": "Fourth and final line",
+           "cueRange": {
+            "startTimeMilliseconds": "31330",
+            "endTimeMilliseconds": "35330",
+            "metadata": {
+             "id": "4"
+            }
+           }
+          },
+          {
+           "lyricLine": "♪",
+           "cueRange": {
+            "startTimeMilliseconds": "35330",
+            "endTimeMilliseconds": "44330",
+            "metadata": {
+             "id": "5"
+            }
+           }
+          }
+         ],
+         "sourceMessage": "Source: Musixmatch"
+        }
+       }
+      }
+     }
+    },
+    "properties": {}
+   }
+  }
+ }
+}

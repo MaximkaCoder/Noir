@@ -31,6 +31,7 @@ import 'package:noir/features/playback/presentation/playback_controls.dart';
 import 'package:noir/features/settings/data/settings_repository.dart';
 import 'package:noir/features/settings/domain/app_settings.dart';
 import 'package:noir/features/settings/presentation/settings_controller.dart';
+import 'package:noir/integrations/youtube_music/ytm_lyrics.dart';
 import 'package:noir/integrations/youtube_music/ytm_models.dart';
 import 'package:noir/shared/models/media.dart';
 
@@ -55,6 +56,9 @@ pumpNowPlaying(
 
   /// Played instead of the two library tracks.
   List<Track>? tracks,
+
+  /// YouTube Music; one that knows nothing by default (no network).
+  FakeInnerTubeClient? innerTube,
   List<Override> overrides = const [],
 }) async {
   tester.view
@@ -85,6 +89,9 @@ pumpNowPlaying(
       playbackEngineProvider.overrideWithValue(engine),
       initialSettingsProvider.overrideWithValue(const AppSettings()),
       httpClientProvider.overrideWithValue(http.dio()),
+      innerTubeClientProvider.overrideWithValue(
+        innerTube ?? FakeInnerTubeClient(),
+      ),
       appDirectoriesProvider.overrideWithValue(
         AppDirectories(
           artwork: Directory('${tmp.path}/artwork'),
@@ -269,6 +276,31 @@ void main() {
       // The lyrics column takes over half the window.
       final column = tester.getRect(find.byKey(NowPlayingScreen.lyricsKey));
       expect(column.width, greaterThan(1360 * 0.5));
+    });
+
+    testWidgets('YouTube songs get YouTube Music lyrics first', (tester) async {
+      final ytm = FakeInnerTubeClient()
+        ..lyricsTabs['vidA'] = 'MPLYa'
+        ..lyricsPages['MPLYa'] = const YtmLyrics(
+          lines: [
+            YtmLyricLine(Duration(seconds: 1), Duration(seconds: 3), 'One'),
+            YtmLyricLine(Duration(seconds: 3), Duration(seconds: 6), 'Two'),
+          ],
+          provider: 'Musixmatch',
+        );
+      final app = await pumpNowPlaying(
+        tester,
+        tracks: [ytTrack('vidA', title: 'Song', artist: 'Band')],
+        innerTube: ytm,
+      );
+      await tester.tap(find.byTooltip('Show lyrics'));
+      await tester.pumpAndSettle();
+      expect(find.text('Two'), findsOneWidget);
+      expect(
+        find.text('Lyrics from YouTube Music · Musixmatch'),
+        findsOneWidget,
+      );
+      expect(app.http.requests, isEmpty, reason: 'LRCLIB not needed');
     });
 
     testWidgets('says when there are none', (tester) async {
@@ -662,8 +694,7 @@ void main() {
         ),
       ),
     });
-    List<Override> youTubeMusic(FakeArtistInnerTube ytm) => [
-      innerTubeClientProvider.overrideWithValue(ytm),
+    List<Override> youTubeMusic() => [
       artworkResolverProvider.overrideWithValue(links),
     ];
     final songs = [
@@ -679,7 +710,8 @@ void main() {
       final app = await pumpNowPlaying(
         tester,
         tracks: songs,
-        overrides: youTubeMusic(ytm),
+        innerTube: ytm,
+        overrides: youTubeMusic(),
       );
 
       // Not known yet: plain text, and no album line.
@@ -711,7 +743,8 @@ void main() {
       final app = await pumpNowPlaying(
         tester,
         tracks: songs.reversed.toList(),
-        overrides: youTubeMusic(ytm),
+        innerTube: ytm,
+        overrides: youTubeMusic(),
       );
 
       await tester.tap(_inPlayer(find.byTooltip('More')));

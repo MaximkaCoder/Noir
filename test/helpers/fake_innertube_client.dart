@@ -1,4 +1,5 @@
 import 'package:noir/integrations/youtube_music/innertube_client.dart';
+import 'package:noir/integrations/youtube_music/ytm_lyrics.dart';
 import 'package:noir/integrations/youtube_music/ytm_models.dart';
 import 'package:noir/shared/models/media.dart';
 
@@ -29,6 +30,10 @@ class FakeInnerTubeClient implements InnerTubeClient {
   /// Playlists and albums by id, further tracks by token.
   Map<String, YtmCollection> collections = {};
   Map<String, YtmTrackPage> playlistMorePages = {};
+
+  /// Lyrics: browse id by video id, lyrics by browse id. None by default.
+  Map<String, String> lyricsTabs = {};
+  Map<String, YtmLyrics> lyricsPages = {};
 
   Future<T> _answer<T>(String call, T Function() value) async {
     calls.add(call);
@@ -108,6 +113,14 @@ class FakeInnerTubeClient implements InnerTubeClient {
     'playlistMore $continuation',
     () => playlistMorePages[continuation] ?? const YtmTrackPage(tracks: []),
   );
+
+  @override
+  Future<String?> lyricsBrowseId(String videoId) =>
+      _answer('lyricsBrowseId $videoId', () => lyricsTabs[videoId]);
+
+  @override
+  Future<YtmLyrics?> lyrics(String browseId) =>
+      _answer('lyrics $browseId', () => lyricsPages[browseId]);
 
   @override
   Object? noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);

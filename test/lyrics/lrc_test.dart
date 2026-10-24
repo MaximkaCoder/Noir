@@ -47,7 +47,7 @@ void main() {
     test('plain lines carry no word timings', () {
       final line = parseLrc('[00:01.00] Hello world').single;
       expect(line.words, isNull);
-      expect(line.wordsEnd, isNull);
+      expect(line.end, isNull);
     });
   });
 
@@ -61,7 +61,7 @@ void main() {
       expect(line.text, 'Hello big world');
       expect(line.words!.map((w) => piece(line, w)), ['Hello', 'big', 'world']);
       expect(line.words!.map((w) => w.time), [ms(1000), ms(1500), ms(2250)]);
-      expect(line.wordsEnd, isNull);
+      expect(line.end, isNull);
     });
 
     test('text before the first mark starts with the line', () {
@@ -77,7 +77,7 @@ void main() {
           .single;
       expect(line.text, 'one two');
       expect(line.words, hasLength(2));
-      expect(line.wordsEnd, ms(11200));
+      expect(line.end, ms(11200));
     });
 
     test('syllable marks inside a word stay apart', () {
@@ -191,6 +191,16 @@ void main() {
       final end = lineEnd(lines, 0);
       expect(end - ms(1000), lessThan(const Duration(seconds: 3)));
       expect(end - ms(1000), greaterThanOrEqualTo(ms(1500)));
+    });
+
+    test('a given end wins, within the longest line', () {
+      final lines = [
+        LyricLine(ms(1000), 'cue', end: ms(2500)),
+        LyricLine(ms(9000), 'long cue', end: ms(30000)),
+        LyricLine(ms(40000), 'next'),
+      ];
+      expect(lineEnd(lines, 0), ms(2500));
+      expect(lineEnd(lines, 1), ms(9000) + maxLineDuration);
     });
 
     test('never exceeds the longest line', () {

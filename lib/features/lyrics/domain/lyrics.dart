@@ -39,6 +39,7 @@ class LyricsRequest {
     this.artist,
     this.album,
     this.duration,
+    this.videoId,
   });
 
   factory LyricsRequest.fromTrack(Track track) => LyricsRequest(
@@ -48,6 +49,7 @@ class LyricsRequest {
     artist: track.artist,
     album: track.album,
     duration: track.duration,
+    videoId: track.source == MediaSource.youtube ? track.uri : null,
   );
 
   final String id;
@@ -59,6 +61,9 @@ class LyricsRequest {
   final String? album;
   final Duration? duration;
 
+  /// The YouTube video, for YouTube tracks.
+  final String? videoId;
+
   @override
   bool operator ==(Object other) =>
       other is LyricsRequest &&
@@ -67,10 +72,12 @@ class LyricsRequest {
       other.title == title &&
       other.artist == artist &&
       other.album == album &&
-      other.duration == duration;
+      other.duration == duration &&
+      other.videoId == videoId;
 
   @override
-  int get hashCode => Object.hash(id, source, title, artist, album, duration);
+  int get hashCode =>
+      Object.hash(id, source, title, artist, album, duration, videoId);
 }
 
 /// A lyrics service. Returns null when it has nothing for the track; throws

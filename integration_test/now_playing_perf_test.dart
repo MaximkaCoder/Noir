@@ -20,6 +20,7 @@ import 'package:noir/app/app.dart';
 import 'package:noir/app/router.dart';
 import 'package:noir/core/database/database_provider.dart';
 import 'package:noir/features/accounts/domain/account_connection.dart';
+import 'package:noir/features/discover/application/discover_providers.dart';
 import 'package:noir/features/library/application/library_scan_controller.dart';
 import 'package:noir/features/library/data/library_repository.dart';
 import 'package:noir/features/lyrics/application/lyrics_providers.dart';
@@ -32,6 +33,7 @@ import 'package:window_manager/window_manager.dart';
 
 import '../test/helpers/fake_engine.dart';
 import '../test/helpers/fake_http.dart';
+import '../test/helpers/fake_innertube_client.dart';
 import '../test/helpers/test_database.dart';
 
 const _traceDir = String.fromEnvironment('NOIR_TRACE_DIR');
@@ -145,6 +147,7 @@ void main() {
         playbackEngineProvider.overrideWithValue(FakeEngine()),
         initialSettingsProvider.overrideWithValue(const AppSettings()),
         httpClientProvider.overrideWithValue(http.dio()),
+        innerTubeClientProvider.overrideWithValue(FakeInnerTubeClient()),
         appDirectoriesProvider.overrideWithValue(
           AppDirectories(
             artwork: Directory(p.join(tmp.path, 'artwork')),
