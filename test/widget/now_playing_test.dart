@@ -105,7 +105,7 @@ void main() {
       await pumpNowPlaying(tester);
       expect(find.text('Up next'), findsNothing);
 
-      await tester.tap(find.byTooltip('Queue'));
+      await tester.tap(_nowPlayingQueue);
       await tester.pumpAndSettle();
       expect(find.text('Up next'), findsOneWidget);
       expect(find.byTooltip('Close queue (Esc)'), findsOneWidget);
@@ -137,7 +137,7 @@ void main() {
           .routerDelegate
           .navigatorKey;
 
-      await tester.tap(find.byTooltip('Queue'));
+      await tester.tap(_nowPlayingQueue);
       await tester.pumpAndSettle();
       expect(find.text('Up next'), findsOneWidget);
 
@@ -153,7 +153,7 @@ void main() {
 
     testWidgets('tapping outside closes the sheet', (tester) async {
       await pumpNowPlaying(tester);
-      await tester.tap(find.byTooltip('Queue'));
+      await tester.tap(_nowPlayingQueue);
       await tester.pumpAndSettle();
       await tester.tapAt(const Offset(200, 400));
       await tester.pumpAndSettle();
@@ -269,9 +269,15 @@ void main() {
       await pumpNowPlaying(tester, size: size, textScale: scale);
       await tester.tap(find.byTooltip('Show lyrics'));
       await tester.pumpAndSettle();
-      await tester.tap(find.byTooltip('Queue'));
+      await tester.tap(_nowPlayingQueue);
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
     });
   }
 }
+
+/// The Now Playing queue button (the shell's player island has one too).
+final _nowPlayingQueue = find.descendant(
+  of: find.byType(NowPlayingScreen),
+  matching: find.byTooltip('Queue'),
+);
