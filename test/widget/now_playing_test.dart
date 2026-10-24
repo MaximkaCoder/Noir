@@ -11,6 +11,7 @@ import 'package:noir/app/router.dart';
 import 'package:noir/core/database/database_provider.dart';
 import 'package:noir/core/platform/window_controls.dart';
 import 'package:noir/core/widgets/artwork.dart';
+import 'package:noir/core/widgets/buttons.dart';
 import 'package:noir/core/widgets/glass_surface.dart';
 import 'package:noir/core/widgets/liquid_press.dart';
 import 'package:noir/features/accounts/domain/account_connection.dart';
@@ -257,6 +258,27 @@ void main() {
       );
     });
 
+    testWidgets('the source is credited after the last line only', (
+      tester,
+    ) async {
+      await pumpNowPlaying(tester);
+      await tester.tap(find.byTooltip('Show lyrics'));
+      await tester.pumpAndSettle();
+      final credit = find.text('Lyrics from LRCLIB');
+      expect(credit, findsOneWidget);
+      expect(
+        find.ancestor(of: credit, matching: find.byType(SingleChildScrollView)),
+        findsWidgets,
+        reason: 'scrolls with the lines',
+      );
+      expect(
+        tester.getRect(credit).top,
+        greaterThan(tester.getRect(find.text('Third line')).bottom),
+      );
+      // No mode chips under the lyrics.
+      expect(find.byType(PillChip), findsNothing);
+    });
+
     testWidgets('lines are large on wide windows', (tester) async {
       await pumpNowPlaying(tester);
       await tester.tap(find.byTooltip('Show lyrics'));
@@ -424,10 +446,83 @@ void main() {
       await app.container.read(playbackProvider.notifier).pause();
       await tester.tap(find.byTooltip('Show lyrics'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Karaoke'));
-      await tester.pumpAndSettle();
+      await chooseStyle(tester, 'Karaoke');
       return app;
     }
+
+    double scaleOf(WidgetTester tester, String line) => tester
+        .widget<LyricRowScale>(
+          find
+              .ancestor(
+                of: find.text(line),
+                matching: find.byType(LyricRowScale),
+              )
+              .first,
+        )
+        .scale;
+
+    testWidgets('the sung line grows; the old one shrinks back smoothly', (
+      tester,
+    ) async {
+      final app = await pumpKaraoke(tester);
+      app.engine.tick(const Duration(milliseconds: 5600));
+      await tester.pumpAndSettle();
+      const big = SyncedLyricsList.karaokeScale;
+      expect(scaleOf(tester, 'Second line'), big);
+      expect(scaleOf(tester, 'Third line'), 1);
+      // Every line stays in the list.
+      expect(find.text('First line'), findsOneWidget);
+
+      app.engine.tick(const Duration(milliseconds: 9500));
+      await tester.pump();
+      await tester.pump(SyncedLyricsList.karaokeChange ~/ 3);
+      final oldEarly = scaleOf(tester, 'Second line');
+      final newEarly = scaleOf(tester, 'Third line');
+      expect(oldEarly, inExclusiveRange(1, big));
+      expect(newEarly, inExclusiveRange(1, big));
+      await tester.pump(SyncedLyricsList.karaokeChange ~/ 3);
+      expect(scaleOf(tester, 'Second line'), lessThan(oldEarly));
+      expect(scaleOf(tester, 'Third line'), greaterThan(newEarly));
+
+      await tester.pumpAndSettle();
+      expect(scaleOf(tester, 'Second line'), 1);
+      expect(scaleOf(tester, 'Third line'), big);
+      // The new line has glided to the anchor.
+      final viewport = tester.getRect(
+        find.descendant(
+          of: find.byType(SyncedLyricsList),
+          matching: find.byType(SingleChildScrollView),
+        ),
+      );
+      final row = tester.getRect(
+        find
+            .ancestor(
+              of: find.text('Third line'),
+              matching: find.byType(InkWell),
+            )
+            .first,
+      );
+      expect(
+        row.top - viewport.top,
+        moreOrLessEquals(
+          SyncedLyricsList.anchor * (viewport.height - row.height),
+          epsilon: 1,
+        ),
+      );
+    });
+
+    testWidgets('with animations off the line changes at once', (tester) async {
+      final app = await pumpKaraoke(tester);
+      app.container
+          .read(settingsProvider.notifier)
+          .update((s) => s.copyWith(animations: false));
+      app.engine.tick(const Duration(milliseconds: 5600));
+      await tester.pumpAndSettle();
+      app.engine.tick(const Duration(milliseconds: 9500));
+      await tester.pump();
+      expect(scaleOf(tester, 'Second line'), 1);
+      expect(scaleOf(tester, 'Third line'), SyncedLyricsList.karaokeScale);
+    });
 
     testWidgets('the fill moves between position ticks while playing', (
       tester,
@@ -490,10 +585,10 @@ void main() {
       );
       expect(saved!.lyricsMode, LyricsMode.karaoke);
 
-      await tester.tap(find.text('Lines'));
-      await tester.pumpAndSettle();
+      await chooseStyle(tester, 'Lines');
       expect(app.container.read(settingsProvider).lyricsMode, LyricsMode.lines);
       expect(find.byType(KaraokeLine), findsNothing);
+      expect(find.byType(LyricRowScale), findsNothing);
       expect(find.byType(SyncedLyricsList), findsOneWidget);
     });
 
@@ -790,3 +885,12 @@ final _nowPlayingQueue = find.descendant(
 
 Finder _inPlayer(Finder finder) =>
     find.descendant(of: find.byType(NowPlayingScreen), matching: finder);
+
+/// Picks a lyrics style from Now Playing's More menu.
+Future<void> chooseStyle(WidgetTester tester, String label) async {
+  await tester.tap(_inPlayer(find.byTooltip('More')));
+  await tester.pumpAndSettle();
+  expect(find.text('Lyrics style'), findsOneWidget);
+  await tester.tap(find.text(label).last);
+  await tester.pumpAndSettle();
+}

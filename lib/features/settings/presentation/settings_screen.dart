@@ -150,6 +150,16 @@ class SettingsScreen extends ConsumerWidget {
                   },
                   onChanged: (b) => set((s) => s.copyWith(playBehavior: b)),
                 ),
+                _ChoiceTile<LyricsMode>(
+                  icon: Icons.format_quote_rounded,
+                  title: 'Lyrics style',
+                  value: s.lyricsMode,
+                  options: const {
+                    LyricsMode.lines: 'Lines',
+                    LyricsMode.karaoke: 'Karaoke',
+                  },
+                  onChanged: (m) => set((s) => s.copyWith(lyricsMode: m)),
+                ),
                 const _Section('Accounts'),
                 const AccountConnectionCard(),
                 const _Section('Library'),

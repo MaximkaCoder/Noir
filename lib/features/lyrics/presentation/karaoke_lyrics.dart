@@ -1,44 +1,21 @@
-import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:noir/app/theme/design_tokens.dart';
-import 'package:noir/app/theme/glass_theme.dart';
 import 'package:noir/features/lyrics/domain/lrc.dart';
-import 'package:noir/features/playback/application/playback_controller.dart';
-import 'package:noir/shared/models/playback.dart';
 
-/// Karaoke: the line being sung, large, its words lighting up one by one in
-/// time with the singing; the next line below it and the previous one
-/// fading out above.
-///
-/// Only the fill repaints between position ticks: a [Ticker] interpolates
-/// the position while playing, so the sweep moves every frame instead of
-/// stepping with each tick. The rest rebuilds when the line changes.
-class KaraokeLyrics extends ConsumerStatefulWidget {
-  const KaraokeLyrics({required this.lines, this.compact = false, super.key});
+/// The playback position the karaoke fill shows: the engine's position,
+/// interpolated every frame while [run] says it is playing, so the sweep
+/// glides instead of stepping with each position tick (about every 200 ms).
+class KaraokeClock extends ValueNotifier<Duration> {
+  KaraokeClock(TickerProvider vsync) : super(Duration.zero) {
+    _ticker = vsync.createTicker(_onTick);
+  }
 
-  final List<LyricLine> lines;
-
-  /// Smaller type for narrow windows.
-  final bool compact;
-
-  /// Where the current line rests, as a fraction of the height.
-  static const anchor = 0.36;
-
-  @override
-  ConsumerState<KaraokeLyrics> createState() => _KaraokeLyricsState();
-}
-
-class _KaraokeLyricsState extends ConsumerState<KaraokeLyrics>
-    with SingleTickerProviderStateMixin {
-  late final Ticker _ticker = createTicker(_onTick);
-
-  /// The position the fill shows.
-  final _position = ValueNotifier<Duration>(Duration.zero);
+  late final Ticker _ticker;
 
   /// Last position the engine reported, and the ticker time it arrived at.
   Duration _reported = Duration.zero;
@@ -48,49 +25,11 @@ class _KaraokeLyricsState extends ConsumerState<KaraokeLyrics>
   /// Reports stop while buffering; never run further ahead than this.
   static const _maxAhead = Duration(milliseconds: 1500);
 
-  int _active = -1;
-  final _timings = <int, List<WordTiming>>{};
+  /// Whether it is interpolating.
+  bool get running => _ticker.isActive;
 
-  @override
-  void initState() {
-    super.initState();
-    _report(ref.read(playbackEngineProvider).currentPosition);
-    ref
-      ..listenManual(positionProvider, (_, next) {
-        if (next.value case final p?) _report(p);
-      })
-      ..listenManual(
-        playbackProvider.select((s) => s.status == PlaybackStatus.playing),
-        (_, playing) => _run(playing: playing),
-      );
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    // Also when animations are switched on or off.
-    _run(playing: ref.read(playbackProvider).status == PlaybackStatus.playing);
-  }
-
-  @override
-  void didUpdateWidget(KaraokeLyrics old) {
-    super.didUpdateWidget(old);
-    if (old.lines != widget.lines) {
-      _timings.clear();
-      _active = activeLineIndex(widget.lines, _position.value);
-    }
-  }
-
-  @override
-  void dispose() {
-    _ticker.dispose();
-    _position.dispose();
-    super.dispose();
-  }
-
-  void _run({required bool playing}) {
-    // With animations off the fill steps with the engine's ticks.
-    final smooth = playing && NoirEffects.of(context).animations;
+  /// Interpolates while [smooth]; otherwise shows the reported position.
+  void run({required bool smooth}) {
     if (smooth == _ticker.isActive) return;
     if (smooth) {
       _elapsed = Duration.zero;
@@ -98,14 +37,15 @@ class _KaraokeLyricsState extends ConsumerState<KaraokeLyrics>
       _ticker.start();
     } else {
       _ticker.stop();
-      _show(_reported);
+      value = _reported;
     }
   }
 
-  void _report(Duration position) {
+  /// A position from the engine.
+  void report(Duration position) {
     _reported = position;
     _reportedAt = _elapsed;
-    if (!_ticker.isActive) _show(position);
+    if (!_ticker.isActive) value = position;
   }
 
   void _onTick(Duration elapsed) {
@@ -115,149 +55,240 @@ class _KaraokeLyricsState extends ConsumerState<KaraokeLyrics>
     final next = _reported + ahead;
     // Reports lag a little behind the interpolation; don't step back for
     // that, only for real seeks.
-    final shown = _position.value;
-    if (next < shown && shown - next < const Duration(milliseconds: 400)) {
+    if (next < value && value - next < const Duration(milliseconds: 400)) {
       return;
     }
-    _show(next);
+    value = next;
   }
 
-  void _show(Duration position) {
-    _position.value = position;
-    final index = activeLineIndex(widget.lines, position);
-    if (index != _active && mounted) setState(() => _active = index);
+  @override
+  void dispose() {
+    _ticker.dispose();
+    super.dispose();
   }
+}
 
-  List<WordTiming> _wordsOf(int index) =>
-      _timings[index] ??= lineWordTimings(widget.lines, index);
+/// One line of the karaoke list: its plain text in [rest] while it is not
+/// sung; while [active], [activeScale] times larger with its words filling
+/// in [KaraokeLine]. Becoming active or not is animated over [duration]:
+/// the size, the fill colour and the dim colour tween together, and the
+/// line takes up its animated height so the list around it moves along.
+class KaraokeRow extends StatefulWidget {
+  const KaraokeRow({
+    required this.text,
+    required this.active,
+    required this.words,
+    required this.position,
+    required this.style,
+    required this.lit,
+    required this.unlit,
+    required this.rest,
+    required this.activeScale,
+    required this.restScale,
+    required this.duration,
+    super.key,
+  });
 
-  /// The nearest line after [index] with words in it.
-  int? _nextSung(int index) {
-    for (var i = index + 1; i < widget.lines.length; i++) {
-      if (widget.lines[i].text.isNotEmpty) return i;
-    }
-    return null;
-  }
+  final String text;
+  final bool active;
 
-  void _seek(int index) => unawaited(
-    ref.read(playbackProvider.notifier).seek(widget.lines[index].time),
+  /// Timed pieces of [text] (computed only when needed).
+  final List<WordTiming> Function() words;
+  final ValueListenable<Duration> position;
+
+  /// The line's type at rest size, without colour.
+  final TextStyle style;
+
+  /// Sung words.
+  final Color lit;
+
+  /// Words still to come in the active line.
+  final Color unlit;
+
+  /// The whole line while not active (past or upcoming).
+  final Color rest;
+  final double activeScale;
+  final double restScale;
+  final Duration duration;
+
+  @override
+  State<KaraokeRow> createState() => _KaraokeRowState();
+}
+
+class _KaraokeRowState extends State<KaraokeRow>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _grow = AnimationController(
+    vsync: this,
+    value: widget.active ? 1 : 0,
   );
+  List<WordTiming>? _words;
+
+  @override
+  void didUpdateWidget(KaraokeRow old) {
+    super.didUpdateWidget(old);
+    if (old.text != widget.text) _words = null;
+    if (old.active != widget.active) {
+      _grow.duration = widget.duration;
+      if (widget.duration == Duration.zero) {
+        _grow.value = widget.active ? 1 : 0;
+      } else if (widget.active) {
+        _grow.forward();
+      } else {
+        _grow.reverse();
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _grow.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    final c = context.noir;
-    final fx = NoirEffects.of(context);
-    final canSeek = ref.watch(
-      playbackProvider.select((s) => s.capabilities.canSeek),
-    );
-    final lines = widget.lines;
-    final active = _active;
-    final current = active >= 0 ? lines[active] : null;
-    final next = _nextSung(active);
-    final previous = active > 0 && lines[active - 1].text.isNotEmpty
-        ? active - 1
-        : null;
-
-    return LayoutBuilder(
-      builder: (context, box) {
-        final size = karaokeFontSize(box, compact: widget.compact);
-        final base = DefaultTextStyle.of(context).style
-            .merge(lyricLineStyle(context, size));
-        final sung = current != null && current.text.isNotEmpty;
-        final block = Column(
-          key: ValueKey(active),
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (previous != null)
-              Padding(
-                padding: EdgeInsets.only(bottom: size * 0.45),
-                child: Text(
-                  lines[previous].text,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: base.copyWith(
-                    fontSize: size * 0.62,
-                    color: c.textPrimary.withValues(alpha: 0.28),
-                  ),
-                ),
-              ),
-            if (sung)
-              KaraokeLine(
-                text: current.text,
-                words: _wordsOf(active),
-                position: _position,
-                style: base,
-                lit: c.textPrimary,
-                unlit: c.textPrimary.withValues(alpha: 0.32),
-              )
-            else
-              Text(
-                '♪',
-                style: base.copyWith(
-                  color: c.textPrimary.withValues(alpha: 0.5),
-                ),
-              ),
-            if (next != null)
-              Padding(
-                padding: EdgeInsets.only(top: size * 0.55),
-                child: _Tappable(
-                  onTap: canSeek ? () => _seek(next) : null,
-                  child: Text(
-                    lines[next].text,
-                    style: base.copyWith(
-                      fontSize: size * 0.78,
-                      color: c.textPrimary.withValues(alpha: 0.55),
-                    ),
-                  ),
-                ),
-              ),
-          ],
-        );
-        final duration = fx.motion(NoirMotion.slow);
-        return ClipRect(
-          child: Padding(
-            padding: EdgeInsets.only(
-              top: box.maxHeight * KaraokeLyrics.anchor - size * 1.6,
+    final text = widget.text.isEmpty ? '♪' : widget.text;
+    return AnimatedBuilder(
+      animation: _grow,
+      builder: (context, _) {
+        final g = NoirMotion.standard.transform(_grow.value);
+        final scale = lerpDouble(widget.restScale, widget.activeScale, g);
+        // Laid out for the larger of the two sizes while it changes, so it
+        // never rewraps mid-animation nor spills past the column.
+        final layoutScale = _grow.isAnimating
+            ? math.max(widget.restScale, widget.activeScale)
+            : scale;
+        final Widget content;
+        if (g == 0 || widget.text.isEmpty) {
+          content = AnimatedDefaultTextStyle(
+            duration: widget.duration,
+            curve: NoirMotion.standard,
+            style: widget.style.copyWith(
+              color: Color.lerp(widget.rest, widget.lit, g),
             ),
-            child: Align(
-              alignment: Alignment.topLeft,
-              child: AnimatedSwitcher(
-                duration: duration,
-                switchInCurve: NoirMotion.standard,
-                switchOutCurve: NoirMotion.exit,
-                layoutBuilder: (current, previous) => Stack(
-                  alignment: Alignment.topLeft,
-                  children: [...previous, ?current],
-                ),
-                transitionBuilder: (child, animation) {
-                  final incoming = child.key == ValueKey(active);
-                  return FadeTransition(
-                    opacity: animation,
-                    child: SlideTransition(
-                      position: Tween<Offset>(
-                        begin: Offset(0, incoming ? 0.12 : -0.12),
-                        end: Offset.zero,
-                      ).animate(animation),
-                      child: child,
-                    ),
-                  );
-                },
-                child: block,
-              ),
-            ),
-          ),
+            child: Text(text),
+          );
+        } else {
+          content = KaraokeLine(
+            text: text,
+            words: _words ??= widget.words(),
+            position: widget.position,
+            style: widget.style,
+            lit: Color.lerp(widget.rest, widget.lit, g)!,
+            unlit: Color.lerp(widget.rest, widget.unlit, g)!,
+          );
+        }
+        return LyricRowScale(
+          scale: scale,
+          layoutScale: layoutScale,
+          child: content,
         );
       },
     );
   }
+
+  static double lerpDouble(double a, double b, double t) => a + (b - a) * t;
 }
 
-/// Karaoke type size for a lyrics area of [box]: large, following the
-/// window, within readable bounds.
-double karaokeFontSize(BoxConstraints box, {required bool compact}) {
-  final fit = math.min(box.maxWidth * 0.058, box.maxHeight * 0.075);
-  return compact ? fit.clamp(24.0, 38.0) : fit.clamp(30.0, 50.0);
+/// Draws [child] [scale] times its size from its top left corner, and
+/// takes up the scaled height. [child] is laid out [layoutScale] times
+/// narrower than the space, so at that scale it fills the width exactly.
+class LyricRowScale extends SingleChildRenderObjectWidget {
+  const LyricRowScale({
+    required this.scale,
+    required this.layoutScale,
+    super.child,
+    super.key,
+  });
+
+  final double scale;
+  final double layoutScale;
+
+  @override
+  RenderLyricRowScale createRenderObject(BuildContext context) =>
+      RenderLyricRowScale(scale, layoutScale);
+
+  @override
+  void updateRenderObject(
+    BuildContext context,
+    RenderLyricRowScale renderObject,
+  ) {
+    renderObject
+      ..scale = scale
+      ..layoutScale = layoutScale;
+  }
+}
+
+class RenderLyricRowScale extends RenderProxyBox {
+  RenderLyricRowScale(this._scale, this._layoutScale);
+
+  double get scale => _scale;
+  double _scale;
+  set scale(double value) {
+    if (value == _scale) return;
+    _scale = value;
+    markNeedsLayout();
+  }
+
+  double get layoutScale => _layoutScale;
+  double _layoutScale;
+  set layoutScale(double value) {
+    if (value == _layoutScale) return;
+    _layoutScale = value;
+    markNeedsLayout();
+  }
+
+  @override
+  void performLayout() {
+    final child = this.child;
+    if (child == null) {
+      size = constraints.smallest;
+      return;
+    }
+    final width = constraints.maxWidth / _layoutScale;
+    child.layout(
+      BoxConstraints(maxWidth: width.isFinite ? width : double.infinity),
+      parentUsesSize: true,
+    );
+    size = constraints.constrain(
+      Size(constraints.maxWidth, child.size.height * _scale),
+    );
+  }
+
+  Matrix4 get _transform => Matrix4.diagonal3Values(_scale, _scale, 1);
+
+  @override
+  void paint(PaintingContext context, Offset offset) {
+    final child = this.child;
+    if (child == null) return;
+    if (_scale == 1) {
+      context.paintChild(child, offset);
+      return;
+    }
+    layer = context.pushTransform(
+      needsCompositing,
+      offset,
+      _transform,
+      (context, offset) => context.paintChild(child, offset),
+      oldLayer: layer as TransformLayer?,
+    );
+  }
+
+  @override
+  bool hitTestChildren(BoxHitTestResult result, {required Offset position}) {
+    final child = this.child;
+    if (child == null) return false;
+    return result.addWithPaintTransform(
+      transform: _transform,
+      position: position,
+      hitTest: (result, position) => child.hitTest(result, position: position),
+    );
+  }
+
+  @override
+  void applyPaintTransform(RenderBox child, Matrix4 transform) {
+    transform.multiply(_transform);
+  }
 }
 
 /// Large, bold lyric type at [size].
@@ -268,22 +299,6 @@ TextStyle lyricLineStyle(BuildContext context, double size) =>
       height: 1.22,
       letterSpacing: -0.02 * size,
     );
-
-class _Tappable extends StatelessWidget {
-  const _Tappable({required this.onTap, required this.child});
-
-  final VoidCallback? onTap;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    if (onTap == null) return child;
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      child: GestureDetector(onTap: onTap, child: child),
-    );
-  }
-}
 
 /// One karaoke line: [text] in [unlit], with the sung part painted over it
 /// in [lit] — word by word, the current word filling with a soft edge.

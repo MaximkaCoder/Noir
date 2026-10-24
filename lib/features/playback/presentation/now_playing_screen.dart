@@ -32,6 +32,7 @@ import 'package:noir/features/playback/presentation/playback_controls.dart';
 import 'package:noir/features/playback/presentation/youtube_video_layer.dart';
 import 'package:noir/features/playlists/presentation/add_to_playlist.dart';
 import 'package:noir/features/queue/presentation/queue_panel.dart';
+import 'package:noir/features/settings/domain/app_settings.dart';
 import 'package:noir/features/settings/presentation/settings_controller.dart';
 import 'package:noir/features/youtube/presentation/save_button.dart';
 import 'package:noir/features/youtube/presentation/youtube_cover.dart';
@@ -518,6 +519,7 @@ class _TopBar extends ConsumerWidget {
         ? const <_Destination>[]
         : _artistsOf(track, links);
     final album = track == null ? null : _albumOf(track, links);
+    final lyricsMode = ref.watch(settingsProvider.select((s) => s.lyricsMode));
     return WindowDragArea(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
@@ -540,6 +542,13 @@ class _TopBar extends ConsumerWidget {
                     color: context.noir.textSecondary,
                   ),
                   onSelected: (v) async {
+                    for (final mode in LyricsMode.values) {
+                      if (v == 'lyrics ${mode.name}') {
+                        ref
+                            .read(settingsProvider.notifier)
+                            .update((s) => s.copyWith(lyricsMode: mode));
+                      }
+                    }
                     if (v == 'playlist') {
                       await addToPlaylist(context, ref, [track]);
                     }
@@ -579,6 +588,25 @@ class _TopBar extends ConsumerWidget {
                       const PopupMenuItem(
                         value: 'album',
                         child: Text('Go to album'),
+                      ),
+                    const PopupMenuDivider(),
+                    PopupMenuItem(
+                      enabled: false,
+                      height: 32,
+                      child: Text(
+                        'Lyrics style',
+                        style: Theme.of(context).textTheme.labelSmall
+                            ?.copyWith(color: context.noir.textTertiary),
+                      ),
+                    ),
+                    for (final (mode, label) in const [
+                      (LyricsMode.lines, 'Lines'),
+                      (LyricsMode.karaoke, 'Karaoke'),
+                    ])
+                      CheckedPopupMenuItem(
+                        value: 'lyrics ${mode.name}',
+                        checked: lyricsMode == mode,
+                        child: Text(label),
                       ),
                   ],
                 ),

@@ -6,8 +6,6 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:noir/app/theme/design_tokens.dart';
 import 'package:noir/app/theme/glass_theme.dart';
-import 'package:noir/core/widgets/buttons.dart';
-import 'package:noir/core/widgets/liquid_press.dart';
 import 'package:noir/core/widgets/smooth_scroll.dart';
 import 'package:noir/core/widgets/states.dart';
 import 'package:noir/features/lyrics/application/lyrics_providers.dart';
@@ -18,10 +16,12 @@ import 'package:noir/features/playback/application/playback_controller.dart';
 import 'package:noir/features/settings/domain/app_settings.dart';
 import 'package:noir/features/settings/presentation/settings_controller.dart';
 import 'package:noir/shared/models/media.dart';
+import 'package:noir/shared/models/playback.dart';
 
 /// Lyrics for [track]: time-synced lines that follow playback (as a list,
 /// or karaoke — see [LyricsMode]), plain text, or a calm state explaining
-/// why there are none.
+/// why there are none. Where they come from is credited after the last
+/// line.
 class LyricsView extends ConsumerWidget {
   const LyricsView({required this.track, this.compact = false, super.key});
 
@@ -29,6 +29,9 @@ class LyricsView extends ConsumerWidget {
 
   /// Smaller type for narrow windows.
   final bool compact;
+
+  /// Shown above unsynced lyrics while Karaoke is chosen.
+  static const noKaraokeNote = 'Not time-synced, so no karaoke';
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -69,80 +72,51 @@ class LyricsView extends ConsumerWidget {
           message: 'This song has no lyrics.',
           compact: true,
         ),
-        PlainLyrics(:final text, :final source) => _Attributed(
-          key: const ValueKey('plain'),
+        PlainLyrics(:final text, :final source) => _PlainLyrics(
+          key: ValueKey(('plain', mode)),
+          text: text,
           source: source,
-          note: mode == LyricsMode.karaoke
-              ? 'Not time-synced, so no karaoke'
-              : 'Not time-synced',
-          child: _PlainLyrics(text: text, compact: compact),
+          note: mode == LyricsMode.karaoke ? noKaraokeNote : null,
+          compact: compact,
         ),
-        SyncedLyrics(:final lines, :final source) => _Attributed(
-          key: ValueKey(request),
+        SyncedLyrics(:final lines, :final source) => SyncedLyricsList(
+          key: ValueKey((request, mode)),
+          lines: lines,
           source: source,
-          child: AnimatedSwitcher(
-            duration: fx.motion(NoirMotion.medium),
-            layoutBuilder: (current, previous) =>
-                Stack(fit: StackFit.expand, children: [...previous, ?current]),
-            child: mode == LyricsMode.karaoke
-                ? KaraokeLyrics(
-                    key: const ValueKey(LyricsMode.karaoke),
-                    lines: lines,
-                    compact: compact,
-                  )
-                : SyncedLyricsList(
-                    key: const ValueKey(LyricsMode.lines),
-                    lines: lines,
-                    compact: compact,
-                  ),
-          ),
+          compact: compact,
+          karaoke: mode == LyricsMode.karaoke,
         ),
       },
     );
     return AnimatedSwitcher(
       duration: fx.motion(NoirMotion.medium),
+      layoutBuilder: (current, previous) =>
+          Stack(fit: StackFit.expand, children: [...previous, ?current]),
       child: child,
     );
   }
 }
 
-class _Attributed extends StatelessWidget {
-  const _Attributed({
-    required this.source,
-    required this.child,
-    this.note,
-    super.key,
-  });
+/// "Lyrics from …", small and dim, after the last line.
+class _Credit extends StatelessWidget {
+  const _Credit(this.source);
 
   final String source;
-  final String? note;
-  final Widget child;
 
   @override
-  Widget build(BuildContext context) {
-    final t = Theme.of(context).textTheme.labelSmall
-        ?.copyWith(color: context.noir.textTertiary);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(child: child),
-        Padding(
-          padding: const EdgeInsets.only(top: NoirSpacing.sm),
-          // The toggle moves under the attribution when they don't fit.
-          child: Wrap(
-            alignment: WrapAlignment.spaceBetween,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            spacing: NoirSpacing.sm,
-            runSpacing: NoirSpacing.xs,
-            children: [
-              Text([?note, 'Lyrics from $source'].join(' · '), style: t),
-              const FittedBox(fit: BoxFit.scaleDown, child: LyricsModeToggle()),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(
+      NoirSpacing.sm,
+      NoirSpacing.xl,
+      NoirSpacing.sm,
+      0,
+    ),
+    child: Text(
+      'Lyrics from $source',
+      style: Theme.of(context).textTheme.labelSmall
+          ?.copyWith(color: context.noir.textTertiary),
+    ),
+  );
 }
 
 /// Fades lines out toward the top and bottom edges.
@@ -162,41 +136,6 @@ Widget _edgeFade(Widget child) => ShaderMask(
   child: child,
 );
 
-/// Lines · Karaoke, remembered in the settings.
-class LyricsModeToggle extends ConsumerWidget {
-  const LyricsModeToggle({super.key});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final mode = ref.watch(settingsProvider.select((s) => s.lyricsMode));
-    Widget option(LyricsMode value, String label, String tooltip) => Tooltip(
-      message: tooltip,
-      child: LiquidPress(
-        pressedScale: 0.94,
-        bubbleScale: 1.06,
-        child: PillChip(
-          label: label,
-          selected: mode == value,
-          onSelected: () => ref
-              .read(settingsProvider.notifier)
-              .update((s) => s.copyWith(lyricsMode: value)),
-        ),
-      ),
-    );
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        option(LyricsMode.lines, 'Lines', 'Show every line'),
-        option(
-          LyricsMode.karaoke,
-          'Karaoke',
-          'Light up the words as they are sung',
-        ),
-      ],
-    );
-  }
-}
-
 /// Lyric type size for an area of [box]: large and bold, following the
 /// window, within readable bounds.
 double lyricsFontSize(BoxConstraints box, {required bool compact}) {
@@ -207,9 +146,19 @@ double lyricsFontSize(BoxConstraints box, {required bool compact}) {
 }
 
 class _PlainLyrics extends StatelessWidget {
-  const _PlainLyrics({required this.text, required this.compact});
+  const _PlainLyrics({
+    required this.text,
+    required this.source,
+    required this.note,
+    required this.compact,
+    super.key,
+  });
 
   final String text;
+  final String source;
+
+  /// Shown above the text.
+  final String? note;
   final bool compact;
 
   @override
@@ -219,6 +168,7 @@ class _PlainLyrics extends StatelessWidget {
       height: 1.5,
       fontWeight: FontWeight.w600,
     );
+    final note = this.note;
     return ScrollConfiguration(
       behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
       child: _edgeFade(
@@ -226,7 +176,22 @@ class _PlainLyrics extends StatelessWidget {
           builder: (context, scroll) => SingleChildScrollView(
             controller: scroll,
             padding: const EdgeInsets.symmetric(vertical: NoirSpacing.xxxl),
-            child: Text(text.trim(), style: style),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (note != null)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: NoirSpacing.lg),
+                    child: Text(
+                      note,
+                      style: Theme.of(context).textTheme.labelMedium
+                          ?.copyWith(color: context.noir.textSecondary),
+                    ),
+                  ),
+                Text(text.trim(), style: style),
+                _Credit(source),
+              ],
+            ),
           ),
         ),
       ),
@@ -236,15 +201,27 @@ class _PlainLyrics extends StatelessWidget {
 
 /// Time-synced lines. Only this widget listens to playback position, and it
 /// rebuilds only when the active line changes.
+///
+/// In [karaoke] mode the line being sung is [karaokeScale] times larger and
+/// fills word by word ([KaraokeRow]); moving to the next line, the old one
+/// shrinks back and dims while the new one grows, and the list glides so
+/// the new line reaches the anchor as the sizes settle. Between position
+/// ticks only the fill repaints.
 class SyncedLyricsList extends ConsumerStatefulWidget {
   const SyncedLyricsList({
     required this.lines,
+    required this.source,
     this.compact = false,
+    this.karaoke = false,
     super.key,
   });
 
   final List<LyricLine> lines;
+
+  /// Credited after the last line.
+  final String source;
   final bool compact;
+  final bool karaoke;
 
   /// Where the active line rests, as a fraction of the viewport height.
   static const anchor = 0.38;
@@ -252,33 +229,78 @@ class SyncedLyricsList extends ConsumerStatefulWidget {
   /// How long manual scrolling pauses auto-follow.
   static const followPause = Duration(seconds: 3);
 
+  /// Size of the line being sung in karaoke, relative to the others.
+  static const karaokeScale = 1.3;
+
+  /// How long karaoke takes to move on to the next line.
+  static const karaokeChange = Duration(milliseconds: 450);
+
   @override
   ConsumerState<SyncedLyricsList> createState() => _SyncedLyricsListState();
 }
 
-class _SyncedLyricsListState extends ConsumerState<SyncedLyricsList> {
+class _SyncedLyricsListState extends ConsumerState<SyncedLyricsList>
+    with TickerProviderStateMixin {
   final _scroll = SmoothScrollController();
   late List<GlobalKey> _keys;
   int _active = -1;
   bool _following = true;
   Timer? _resume;
 
+  /// Karaoke: the interpolated position the fill and the active line follow.
+  late final KaraokeClock _clock = KaraokeClock(this);
+
+  /// Karaoke: carries the scroll along while line sizes change.
+  late final AnimationController _glide = AnimationController(vsync: this)
+    ..addListener(_glideStep)
+    ..addStatusListener((status) {
+      if (status.isCompleted) _revealAfterFrame();
+    });
+  double _glideFrom = 0;
+
   @override
   void initState() {
     super.initState();
     _keys = [for (final _ in widget.lines) GlobalKey()];
-    _active = activeLineIndex(
-      widget.lines,
-      ref.read(playbackEngineProvider).currentPosition,
-    );
+    final position = ref.read(playbackEngineProvider).currentPosition;
+    _active = activeLineIndex(widget.lines, position);
+    if (widget.karaoke) {
+      _clock
+        ..report(position)
+        ..addListener(
+          () => _setActive(activeLineIndex(widget.lines, _clock.value)),
+        );
+      ref.listenManual(
+        playbackProvider.select((s) => s.status == PlaybackStatus.playing),
+        (_, playing) => _runClock(playing: playing),
+      );
+    }
     ref.listenManual(positionProvider, (_, next) {
       final position = next.value;
-      if (position != null) _setActive(activeLineIndex(widget.lines, position));
+      if (position == null) return;
+      if (widget.karaoke) {
+        _clock.report(position);
+      } else {
+        _setActive(activeLineIndex(widget.lines, position));
+      }
     });
-    WidgetsBinding.instance.addPostFrameCallback(
-      (_) => _reveal(animate: false),
-    );
+    _revealAfterFrame();
   }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Also when animations are switched on or off.
+    if (widget.karaoke) {
+      _runClock(
+        playing: ref.read(playbackProvider).status == PlaybackStatus.playing,
+      );
+    }
+  }
+
+  /// With animations off the fill steps with the engine's ticks.
+  void _runClock({required bool playing}) =>
+      _clock.run(smooth: playing && NoirEffects.of(context).animations);
 
   @override
   void didUpdateWidget(SyncedLyricsList old) {
@@ -292,6 +314,8 @@ class _SyncedLyricsListState extends ConsumerState<SyncedLyricsList> {
   @override
   void dispose() {
     _resume?.cancel();
+    _glide.dispose();
+    _clock.dispose();
     _scroll.dispose();
     super.dispose();
   }
@@ -299,25 +323,64 @@ class _SyncedLyricsListState extends ConsumerState<SyncedLyricsList> {
   void _setActive(int index) {
     if (index == _active || !mounted) return;
     setState(() => _active = index);
-    if (_following) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _reveal());
+    if (!_following) return;
+    if (widget.karaoke) {
+      _glideToActive();
+    } else {
+      _revealAfterFrame(animate: true);
     }
+  }
+
+  void _revealAfterFrame({bool animate = false}) => WidgetsBinding.instance
+      .addPostFrameCallback((_) => _reveal(animate: animate));
+
+  /// Karaoke: moves the list along with the changing line sizes, reaching
+  /// the anchor for the new line's final size as they settle.
+  void _glideToActive() {
+    final duration = NoirEffects.of(context)
+        .motion(SyncedLyricsList.karaokeChange);
+    if (duration == Duration.zero || !_scroll.hasClients) {
+      _revealAfterFrame();
+      return;
+    }
+    _glideFrom = _scroll.position.pixels;
+    _glide
+      ..duration = duration
+      ..forward(from: 0);
+  }
+
+  void _glideStep() {
+    if (!_glide.isAnimating || !_scroll.hasClients) return;
+    // From the last laid-out frame: the sizes keep changing, so the target
+    // moves with them; the end of the glide lands on it exactly.
+    final target = _anchorOffset();
+    if (target == null) return;
+    final t = NoirMotion.standard.transform(_glide.value);
+    _scroll.position.jumpTo(_glideFrom + (target - _glideFrom) * t);
+  }
+
+  /// The scroll offset that puts the active line at the anchor.
+  double? _anchorOffset() {
+    if (!_scroll.hasClients || _keys.isEmpty) return null;
+    final target = _keys[_active.clamp(0, _keys.length - 1)].currentContext
+        ?.findRenderObject();
+    if (target == null || !target.attached) return null;
+    final viewport = RenderAbstractViewport.maybeOf(target);
+    if (viewport == null) return null;
+    final position = _scroll.position;
+    return viewport
+        .getOffsetToReveal(target, SyncedLyricsList.anchor)
+        .offset
+        .clamp(position.minScrollExtent, position.maxScrollExtent);
   }
 
   /// Scrolls the active line to [SyncedLyricsList.anchor]. Only this list
   /// scrolls, never the page around it.
   void _reveal({bool animate = true}) {
-    if (!mounted || !_scroll.hasClients) return;
-    final target = _keys[_active.clamp(0, _keys.length - 1)].currentContext
-        ?.findRenderObject();
-    if (target == null || !target.attached) return;
-    final viewport = RenderAbstractViewport.maybeOf(target);
-    if (viewport == null) return;
+    if (!mounted) return;
+    final offset = _anchorOffset();
+    if (offset == null) return;
     final position = _scroll.position;
-    final offset = viewport
-        .getOffsetToReveal(target, SyncedLyricsList.anchor)
-        .offset
-        .clamp(position.minScrollExtent, position.maxScrollExtent);
     final duration = animate
         ? NoirEffects.of(context).motion(NoirMotion.slow * 2)
         : Duration.zero;
@@ -336,6 +399,7 @@ class _SyncedLyricsListState extends ConsumerState<SyncedLyricsList> {
 
   void _pauseFollow() {
     _following = false;
+    _glide.stop();
     _resume?.cancel();
     _resume = Timer(SyncedLyricsList.followPause, () {
       _following = true;
@@ -360,6 +424,24 @@ class _SyncedLyricsListState extends ConsumerState<SyncedLyricsList> {
       playbackProvider.select((s) => s.capabilities.canSeek),
     );
     _scroll.smooth = fx.animations;
+
+    Widget? karaokeRow(int i, TextStyle base) => !widget.karaoke
+        ? null
+        : KaraokeRow(
+            text: widget.lines[i].text,
+            active: i == _active,
+            words: () => lineWordTimings(widget.lines, i),
+            position: _clock,
+            style: base,
+            lit: c.textPrimary,
+            unlit: c.textPrimary.withValues(alpha: _futureAlpha),
+            rest: c.textPrimary.withValues(
+              alpha: i < _active ? _pastAlpha : _futureAlpha,
+            ),
+            activeScale: SyncedLyricsList.karaokeScale,
+            restScale: 1,
+            duration: fx.motion(SyncedLyricsList.karaokeChange),
+          );
 
     return LayoutBuilder(
       builder: (context, box) {
@@ -403,7 +485,9 @@ class _SyncedLyricsListState extends ConsumerState<SyncedLyricsList> {
                           gap: size * 0.3,
                           duration: fx.motion(NoirMotion.slow),
                           onTap: canSeek ? () => _seekTo(i) : null,
+                          karaoke: karaokeRow(i, base),
                         ),
+                      _Credit(widget.source),
                     ],
                   ),
                 ),
@@ -418,6 +502,10 @@ class _SyncedLyricsListState extends ConsumerState<SyncedLyricsList> {
 
 enum _LineState { past, active, future }
 
+/// Sung lines recede further than the ones still to come.
+const _pastAlpha = 0.35;
+const _futureAlpha = 0.55;
+
 class _Line extends StatelessWidget {
   const _Line({
     required this.text,
@@ -427,6 +515,7 @@ class _Line extends StatelessWidget {
     required this.gap,
     required this.duration,
     required this.onTap,
+    this.karaoke,
     super.key,
   });
 
@@ -440,14 +529,16 @@ class _Line extends StatelessWidget {
   final Duration duration;
   final VoidCallback? onTap;
 
+  /// The line's karaoke rendering, in place of the plain one.
+  final Widget? karaoke;
+
   @override
   Widget build(BuildContext context) {
     final active = state == _LineState.active;
-    // Sung lines recede further than the ones still to come.
     final alpha = switch (state) {
       _LineState.active => 1.0,
-      _LineState.past => 0.35,
-      _LineState.future => 0.55,
+      _LineState.past => _pastAlpha,
+      _LineState.future => _futureAlpha,
     };
     return Semantics(
       selected: active,
@@ -461,18 +552,20 @@ class _Line extends StatelessWidget {
             horizontal: NoirSpacing.sm,
             vertical: gap,
           ),
-          child: AnimatedScale(
-            scale: active ? 1 : 0.97,
-            alignment: Alignment.centerLeft,
-            duration: duration,
-            curve: NoirMotion.standard,
-            child: AnimatedDefaultTextStyle(
-              duration: duration,
-              curve: NoirMotion.standard,
-              style: style.copyWith(color: color.withValues(alpha: alpha)),
-              child: Text(text.isEmpty ? '♪' : text),
-            ),
-          ),
+          child:
+              karaoke ??
+              AnimatedScale(
+                scale: active ? 1 : 0.97,
+                alignment: Alignment.centerLeft,
+                duration: duration,
+                curve: NoirMotion.standard,
+                child: AnimatedDefaultTextStyle(
+                  duration: duration,
+                  curve: NoirMotion.standard,
+                  style: style.copyWith(color: color.withValues(alpha: alpha)),
+                  child: Text(text.isEmpty ? '♪' : text),
+                ),
+              ),
         ),
       ),
     );
