@@ -23,6 +23,10 @@ abstract class AppSettings with _$AppSettings {
   const factory AppSettings({
     @Default(ThemeMode.dark) ThemeMode themeMode,
     @Default(true) bool liquidGlass,
+
+    /// How much Liquid Glass the floating surfaces show, 0–100: higher is
+    /// clearer (less tint and frost) with more saturation and refraction.
+    @Default(60) int glassLevel,
     @Default(true) bool animations,
     @Default(Density.comfortable) Density density,
     @Default(PerformanceMode.balanced) PerformanceMode performanceMode,

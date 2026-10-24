@@ -67,6 +67,17 @@ class SettingsScreen extends ConsumerWidget {
                   value: s.liquidGlass,
                   onChanged: (v) => set((s) => s.copyWith(liquidGlass: v)),
                 ),
+                _SliderTile(
+                  label: 'Glass',
+                  value: s.glassLevel.toDouble(),
+                  max: 100,
+                  display: '${s.glassLevel}',
+                  // Clearer glass: less tint and frost, more color and
+                  // refraction. Only meaningful while Liquid Glass is on.
+                  onChanged: s.liquidGlass
+                      ? (v) => set((s) => s.copyWith(glassLevel: v.round()))
+                      : null,
+                ),
                 _ToggleTile(
                   icon: Icons.animation_rounded,
                   title: 'Animations',
@@ -391,7 +402,9 @@ class _SliderTile extends StatelessWidget {
   final String label;
   final double value;
   final String display;
-  final ValueChanged<double> onChanged;
+
+  /// Null disables the slider.
+  final ValueChanged<double>? onChanged;
   final double min;
   final double max;
   final int? divisions;
@@ -403,7 +416,15 @@ class _SliderTile extends StatelessWidget {
       padding: const EdgeInsets.only(left: 52, right: NoirSpacing.xs),
       child: Row(
         children: [
-          SizedBox(width: 150, child: Text(label, style: t.bodySmall)),
+          SizedBox(
+            width: 150,
+            child: Text(
+              label,
+              style: onChanged == null
+                  ? t.bodySmall?.copyWith(color: context.noir.textTertiary)
+                  : t.bodySmall,
+            ),
+          ),
           Expanded(
             child: Slider(
               value: value,

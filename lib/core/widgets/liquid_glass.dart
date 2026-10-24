@@ -1,75 +1,154 @@
+import 'dart:async';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:noir/app/theme/design_tokens.dart';
 import 'package:noir/app/theme/glass_theme.dart';
 
+/// How a [LiquidGlass] surface renders, from the effects settings. The
+/// Glass slider ([EffectsConfig.glassLevel]) drives all four together:
+/// clearer glass has less tint and frost, more vivid color and a stronger
+/// lens at the rim.
+@immutable
+class LiquidGlassStyle {
+  const LiquidGlassStyle({
+    required this.tint,
+    required this.blurSigma,
+    required this.saturation,
+    required this.refraction,
+  });
+
+  /// Balanced: blur, saturation and edge refraction, all from the Glass
+  /// level. Performance mode keeps a light blur only. With Liquid Glass off
+  /// nothing shows through.
+  factory LiquidGlassStyle.of(EffectsConfig fx) {
+    final g = fx.glassLevel;
+    if (!fx.glass) {
+      return const LiquidGlassStyle(
+        tint: 1,
+        blurSigma: 0,
+        saturation: 1,
+        refraction: 0,
+      );
+    }
+    final full = fx.highlights;
+    return LiquidGlassStyle(
+      tint: lerpDouble(0.62, 0.08, g)!,
+      blurSigma: full ? lerpDouble(12, 3, g)! : lerpDouble(8, 3, g)!,
+      saturation: full ? lerpDouble(1.05, 2, g)! : 1,
+      refraction: full ? g : 0,
+    );
+  }
+
+  /// Opacity of the surface color over what shows through.
+  final double tint;
+
+  /// Backdrop blur (logical px).
+  final double blurSigma;
+
+  /// Saturation of what shows through (1 = unchanged).
+  final double saturation;
+
+  /// Strength of the lens along the rim, 0–1; 1 displaces the backdrop by
+  /// half the capsule's height at the very edge.
+  final double refraction;
+
+  @override
+  bool operator ==(Object other) =>
+      other is LiquidGlassStyle &&
+      other.tint == tint &&
+      other.blurSigma == blurSigma &&
+      other.saturation == saturation &&
+      other.refraction == refraction;
+
+  @override
+  int get hashCode => Object.hash(tint, blurSigma, saturation, refraction);
+
+  @override
+  String toString() =>
+      'LiquidGlassStyle(tint: $tint, blur: $blurSigma, '
+      'saturation: $saturation, refraction: $refraction)';
+}
+
 /// A floating Liquid Glass capsule (stadium shape), after Apple's
-/// iOS 26 / macOS Tahoe material, in NOIR's monochrome palette:
+/// iOS 26 / macOS Tahoe material as SimpMusic draws it with Kyant's
+/// backdrop library, in NOIR's monochrome palette:
 ///
-/// - one backdrop blur with a saturation boost, under a faint tint;
+/// - the backdrop, lightly blurred and saturated, shows clearly through a
+///   thin tint ([LiquidGlassStyle]);
+/// - near the rim it is refracted like through a thick lens: a fragment
+///   shader where the renderer supports backdrop shaders (Impeller, the
+///   default on Windows), otherwise a soft bright band painted inside the
+///   rim;
 /// - an optional wash of [tintImage] (decoded a few pixels wide and
 ///   stretched, so it costs nothing and blurs for free);
-/// - an inner glow and a specular rim — bright along the top edge, fading
+/// - a top sheen and a specular rim — bright along the top edge, fading
 ///   down the sides, with a faint catch light at the bottom;
-/// - a soft, wide shadow; hovering lifts the capsule a touch.
+/// - a soft, wide shadow.
 ///
 /// Respects [NoirEffects]: with Liquid Glass off it is an opaque capsule of
-/// the same geometry (no backdrop filter); Performance mode keeps a lighter
-/// blur but drops the tint, rim and lens band; with animations off it never
-/// lifts.
-class LiquidGlass extends StatefulWidget {
+/// the same geometry (no backdrop filter); Performance mode keeps a light
+/// blur but drops saturation, refraction, tint and highlights.
+class LiquidGlass extends StatelessWidget {
   const LiquidGlass({
     required this.child,
     this.padding,
     this.tintImage,
-    this.liftOnHover = true,
+    this.refract = true,
     super.key,
   });
 
   final Widget child;
   final EdgeInsetsGeometry? padding;
 
+  /// Whether the lens shader may refract the backdrop. Turn it off while an
+  /// ancestor fades the glass: a translucent ancestor renders it into a
+  /// separate layer whose origin the shader cannot know, so the painted
+  /// band stands in until the fade ends.
+  final bool refract;
+
   /// Tints the glass with a faint, desaturated stretch of this image (for
   /// example the current artwork).
   final ImageProvider? tintImage;
 
-  /// Scales up 1% and deepens the shadow while the pointer is over it.
-  final bool liftOnHover;
-
-  /// Saturation boost applied to what shows through the glass.
-  static const double saturation = 1.5;
-
-  @override
-  State<LiquidGlass> createState() => _LiquidGlassState();
-}
-
-class _LiquidGlassState extends State<LiquidGlass> {
-  bool _hovered = false;
-
-  static final _saturate = ColorFilter.matrix(
-    _saturationMatrix(LiquidGlass.saturation),
-  );
-
   @override
   Widget build(BuildContext context) {
-    final c = context.noir;
     final fx = NoirEffects.of(context);
-    final dark = Theme.of(context).brightness == Brightness.dark;
-    final lifted = _hovered && widget.liftOnHover && fx.animations;
-    final duration = fx.motion(NoirMotion.medium);
+    final style = LiquidGlassStyle.of(fx);
+    final useLens = fx.glass && style.refraction > 0;
+    if (useLens) _LensProgram.load();
+    return ValueListenableBuilder<FragmentProgram?>(
+      valueListenable: _LensProgram.program,
+      builder: (context, program, _) => _build(
+        context,
+        fx,
+        style,
+        useLens ? program : null,
+      ),
+    );
+  }
 
-    // Content scrolls underneath, so dark glass also dims a little: bright
-    // covers behind it stay readable without turning the glass grey.
+  Widget _build(
+    BuildContext context,
+    EffectsConfig fx,
+    LiquidGlassStyle style,
+    FragmentProgram? lens,
+  ) {
+    final c = context.noir;
+    final dark = Theme.of(context).brightness == Brightness.dark;
+
+    // Content scrolls underneath, so dark glass dims rather than milks:
+    // bright covers behind it stay readable without turning the glass grey.
     final fill = !fx.glass
         ? c.surfaceSolid
-        : dark
-        ? Color.alphaBlend(
-            c.glassFill.withValues(alpha: c.glassFill.a * 1.4),
-            Colors.black.withValues(alpha: 0.22),
-          )
-        : c.glassFill;
-    final tint = widget.tintImage;
+        : Color.alphaBlend(
+            c.glassFill,
+            (dark ? Colors.black : Colors.white).withValues(alpha: style.tint),
+          );
+    final tint = tintImage;
+    final g = fx.glassLevel;
 
     Widget body = Stack(
       children: [
@@ -83,7 +162,7 @@ class _LiquidGlassState extends State<LiquidGlass> {
                   child: _Tint(
                     key: ValueKey(tint),
                     image: tint,
-                    alpha: dark ? 0.16 : 0.12,
+                    alpha: (dark ? 0.16 : 0.12) * (1 - g * 0.5),
                   ),
                 ),
               ),
@@ -99,10 +178,10 @@ class _LiquidGlassState extends State<LiquidGlass> {
                     end: Alignment.bottomCenter,
                     stops: const [0, 0.45, 0.75, 1],
                     colors: [
-                      Colors.white.withValues(alpha: dark ? 0.07 : 0.4),
+                      Colors.white.withValues(alpha: dark ? 0.08 : 0.35),
                       Colors.white.withValues(alpha: 0),
                       Colors.white.withValues(alpha: 0),
-                      Colors.white.withValues(alpha: dark ? 0.035 : 0.18),
+                      Colors.white.withValues(alpha: dark ? 0.04 : 0.16),
                     ],
                   ),
                 ),
@@ -110,8 +189,8 @@ class _LiquidGlassState extends State<LiquidGlass> {
             ),
           ),
         Padding(
-          padding: widget.padding ?? EdgeInsets.zero,
-          child: widget.child,
+          padding: padding ?? EdgeInsets.zero,
+          child: child,
         ),
         Positioned.fill(
           child: IgnorePointer(
@@ -119,7 +198,11 @@ class _LiquidGlassState extends State<LiquidGlass> {
               painter: _RimPainter(
                 hairline: c.glassBorder,
                 specular: fx.highlights,
-                lens: fx.highlights,
+                // The shader refracts the real backdrop; without it a
+                // painted band stands in for the lens.
+                lens: (lens == null || !refract) && fx.highlights
+                    ? 0.4 + g * 0.6
+                    : 0,
                 dark: dark,
               ),
             ),
@@ -128,52 +211,223 @@ class _LiquidGlassState extends State<LiquidGlass> {
       ],
     );
 
-    final sigma = fx.blurSigma;
-    if (fx.glass && sigma > 0) {
-      final blur = ImageFilter.blur(sigmaX: sigma, sigmaY: sigma);
-      body = BackdropFilter.grouped(
-        filter: fx.highlights
-            ? ImageFilter.compose(outer: _saturate, inner: blur)
-            : blur,
-        child: body,
+    if (fx.glass && style.blurSigma > 0) {
+      // Blur first, then the lens refracts (and saturates) what the blur
+      // drew: sibling layers, not ImageFilter.compose (which renders nothing
+      // with a shader on Windows) nor nested (the inner layer's coordinates
+      // shift). Without the lens the blur saturates. The tree keeps its
+      // shape either way, so toggling the lens never remounts the content.
+      final blur = ImageFilter.blur(
+        sigmaX: style.blurSigma,
+        sigmaY: style.blurSigma,
+      );
+      final refracting = lens != null && refract;
+      body = Stack(
+        children: [
+          Positioned.fill(
+            child: BackdropFilter(
+              filter: refracting || style.saturation == 1
+                  ? blur
+                  : ImageFilter.compose(
+                      outer: ColorFilter.matrix(
+                        _saturationMatrix(style.saturation),
+                      ),
+                      inner: blur,
+                    ),
+              child: const SizedBox.expand(),
+            ),
+          ),
+          _LensBackdrop(
+            program: refracting ? lens : null,
+            style: style,
+            child: body,
+          ),
+        ],
       );
     }
     body = ClipRRect(borderRadius: NoirRadii.pillAll, child: body);
 
-    body = AnimatedContainer(
-      duration: duration,
-      curve: NoirMotion.standard,
-      decoration: BoxDecoration(
-        borderRadius: NoirRadii.pillAll,
-        boxShadow: [
-          // Wide, soft ambient shadow: the capsule floats.
-          BoxShadow(
-            color: c.shadow.withValues(alpha: c.shadow.a * (lifted ? 1 : 0.8)),
-            blurRadius: lifted ? 60 : 44,
-            spreadRadius: -4,
-            offset: Offset(0, lifted ? 22 : 16),
-          ),
-          // Tight contact shadow that defines the lower edge.
-          BoxShadow(
-            color: c.shadow.withValues(alpha: c.shadow.a * 0.35),
-            blurRadius: 6,
-            offset: const Offset(0, 2),
-          ),
-        ],
+    return RepaintBoundary(
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          borderRadius: NoirRadii.pillAll,
+          boxShadow: [
+            // Wide, soft ambient shadow: the capsule floats.
+            BoxShadow(
+              color: c.shadow.withValues(alpha: c.shadow.a * 0.8),
+              blurRadius: 44,
+              spreadRadius: -4,
+              offset: const Offset(0, 16),
+            ),
+            // Tight contact shadow that defines the lower edge.
+            BoxShadow(
+              color: c.shadow.withValues(alpha: c.shadow.a * 0.35),
+              blurRadius: 6,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: body,
       ),
-      child: body,
     );
-    body = AnimatedScale(
-      scale: lifted ? 1.01 : 1,
-      duration: duration,
-      curve: NoirMotion.standard,
-      child: body,
+  }
+}
+
+/// The lens shader, loaded once where backdrop shader filters work.
+abstract final class _LensProgram {
+  static final program = ValueNotifier<FragmentProgram?>(null);
+  static bool _requested = false;
+
+  static void load() {
+    if (_requested || !ImageFilter.isShaderFilterSupported) return;
+    _requested = true;
+    unawaited(
+      FragmentProgram.fromAsset('shaders/liquid_glass.frag').then(
+        (p) => program.value = p,
+        // No lens then: the painted band stands in.
+        onError: (Object _) {},
+      ),
     );
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      child: RepaintBoundary(child: body),
-    );
+  }
+}
+
+/// Refraction + saturation of the (already blurred) backdrop through
+/// `shaders/liquid_glass.frag`. The shader works in window pixels, so the
+/// surface's on-screen rect is passed in at paint time — and repainted
+/// when an ancestor moves it without repainting (a slide, a scroll).
+class _LensBackdrop extends SingleChildRenderObjectWidget {
+  const _LensBackdrop({
+    required this.program,
+    required this.style,
+    required super.child,
+  });
+
+  /// Null paints the child as is.
+  final FragmentProgram? program;
+  final LiquidGlassStyle style;
+
+  @override
+  RenderObject createRenderObject(BuildContext context) => _RenderLensBackdrop(
+    program,
+    style,
+    View.of(context).devicePixelRatio,
+  );
+
+  @override
+  void updateRenderObject(
+    BuildContext context,
+    _RenderLensBackdrop renderObject,
+  ) {
+    renderObject
+      ..program = program
+      ..style = style
+      ..devicePixelRatio = View.of(context).devicePixelRatio;
+  }
+}
+
+class _RenderLensBackdrop extends RenderProxyBox {
+  _RenderLensBackdrop(this._program, this._style, this._devicePixelRatio);
+
+  FragmentShader? _shader;
+
+  FragmentProgram? get program => _program;
+  FragmentProgram? _program;
+  set program(FragmentProgram? value) {
+    if (value == _program) return;
+    _program = value;
+    _shader?.dispose();
+    _shader = null;
+    markNeedsCompositingBitsUpdate();
+    markNeedsPaint();
+  }
+
+  LiquidGlassStyle get style => _style;
+  LiquidGlassStyle _style;
+  set style(LiquidGlassStyle value) {
+    if (value == _style) return;
+    _style = value;
+    markNeedsPaint();
+  }
+
+  double get devicePixelRatio => _devicePixelRatio;
+  double _devicePixelRatio;
+  set devicePixelRatio(double value) {
+    if (value == _devicePixelRatio) return;
+    _devicePixelRatio = value;
+    markNeedsPaint();
+  }
+
+  Rect? _painted;
+  bool _watching = false;
+
+  @override
+  BackdropFilterLayer? get layer => super.layer as BackdropFilterLayer?;
+
+  @override
+  bool get alwaysNeedsCompositing => child != null && _program != null;
+
+  @override
+  void attach(PipelineOwner owner) {
+    super.attach(owner);
+    if (!_watching) {
+      _watching = true;
+      SchedulerBinding.instance.addPostFrameCallback(_watch);
+    }
+  }
+
+  @override
+  void dispose() {
+    _shader?.dispose();
+    super.dispose();
+  }
+
+  void _watch(Duration _) {
+    if (!attached) {
+      _watching = false;
+      return;
+    }
+    if (_program != null &&
+        _painted != null &&
+        hasSize &&
+        _globalRect() != _painted) {
+      markNeedsPaint();
+    }
+    SchedulerBinding.instance.addPostFrameCallback(_watch);
+  }
+
+  Rect _globalRect() =>
+      MatrixUtils.transformRect(getTransformTo(null), Offset.zero & size);
+
+  @override
+  void paint(PaintingContext context, Offset offset) {
+    final program = _program;
+    if (program == null) {
+      layer = null;
+      _painted = null;
+      super.paint(context, offset);
+      return;
+    }
+    if (child == null) {
+      layer = null;
+      return;
+    }
+    final rect = _globalRect();
+    _painted = rect;
+    final px = rect.topLeft * _devicePixelRatio & rect.size * _devicePixelRatio;
+    final side = px.shortestSide;
+    final shader = (_shader ??= program.fragmentShader())
+      ..setFloat(2, px.left)
+      ..setFloat(3, px.top)
+      ..setFloat(4, px.width)
+      ..setFloat(5, px.height)
+      ..setFloat(6, side / 2)
+      // SimpMusic's lens: a band a quarter of the height deep, displacing
+      // up to half the height at the rim.
+      ..setFloat(7, side / 4)
+      ..setFloat(8, side / 2 * _style.refraction)
+      ..setFloat(9, _style.saturation);
+    (layer ??= BackdropFilterLayer()).filter = ImageFilter.shader(shader);
+    context.pushLayer(layer!, super.paint, offset);
   }
 }
 
@@ -200,9 +454,9 @@ class _Tint extends StatelessWidget {
 }
 
 /// Edge lighting, drawn above the content (it never reaches the edges):
-/// a hairline for definition; with highlights on, a soft bright band just
-/// inside the rim — light bending through a thick lens — and a specular
-/// stroke that is brightest along the top edge.
+/// a hairline for definition; with highlights on, a specular stroke that is
+/// brightest along the top edge, and — where the shader cannot refract the
+/// backdrop — a soft bright band just inside the rim, [lens] strong.
 class _RimPainter extends CustomPainter {
   const _RimPainter({
     required this.hairline,
@@ -213,7 +467,7 @@ class _RimPainter extends CustomPainter {
 
   final Color hairline;
   final bool specular;
-  final bool lens;
+  final double lens;
   final bool dark;
 
   @override
@@ -223,13 +477,13 @@ class _RimPainter extends CustomPainter {
       rect,
       Radius.circular(size.shortestSide / 2),
     );
-    if (lens) {
+    if (lens > 0) {
       canvas.drawRRect(
         shape.deflate(4),
         Paint()
           ..style = PaintingStyle.stroke
           ..strokeWidth = 8
-          ..color = Colors.white.withValues(alpha: dark ? 0.045 : 0.22)
+          ..color = Colors.white.withValues(alpha: (dark ? 0.05 : 0.22) * lens)
           ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5),
       );
     }

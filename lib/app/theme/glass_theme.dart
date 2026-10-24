@@ -12,6 +12,7 @@ class EffectsConfig {
     required this.highlights,
     required this.ambient,
     required this.animations,
+    this.glassLevel = 0.6,
   });
 
   factory EffectsConfig.resolve(
@@ -29,6 +30,7 @@ class EffectsConfig {
       highlights: settings.liquidGlass && !performance,
       ambient: settings.liquidGlass && !performance,
       animations: settings.animations && !systemReducedMotion,
+      glassLevel: (settings.glassLevel / 100).clamp(0.0, 1.0),
     );
   }
 
@@ -45,6 +47,10 @@ class EffectsConfig {
   /// Non-essential motion. Essential feedback stays regardless.
   final bool animations;
 
+  /// The user's Glass slider, 0–1: tint, frost, saturation and refraction
+  /// of Liquid Glass surfaces.
+  final double glassLevel;
+
   /// [d] when animations are on, otherwise instant.
   Duration motion(Duration d) => animations ? d : Duration.zero;
 
@@ -55,11 +61,18 @@ class EffectsConfig {
       other.blurSigma == blurSigma &&
       other.highlights == highlights &&
       other.ambient == ambient &&
-      other.animations == animations;
+      other.animations == animations &&
+      other.glassLevel == glassLevel;
 
   @override
-  int get hashCode =>
-      Object.hash(glass, blurSigma, highlights, ambient, animations);
+  int get hashCode => Object.hash(
+    glass,
+    blurSigma,
+    highlights,
+    ambient,
+    animations,
+    glassLevel,
+  );
 }
 
 class NoirEffects extends InheritedWidget {

@@ -13,7 +13,9 @@ import 'package:noir/core/widgets/artwork.dart';
 import 'package:noir/core/widgets/buttons.dart';
 import 'package:noir/core/widgets/glass_surface.dart';
 import 'package:noir/core/widgets/liquid_glass.dart';
+import 'package:noir/core/widgets/liquid_press.dart';
 import 'package:noir/features/playback/application/playback_controller.dart';
+import 'package:noir/features/playback/presentation/now_playing_route.dart';
 import 'package:noir/features/playback/presentation/playback_controls.dart';
 import 'package:noir/features/queue/presentation/queue_panel.dart';
 import 'package:noir/features/youtube/presentation/save_button.dart';
@@ -83,7 +85,9 @@ class _Subtitle extends StatelessWidget {
 /// favorite, queue, volume and the full player on the right. Centered and
 /// at most [maxWidth] wide. Slides in when playback starts and out when the
 /// queue is cleared; narrower capsules drop the volume slider, then shuffle
-/// and repeat, then the favorite.
+/// and repeat, then the favorite. Its buttons answer presses with
+/// [LiquidPress]; Now Playing grows out of it and shrinks back into it
+/// ([NowPlayingTransition]), and it hides while that page covers it.
 class PlayerIsland extends ConsumerStatefulWidget {
   const PlayerIsland({super.key});
 
@@ -99,11 +103,34 @@ class PlayerIsland extends ConsumerStatefulWidget {
 class _PlayerIslandState extends ConsumerState<PlayerIsland> {
   /// Last state with a track, so the island leaves with its content.
   PlaybackState? _last;
+  bool _visible = false;
+
+  /// The capsule, which Now Playing grows out of.
+  final _glass = GlobalKey();
+
+  @override
+  void initState() {
+    super.initState();
+    NowPlayingTransition.attachAnchor(this, _glassRect);
+  }
+
+  @override
+  void dispose() {
+    NowPlayingTransition.detachAnchor(this);
+    super.dispose();
+  }
+
+  Rect? _glassRect() {
+    final box = _glass.currentContext?.findRenderObject() as RenderBox?;
+    if (!_visible || box == null || !box.hasSize || !box.attached) return null;
+    return box.localToGlobal(Offset.zero) & box.size;
+  }
 
   @override
   Widget build(BuildContext context) {
     final s = ref.watch(playbackProvider);
     final visible = s.current != null;
+    _visible = visible;
     if (visible) _last = s;
     final last = _last;
     final fx = NoirEffects.of(context);
@@ -116,11 +143,30 @@ class _PlayerIslandState extends ConsumerState<PlayerIsland> {
           offset: visible ? Offset.zero : const Offset(0, 1),
           duration: duration,
           curve: visible ? NoirMotion.standard : NoirMotion.exit,
-          child: AnimatedOpacity(
-            opacity: visible ? 1 : 0,
+          // Opacity rather than AnimatedOpacity: at rest the glass must not
+          // sit in a layer of its own, or its lens cannot find the backdrop.
+          child: TweenAnimationBuilder<double>(
+            tween: Tween(end: visible ? 1 : 0),
             duration: duration,
             curve: visible ? NoirMotion.standard : NoirMotion.exit,
-            child: last == null ? const SizedBox.shrink() : _IslandBar(last),
+            builder: (context, shown, _) => ValueListenableBuilder<double>(
+              valueListenable: NowPlayingTransition.coverage,
+              builder: (context, covered, _) {
+                if (last == null) return const SizedBox.shrink();
+                // Hidden behind Now Playing: it fades out as the page grows
+                // out of it and back in as the page shrinks into it.
+                final opacity =
+                    shown * (1 - const Interval(0, 0.35).transform(covered));
+                return Opacity(
+                  opacity: opacity,
+                  child: _IslandBar(
+                    last,
+                    glassKey: _glass,
+                    refract: opacity >= 1,
+                  ),
+                );
+              },
+            ),
           ),
         ),
       ),
@@ -129,9 +175,17 @@ class _PlayerIslandState extends ConsumerState<PlayerIsland> {
 }
 
 class _IslandBar extends ConsumerWidget {
-  const _IslandBar(this.state);
+  const _IslandBar(
+    this.state, {
+    required this.glassKey,
+    required this.refract,
+  });
 
   final PlaybackState state;
+  final GlobalKey glassKey;
+
+  /// See [LiquidGlass.refract].
+  final bool refract;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -153,6 +207,8 @@ class _IslandBar extends ConsumerWidget {
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: PlayerIsland.maxWidth),
           child: LiquidGlass(
+            key: glassKey,
+            refract: refract,
             tintImage: artwork == null
                 ? null
                 : isRemoteImage(artwork)
@@ -162,50 +218,38 @@ class _IslandBar extends ConsumerWidget {
               horizontal: NoirSpacing.md + 2,
               vertical: NoirSpacing.xxs,
             ),
-            child: LayoutBuilder(
-              builder: (context, box) {
-                final w = box.maxWidth;
-                return Row(
-                  children: [
-                    PlaybackControls(showModes: w >= 640),
-                    const _IslandDivider(),
-                    Expanded(child: _IslandNowPlaying(state)),
-                    const _IslandDivider(),
-                    if (w >= 520) _FavoriteButton(track),
-                    _ToggleButton(
-                      icon: Icons.queue_music_rounded,
-                      tooltip: queueOpen ? 'Hide queue' : 'Queue',
-                      active: queueOpen,
-                      onPressed: () => openQueue(context, ref),
-                    ),
-                    VolumeControl(showSlider: w >= 860),
-                    NoirIconButton(
-                      icon: Icons.open_in_full_rounded,
-                      tooltip: 'Open player (Ctrl+P)',
-                      size: 18,
-                      onPressed: () => openNowPlaying(context),
-                    ),
-                  ],
-                );
-              },
+            child: LiquidPressScope(
+              child: LayoutBuilder(
+                builder: (context, box) {
+                  final w = box.maxWidth;
+                  return Row(
+                    children: [
+                      PlaybackControls(showModes: w >= 640),
+                      const SizedBox(width: NoirSpacing.md),
+                      Expanded(child: _IslandNowPlaying(state)),
+                      const SizedBox(width: NoirSpacing.md),
+                      if (w >= 520) _FavoriteButton(track),
+                      _ToggleButton(
+                        icon: Icons.queue_music_rounded,
+                        tooltip: queueOpen ? 'Hide queue' : 'Queue',
+                        active: queueOpen,
+                        onPressed: () => openQueue(context, ref),
+                      ),
+                      VolumeControl(showSlider: w >= 860),
+                      NoirIconButton(
+                        icon: Icons.open_in_full_rounded,
+                        tooltip: 'Open player (Ctrl+P)',
+                        size: 18,
+                        onPressed: () => openNowPlaying(context),
+                      ),
+                    ],
+                  );
+                },
+              ),
             ),
           ),
         ),
       ),
-    );
-  }
-}
-
-class _IslandDivider extends StatelessWidget {
-  const _IslandDivider();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 1,
-      height: 24,
-      margin: const EdgeInsets.symmetric(horizontal: NoirSpacing.sm + 2),
-      color: context.noir.glassBorder,
     );
   }
 }
