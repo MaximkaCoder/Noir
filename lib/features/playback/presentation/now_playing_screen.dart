@@ -7,6 +7,7 @@ import 'dart:ui' as ui show Image;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -15,6 +16,7 @@ import 'package:noir/app/theme/glass_theme.dart';
 import 'package:noir/core/platform/window_controls.dart';
 import 'package:noir/core/widgets/artwork.dart';
 import 'package:noir/core/widgets/buttons.dart';
+import 'package:noir/core/widgets/liquid_press.dart';
 import 'package:noir/core/widgets/noir_backdrop.dart';
 import 'package:noir/core/widgets/smooth_scroll.dart';
 import 'package:noir/core/widgets/states.dart';
@@ -25,6 +27,7 @@ import 'package:noir/features/library/application/library_providers.dart';
 import 'package:noir/features/lyrics/application/lyrics_providers.dart';
 import 'package:noir/features/lyrics/presentation/lyrics_view.dart';
 import 'package:noir/features/playback/application/playback_controller.dart';
+import 'package:noir/features/playback/presentation/now_playing_route.dart';
 import 'package:noir/features/playback/presentation/playback_controls.dart';
 import 'package:noir/features/playback/presentation/youtube_video_layer.dart';
 import 'package:noir/features/playlists/presentation/add_to_playlist.dart';
@@ -40,20 +43,104 @@ import 'package:noir/shared/models/playback.dart';
 /// title, progress, transport, and optionally time-synced lyrics. The queue
 /// opens as a side sheet. Dismiss with the chevron, Esc, or a downward
 /// swipe.
-class NowPlayingScreen extends ConsumerWidget {
+///
+/// Showing lyrics doesn't swap layouts: one layout ([_Stage]) glides every
+/// piece between its place with and without lyrics.
+class NowPlayingScreen extends ConsumerStatefulWidget {
   const NowPlayingScreen({super.key});
 
   /// Below this width lyrics replace the artwork instead of getting their
   /// own column.
   static const wideBreakpoint = 760.0;
 
+  /// How long showing or hiding lyrics rearranges the screen.
+  static const lyricsDuration = Duration(milliseconds: 450);
+
+  /// The cover's place in the layout, for tests.
+  static const coverKey = ValueKey('now-playing-cover');
+
+  /// The lyrics' place in the layout, for tests.
+  static const lyricsKey = ValueKey('now-playing-lyrics');
+
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<NowPlayingScreen> createState() => _NowPlayingScreenState();
+}
+
+class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
+    with SingleTickerProviderStateMixin {
+  /// 0 without lyrics, 1 with them.
+  late final AnimationController _lyrics = AnimationController(
+    vsync: this,
+    value: ref.read(lyricsVisibleProvider) ? 1 : 0,
+  )..addStatusListener((_) => setState(() {}));
+  late final CurvedAnimation _lyricsCurve = CurvedAnimation(
+    parent: _lyrics,
+    curve: NoirMotion.emphasized,
+    reverseCurve: NoirMotion.emphasized.flipped,
+  );
+
+  /// The route's own animation, eased like the morph.
+  Animation<double>? _route;
+  CurvedAnimation? _routeCurve;
+
+  /// Whether the opening transition is over. Lyrics (and their lookup) wait
+  /// for it, so nothing heavy competes with the morph.
+  bool _settled = false;
+
+  /// The baked backdrop on screen, which the content fades in over.
+  final _backdrop = ValueNotifier<ui.Image?>(null);
+
+  @override
+  void initState() {
+    super.initState();
+    ref.listenManual(lyricsVisibleProvider, (_, visible) {
+      final duration = NoirEffects.of(context)
+          .motion(NowPlayingScreen.lyricsDuration);
+      if (visible) {
+        _lyrics.animateTo(1, duration: duration);
+      } else {
+        // Backwards, so it ends dismissed and the lyrics leave the tree.
+        _lyrics.animateBack(0, duration: duration);
+      }
+    });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context)?.animation;
+    if (route == _route) return;
+    _route?.removeStatusListener(_routeStatus);
+    _routeCurve?.dispose();
+    _route = route;
+    _routeCurve = route == null ? null : NowPlayingTransition.curve(route);
+    route?.addStatusListener(_routeStatus);
+    _settled = route == null || route.isCompleted;
+  }
+
+  void _routeStatus(AnimationStatus status) {
+    if (status.isCompleted && !_settled) setState(() => _settled = true);
+  }
+
+  @override
+  void dispose() {
+    _route?.removeStatusListener(_routeStatus);
+    _routeCurve?.dispose();
+    _lyricsCurve.dispose();
+    _lyrics.dispose();
+    _backdrop.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final s = ref.watch(playbackProvider);
-    final lyrics = ref.watch(lyricsVisibleProvider);
     final current = s.current;
-    final fx = NoirEffects.of(context);
     void close() => Navigator.of(context).maybePop();
+
+    // Present while shown or on the way in or out.
+    final lyrics = !_lyrics.isDismissed;
+    final routeCurve = _routeCurve;
 
     return CallbackShortcuts(
       bindings: {const SingleActivator(LogicalKeyboardKey.escape): close},
@@ -64,62 +151,61 @@ class NowPlayingScreen extends ConsumerWidget {
           body: Stack(
             fit: StackFit.expand,
             children: [
-              _ArtworkBackdrop(source: _backdropSource(ref, current?.track)),
-              SafeArea(
-                child: GestureDetector(
-                  onVerticalDragEnd: (d) {
-                    if ((d.primaryVelocity ?? 0) > 400) close();
-                  },
-                  child: Column(
-                    children: [
-                      _TopBar(onClose: close, state: s),
-                      Expanded(
-                        child: current == null
-                            ? const EmptyState(
-                                icon: Icons.music_off_rounded,
-                                title: 'Nothing playing',
-                                message:
-                                    'Pick a song from your library to start.',
-                              )
-                            : LayoutBuilder(
-                                builder: (context, box) {
-                                  final wide = box.maxWidth >= wideBreakpoint;
-                                  final layout = wide && lyrics
-                                      ? _WideLyricsLayout(state: s, box: box)
-                                      : SmoothScroll(
-                                          builder: (context, scroll) => wide
-                                              ? _WideLayout(
-                                                  state: s,
-                                                  box: box,
-                                                  scroll: scroll,
-                                                )
-                                              : _NarrowLayout(
-                                                  state: s,
-                                                  box: box,
-                                                  scroll: scroll,
-                                                  lyrics: lyrics,
-                                                ),
-                                        );
-                                  return AnimatedSwitcher(
-                                    duration: fx.motion(NoirMotion.medium),
-                                    // Full size, so scroll views (and their
-                                    // scrollbars) span the whole window.
-                                    layoutBuilder: (current, previous) => Stack(
-                                      fit: StackFit.expand,
-                                      children: [...previous, ?current],
+              _ArtworkBackdrop(
+                source: _backdropSource(ref, current?.track),
+                baked: _backdrop,
+              ),
+              LiquidPressScope(
+                child: RepaintBoundary(
+                  child: SafeArea(
+                    child: GestureDetector(
+                      onVerticalDragEnd: (d) {
+                        if ((d.primaryVelocity ?? 0) > 400) close();
+                      },
+                      child: Column(
+                        children: [
+                          _TopBar(onClose: close, state: s),
+                          Expanded(
+                            child: current == null
+                                ? const EmptyState(
+                                    icon: Icons.music_off_rounded,
+                                    title: 'Nothing playing',
+                                    message:
+                                        'Pick a song from your library to '
+                                        'start.',
+                                  )
+                                : LayoutBuilder(
+                                    builder: (context, box) => _Player(
+                                      state: s,
+                                      box: box,
+                                      lyrics: _lyricsCurve,
+                                      showLyrics: lyrics,
+                                      lyricsReady: _settled,
                                     ),
-                                    child: KeyedSubtree(
-                                      key: ValueKey((wide, lyrics)),
-                                      child: layout,
-                                    ),
-                                  );
-                                },
-                              ),
+                                  ),
+                          ),
+                        ],
                       ),
-                    ],
+                    ),
                   ),
                 ),
               ),
+              // While the page morphs open (or closed) its content fades
+              // in over a copy of the backdrop — no offscreen layer.
+              if (routeCurve != null)
+                IgnorePointer(
+                  child: RepaintBoundary(
+                    child: CustomPaint(
+                      size: Size.infinite,
+                      painter: _VeilPainter(
+                        progress: routeCurve,
+                        image: _backdrop,
+                        scrim: _scrimColors(context),
+                        fallback: context.noir.background,
+                      ),
+                    ),
+                  ),
+                ),
             ],
           ),
         ),
@@ -140,23 +226,109 @@ class NowPlayingScreen extends ConsumerWidget {
   }
 }
 
+/// The wash over the artwork backdrop, top to bottom. Text sits directly on
+/// it, so it follows the theme: dark under light text, light under dark.
+List<Color> _scrimColors(BuildContext context) {
+  final dark = Theme.of(context).brightness == Brightness.dark;
+  final scrim = dark ? Colors.black : context.noir.background;
+  return [
+    scrim.withValues(alpha: dark ? 0.55 : 0.62),
+    scrim.withValues(alpha: dark ? 0.72 : 0.78),
+  ];
+}
+
+/// Paints the page's backdrop over its content at 1 − content opacity, so
+/// the content appears to fade in without a layer of its own.
+class _VeilPainter extends CustomPainter {
+  _VeilPainter({
+    required this.progress,
+    required this.image,
+    required this.scrim,
+    required this.fallback,
+  }) : super(repaint: Listenable.merge([progress, image]));
+
+  final Animation<double> progress;
+  final ValueListenable<ui.Image?> image;
+  final List<Color> scrim;
+
+  /// Painted when there is no artwork.
+  final Color fallback;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final veil = 1 - NowPlayingTransition.contentOpacity(progress.value);
+    if (veil <= 0) return;
+    final rect = Offset.zero & size;
+    final art = image.value;
+    if (art == null) {
+      canvas.drawRect(
+        rect,
+        Paint()..color = fallback.withValues(alpha: fallback.a * veil),
+      );
+      return;
+    }
+    paintImage(
+      canvas: canvas,
+      rect: rect,
+      image: art,
+      fit: BoxFit.cover,
+      filterQuality: FilterQuality.high,
+      opacity: veil,
+    );
+    canvas.drawRect(
+      rect,
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [for (final c in scrim) c.withValues(alpha: c.a * veil)],
+        ).createShader(rect),
+    );
+  }
+
+  @override
+  bool shouldRepaint(_VeilPainter old) =>
+      old.progress != progress ||
+      old.image != image ||
+      !listEquals(old.scrim, scrim) ||
+      old.fallback != fallback;
+}
+
 /// Full-bleed, heavily blurred artwork under a scrim, cross-fading between
-/// tracks. The image is decoded tiny and the blurred layer is cached behind
-/// a [RepaintBoundary], so it costs nothing per frame once settled.
+/// tracks. The image is decoded tiny and blurred once per track into a
+/// bitmap that is kept for the last few tracks, so reopening Now Playing
+/// shows it on the very first frame. Cross-fades paint the image with an
+/// alpha instead of fading a layer.
 class _ArtworkBackdrop extends StatefulWidget {
-  const _ArtworkBackdrop({required this.source});
+  const _ArtworkBackdrop({required this.source, required this.baked});
 
   /// Local file path or image URL.
   final String? source;
+
+  /// Receives the bitmap on screen.
+  final ValueNotifier<ui.Image?> baked;
 
   @override
   State<_ArtworkBackdrop> createState() => _ArtworkBackdropState();
 }
 
-class _ArtworkBackdropState extends State<_ArtworkBackdrop> {
-  Widget? _shown;
+class _ArtworkBackdropState extends State<_ArtworkBackdrop>
+    with SingleTickerProviderStateMixin {
+  _BitmapImage? _shown;
+
+  /// The previous image, under [_shown] while it fades in.
+  _BitmapImage? _previous;
   String? _requested;
   bool _started = false;
+
+  late final AnimationController _fade = AnimationController(
+    vsync: this,
+    value: 1,
+  )..addStatusListener(_faded);
+
+  /// Baked backdrops of the last few tracks, by source.
+  static final _cache = <String, _BitmapImage>{};
+  static const _cacheSize = 8;
 
   /// The artwork is blurred once into a [_blurSize] px bitmap, which is then
   /// upscaled with bicubic filtering. A large-sigma blur at screen size is
@@ -178,15 +350,34 @@ class _ArtworkBackdropState extends State<_ArtworkBackdrop> {
     _load();
   }
 
-  /// Swaps the image only once the next one is decoded, so the cross-fade
+  @override
+  void dispose() {
+    _fade.dispose();
+    super.dispose();
+  }
+
+  void _faded(AnimationStatus status) {
+    if (status.isCompleted && _previous != null) {
+      setState(() => _previous = null);
+    }
+  }
+
+  /// Swaps the image only once the next one is baked, so the cross-fade
   /// never passes through an empty frame.
   void _load() {
     final source = widget.source;
     if (_started && source == _requested) return;
+    final first = !_started;
     _started = true;
     _requested = source;
     if (source == null) {
-      _shown = null;
+      _present(null, animate: !first);
+      return;
+    }
+    final cached = _cache.remove(source);
+    if (cached != null) {
+      _cache[source] = cached;
+      _present(cached, animate: !first);
       return;
     }
     final provider = ResizeImage(
@@ -197,26 +388,40 @@ class _ArtworkBackdropState extends State<_ArtworkBackdrop> {
     );
     unawaited(
       _blurred(provider).then((image) {
+        if (image != null) {
+          _cache[source] = image;
+          while (_cache.length > _cacheSize) {
+            _cache.remove(_cache.keys.first);
+          }
+        }
         if (!mounted || _requested != source) return;
-        setState(
-          () => _shown = image == null
-              ? null
-              : Image(
-                  key: ValueKey(source),
-                  image: image,
-                  fit: BoxFit.cover,
-                  gaplessPlayback: true,
-                  filterQuality: FilterQuality.high,
-                  excludeFromSemantics: true,
-                ),
-        );
+        setState(() => _present(image, animate: true));
       }),
     );
   }
 
+  void _present(_BitmapImage? image, {required bool animate}) {
+    if (image == _shown) return;
+    _previous = animate ? _shown : null;
+    _shown = image;
+    // Published after this frame: listeners repaint, they never rebuild.
+    widget.baked.value = image?.image;
+    final duration = animate
+        ? NoirEffects.of(context).motion(NoirMotion.slow * 3)
+        : Duration.zero;
+    if (duration == Duration.zero) {
+      _previous = null;
+      _fade.value = 1;
+    } else {
+      _fade
+        ..duration = duration
+        ..forward(from: 0);
+    }
+  }
+
   /// Decodes [provider] and bakes the blur into a tiny bitmap. Null when
   /// the image can't be loaded.
-  Future<ImageProvider?> _blurred(ImageProvider provider) async {
+  Future<_BitmapImage?> _blurred(ImageProvider provider) async {
     final done = Completer<ImageInfo?>();
     final stream = provider.resolve(createLocalImageConfiguration(context));
     final listener = ImageStreamListener(
@@ -256,46 +461,41 @@ class _ArtworkBackdropState extends State<_ArtworkBackdrop> {
     }
   }
 
+  Widget _image(_BitmapImage image, Animation<double>? opacity) => Image(
+    image: image,
+    fit: BoxFit.cover,
+    gaplessPlayback: true,
+    filterQuality: FilterQuality.high,
+    excludeFromSemantics: true,
+    opacity: opacity,
+  );
+
   @override
   Widget build(BuildContext context) {
-    final c = context.noir;
-    final fx = NoirEffects.of(context);
-    final dark = Theme.of(context).brightness == Brightness.dark;
     final shown = _shown;
-
-    final art = shown;
-
-    // Text sits directly on this, so the scrim follows the theme: dark
-    // wash under light text, light wash under dark text.
-    final scrim = dark ? Colors.black : c.background;
+    final previous = _previous;
+    final scrim = _scrimColors(context);
+    final art = shown != null || previous != null;
     return RepaintBoundary(
       child: Stack(
         fit: StackFit.expand,
         children: [
           const NoirBackdrop(),
-          AnimatedSwitcher(
-            duration: fx.motion(NoirMotion.slow * 3),
-            layoutBuilder: (current, previous) =>
-                Stack(fit: StackFit.expand, children: [...previous, ?current]),
-            child: art == null
-                ? const SizedBox.expand(key: ValueKey('none'))
-                : RepaintBoundary(key: art.key, child: art),
-          ),
-          if (art != null)
+          if (previous != null)
+            _image(previous, shown == null ? ReverseAnimation(_fade) : null),
+          if (shown != null) _image(shown, previous == null ? null : _fade),
+          if (art)
             DecoratedBox(
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
-                  colors: [
-                    scrim.withValues(alpha: dark ? 0.55 : 0.62),
-                    scrim.withValues(alpha: dark ? 0.72 : 0.78),
-                  ],
+                  colors: scrim,
                 ),
               ),
             ),
           // Fine grain breaks up 8-bit banding in the smooth gradients.
-          if (art != null) const _Grain(),
+          if (art) const _Grain(),
         ],
       ),
     );
@@ -332,55 +532,61 @@ class _TopBar extends ConsumerWidget {
             ),
             const Spacer(),
             if (track != null)
-              PopupMenuButton<String>(
-                tooltip: 'More',
-                icon: Icon(
-                  Icons.more_horiz_rounded,
-                  color: context.noir.textSecondary,
-                ),
-                onSelected: (v) async {
-                  if (v == 'playlist') {
-                    await addToPlaylist(context, ref, [track]);
-                  }
-                  if (v == 'queue' && context.mounted) {
-                    await showQueueSheet(context, ref);
-                  }
-                  if (v == 'album' && context.mounted) {
-                    await album?.open(context, ref);
-                  }
-                  if (v.startsWith('artist ') && context.mounted) {
-                    await artists[int.parse(v.substring(7))].open(context, ref);
-                  }
-                },
-                itemBuilder: (_) => [
-                  if (track.localId != null)
-                    const PopupMenuItem(
-                      value: 'playlist',
-                      child: Text('Add to playlist…'),
-                    ),
-                  const PopupMenuItem(
-                    value: 'queue',
-                    child: Text('Show queue'),
+              LiquidPress(
+                child: PopupMenuButton<String>(
+                  tooltip: 'More',
+                  icon: Icon(
+                    Icons.more_horiz_rounded,
+                    color: context.noir.textSecondary,
                   ),
-                  for (final (i, a) in artists.indexed)
-                    PopupMenuItem(
-                      value: 'artist $i',
-                      child: Text(
-                        artists.length == 1
-                            ? 'Go to artist'
-                            : 'Go to ${a.label}',
+                  onSelected: (v) async {
+                    if (v == 'playlist') {
+                      await addToPlaylist(context, ref, [track]);
+                    }
+                    if (v == 'queue' && context.mounted) {
+                      await showQueueSheet(context, ref);
+                    }
+                    if (v == 'album' && context.mounted) {
+                      await album?.open(context, ref);
+                    }
+                    if (v.startsWith('artist ') && context.mounted) {
+                      await artists[int.parse(v.substring(7))].open(
+                        context,
+                        ref,
+                      );
+                    }
+                  },
+                  itemBuilder: (_) => [
+                    if (track.localId != null)
+                      const PopupMenuItem(
+                        value: 'playlist',
+                        child: Text('Add to playlist…'),
                       ),
-                    ),
-                  if (album != null)
                     const PopupMenuItem(
-                      value: 'album',
-                      child: Text('Go to album'),
+                      value: 'queue',
+                      child: Text('Show queue'),
                     ),
-                ],
+                    for (final (i, a) in artists.indexed)
+                      PopupMenuItem(
+                        value: 'artist $i',
+                        child: Text(
+                          artists.length == 1
+                              ? 'Go to artist'
+                              : 'Go to ${a.label}',
+                        ),
+                      ),
+                    if (album != null)
+                      const PopupMenuItem(
+                        value: 'album',
+                        child: Text('Go to album'),
+                      ),
+                  ],
+                ),
               ),
             if (usesCustomWindowChrome) ...[
               const SizedBox(width: NoirSpacing.sm),
-              const WindowControls(),
+              // Over the artwork wash, not the shell's plain background.
+              const WindowControls(onImage: true),
             ],
           ],
         ),
@@ -389,60 +595,27 @@ class _TopBar extends ConsumerWidget {
   }
 }
 
-/// Cover left, details right, transport centered below.
-class _WideLayout extends ConsumerWidget {
-  const _WideLayout({
+// -------------------------------------------------------------- layout --
+
+/// The player: cover, details, progress, transport and secondary controls
+/// — and lyrics while [showLyrics] — placed by [_Stage] for the window
+/// size and how far [lyrics] has come in.
+class _Player extends ConsumerWidget {
+  const _Player({
     required this.state,
     required this.box,
-    required this.scroll,
+    required this.lyrics,
+    required this.showLyrics,
+    required this.lyricsReady,
   });
 
   final PlaybackState state;
   final BoxConstraints box;
-  final ScrollController scroll;
+  final Animation<double> lyrics;
+  final bool showLyrics;
 
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final art = (box.maxWidth * 0.32).clamp(240.0, 420.0);
-    // The scroll view spans the window so its scrollbar sits at the edge;
-    // the content is centered and width-limited inside it.
-    return SingleChildScrollView(
-      controller: scroll,
-      padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 16),
-      child: ConstrainedBox(
-        constraints: BoxConstraints(minHeight: max(0, box.maxHeight - 32)),
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 1040),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Row(
-                  children: [
-                    _LargeArtwork(state: state, size: art),
-                    const SizedBox(width: 48),
-                    Expanded(child: _TrackInfo(state: state, large: true)),
-                  ],
-                ),
-                const SizedBox(height: 36),
-                const PlaybackControls(large: true),
-                const SizedBox(height: 8),
-                const _SecondaryControls(),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Wide windows with lyrics on: a compact player column beside the lyrics.
-class _WideLyricsLayout extends ConsumerWidget {
-  const _WideLyricsLayout({required this.state, required this.box});
-
-  final PlaybackState state;
-  final BoxConstraints box;
+  /// False until the page has finished opening; lyrics wait for it.
+  final bool lyricsReady;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -450,113 +623,429 @@ class _WideLyricsLayout extends ConsumerWidget {
       settingsProvider.select((s) => s.hideYouTubePlayer),
     );
     final track = state.current!.track;
-    final column = (box.maxWidth * 0.36).clamp(300.0, 420.0);
-    final art = min(column, box.maxHeight * 0.4).clamp(160.0, 340.0);
-    final side = LayoutBuilder(
-      builder: (context, side) => ScrollConfiguration(
-        behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
-        child: SingleChildScrollView(
-          child: ConstrainedBox(
-            constraints: BoxConstraints(minHeight: side.maxHeight),
-            child: Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _LargeArtwork(state: state, size: art),
-                  const SizedBox(height: 24),
-                  _TrackInfo(state: state, large: false),
-                  const SizedBox(height: 16),
-                  const FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: PlaybackControls(large: true),
-                  ),
-                  const SizedBox(height: 8),
-                  const FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: _SecondaryControls(),
-                  ),
-                  if (track.source == MediaSource.youtube && !hidePlayer) ...[
-                    const SizedBox(height: 20),
-                    const _YouTubePlayerTile(),
-                  ],
-                ],
+    final wide = box.maxWidth >= NowPlayingScreen.wideBreakpoint;
+    final video = track.source == MediaSource.youtube && !hidePlayer;
+    // Lyrics replace the cover on narrow windows: gone once they're in.
+    final cover = wide || lyrics.value < 1 || lyrics.status.isAnimating;
+    final art = _Stage.coverSize(box, wide: wide);
+
+    Widget details(double large) => _TrackDetails(state: state, large: large);
+
+    return SmoothScroll(
+      builder: (context, scroll) => SingleChildScrollView(
+        controller: scroll,
+        child: _Stage(
+          lyrics: lyrics,
+          wide: wide,
+          viewport: box.maxHeight,
+          children: [
+            if (cover)
+              _StageSlot(
+                slot: _Slot.cover,
+                child: KeyedSubtree(
+                  key: NowPlayingScreen.coverKey,
+                  child: wide
+                      ? _LargeArtwork(state: state, size: art)
+                      : FadeTransition(
+                          opacity: ReverseAnimation(lyrics),
+                          child: ScaleTransition(
+                            scale: Tween<double>(
+                              begin: 1,
+                              end: 0.92,
+                            ).animate(lyrics),
+                            child: _LargeArtwork(state: state, size: art),
+                          ),
+                        ),
+                ),
               ),
+            _StageSlot(
+              slot: _Slot.details,
+              // Only the title's size follows the animation.
+              child: wide
+                  ? AnimatedBuilder(
+                      animation: lyrics,
+                      builder: (context, _) => details(1 - lyrics.value),
+                    )
+                  : details(0),
             ),
-          ),
-        ),
-      ),
-    );
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(48, 8, 48, 24),
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 1280),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              SizedBox(width: column, child: side),
-              const SizedBox(width: 56),
-              Expanded(child: _Lyrics(track: track)),
-            ],
-          ),
+            const _StageSlot(slot: _Slot.progress, child: ProgressSlider()),
+            const _StageSlot(
+              slot: _Slot.transport,
+              child: PlaybackControls(large: true),
+            ),
+            const _StageSlot(
+              slot: _Slot.secondary,
+              child: _SecondaryControls(),
+            ),
+            if (video)
+              _StageSlot(
+                slot: _Slot.video,
+                // Rebuilt while it moves, so the player follows its slot.
+                child: AnimatedBuilder(
+                  animation: lyrics,
+                  builder: (context, _) => const _YouTubePlayerTile(),
+                ),
+              ),
+            if (showLyrics)
+              _StageSlot(
+                slot: _Slot.lyrics,
+                child: KeyedSubtree(
+                  key: NowPlayingScreen.lyricsKey,
+                  child: FadeTransition(
+                    opacity: CurvedAnimation(
+                      parent: lyrics,
+                      curve: const Interval(0.3, 1),
+                    ),
+                    child: wide
+                        ? _Lyrics(track: track, ready: lyricsReady)
+                        : ScaleTransition(
+                            scale: Tween<double>(
+                              begin: 0.96,
+                              end: 1,
+                            ).animate(lyrics),
+                            child: _Lyrics(
+                              track: track,
+                              ready: lyricsReady,
+                              compact: true,
+                            ),
+                          ),
+                  ),
+                ),
+              ),
+          ],
         ),
       ),
     );
   }
 }
 
-class _NarrowLayout extends ConsumerWidget {
-  const _NarrowLayout({
-    required this.state,
-    required this.box,
-    required this.scroll,
-    required this.lyrics,
-  });
+enum _Slot { cover, details, progress, transport, secondary, video, lyrics }
 
-  final PlaybackState state;
-  final BoxConstraints box;
-  final ScrollController scroll;
+class _StageParentData extends ContainerBoxParentData<RenderBox> {
+  _Slot? slot;
 
-  /// Lyrics take the artwork's place.
-  final bool lyrics;
+  /// Paint scale (controls shrink to fit a narrow column).
+  double scale = 1;
+}
+
+class _StageSlot extends ParentDataWidget<_StageParentData> {
+  const _StageSlot({required this.slot, required super.child});
+
+  final _Slot slot;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final hidePlayer = ref.watch(
-      settingsProvider.select((s) => s.hideYouTubePlayer),
-    );
-    final art = (box.maxWidth - 48).clamp(160.0, box.maxHeight * 0.45);
-    return SingleChildScrollView(
-      controller: scroll,
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
-      child: Column(
-        children: [
-          const SizedBox(height: 8),
-          if (lyrics)
-            SizedBox(
-              height: (box.maxHeight * 0.5).clamp(220.0, 560.0),
-              child: _Lyrics(track: state.current!.track, compact: true),
-            )
-          else
-            _LargeArtwork(state: state, size: art),
-          SizedBox(height: lyrics ? 16 : 28),
-          _TrackInfo(state: state, large: false),
-          const SizedBox(height: 20),
-          const FittedBox(
-            fit: BoxFit.scaleDown,
-            child: PlaybackControls(large: true),
-          ),
-          const SizedBox(height: 8),
-          const FittedBox(fit: BoxFit.scaleDown, child: _SecondaryControls()),
-          if (state.current!.track.source == MediaSource.youtube &&
-              !hidePlayer) ...[
-            const SizedBox(height: 24),
-            const _YouTubePlayerTile(),
-          ],
-          const SizedBox(height: 24),
-        ],
-      ),
-    );
+  void applyParentData(RenderObject renderObject) {
+    final data = renderObject.parentData! as _StageParentData;
+    if (data.slot == slot) return;
+    data.slot = slot;
+    renderObject.parent?.markNeedsLayout();
+  }
+
+  @override
+  Type get debugTypicalAncestorWidgetClass => _Stage;
+}
+
+/// Lays the player out without lyrics (t = 0), with them (t = 1), or
+/// anywhere between: every piece's rect is interpolated between its two
+/// places, so showing lyrics glides the player aside instead of swapping
+/// layouts. Wide windows move the player into a left column beside the
+/// lyrics; narrow ones put the lyrics where the cover was. Relayouts on
+/// each animation tick without rebuilding anything.
+///
+/// Inside a vertical scroll view it is at least [viewport] tall, taller
+/// when the content needs more (large text).
+class _Stage extends MultiChildRenderObjectWidget {
+  const _Stage({
+    required this.lyrics,
+    required this.wide,
+    required this.viewport,
+    required super.children,
+  });
+
+  final Animation<double> lyrics;
+  final bool wide;
+  final double viewport;
+
+  /// The cover's size without lyrics (the larger of its two sizes), which
+  /// its image is decoded for.
+  static double coverSize(BoxConstraints box, {required bool wide}) => wide
+      ? (box.maxWidth * 0.32).clamp(240.0, 420.0)
+      : max<double>(160, min(box.maxWidth - 48, box.maxHeight * 0.45));
+
+  @override
+  _RenderStage createRenderObject(BuildContext context) =>
+      _RenderStage(lyrics, wide: wide, viewport: viewport);
+
+  @override
+  void updateRenderObject(BuildContext context, _RenderStage renderObject) {
+    if (renderObject.wide != wide || renderObject.viewport != viewport) {
+      renderObject
+        ..wide = wide
+        ..viewport = viewport
+        ..markNeedsLayout();
+    }
+    renderObject.lyrics = lyrics;
+  }
+}
+
+class _RenderStage extends RenderBox
+    with
+        ContainerRenderObjectMixin<RenderBox, _StageParentData>,
+        RenderBoxContainerDefaultsMixin<RenderBox, _StageParentData> {
+  _RenderStage(this._lyrics, {required this.wide, required this.viewport});
+
+  Animation<double> get lyrics => _lyrics;
+  Animation<double> _lyrics;
+  set lyrics(Animation<double> value) {
+    if (value == _lyrics) return;
+    if (attached) _lyrics.removeListener(markNeedsLayout);
+    _lyrics = value;
+    if (attached) _lyrics.addListener(markNeedsLayout);
+    markNeedsLayout();
+  }
+
+  bool wide;
+  double viewport;
+
+  @override
+  void setupParentData(RenderBox child) {
+    if (child.parentData is! _StageParentData) {
+      child.parentData = _StageParentData();
+    }
+  }
+
+  @override
+  void attach(PipelineOwner owner) {
+    super.attach(owner);
+    _lyrics.addListener(markNeedsLayout);
+  }
+
+  @override
+  void detach() {
+    _lyrics.removeListener(markNeedsLayout);
+    super.detach();
+  }
+
+  Map<_Slot, RenderBox> _children() => {
+    for (var child = firstChild; child != null; child = childAfter(child))
+      (child.parentData! as _StageParentData).slot!: child,
+  };
+
+  static double _lerp(double a, double b, double t) => a + (b - a) * t;
+
+  @override
+  void performLayout() {
+    final c = _children();
+    final w = constraints.maxWidth;
+    final h = viewport;
+    final t = _lyrics.value.clamp(0.0, 1.0);
+
+    Size measure(_Slot slot, double maxWidth) {
+      final child = c[slot];
+      if (child == null) return Size.zero;
+      child.layout(BoxConstraints(maxWidth: maxWidth), parentUsesSize: true);
+      return child.size;
+    }
+
+    void place(_Slot slot, Offset offset, {double scale = 1}) {
+      final child = c[slot];
+      if (child == null) return;
+      (child.parentData! as _StageParentData)
+        ..offset = offset
+        ..scale = scale;
+    }
+
+    void placeTight(_Slot slot, Rect rect) {
+      final child = c[slot];
+      if (child == null) return;
+      child.layout(BoxConstraints.tight(rect.size));
+      place(slot, rect.topLeft);
+    }
+
+    // Controls keep their natural size, shrunk only to fit [width].
+    final transport = measure(_Slot.transport, double.infinity);
+    final secondary = measure(_Slot.secondary, double.infinity);
+
+    double height;
+    if (wide) {
+      // Without lyrics: cover beside the details, controls centered below.
+      final cwA = min<double>(w - 96, 1040);
+      final xA = (w - cwA) / 2;
+      final artA = (w * 0.32).clamp(240.0, 420.0);
+      final dwA = max<double>(0, cwA - artA - 48);
+
+      // With lyrics: a player column beside them.
+      final cwB = min<double>(w - 96, 1280);
+      final xB = (w - cwB) / 2;
+      final colB = (cwB * 0.36).clamp(280.0, 400.0);
+      final gapB = (cwB * 0.06).clamp(32.0, 80.0);
+      final artB = min(colB, h * 0.4).clamp(160.0, 340.0);
+
+      final dw = _lerp(dwA, colB, t);
+      final details = measure(_Slot.details, dw);
+      final progress = measure(_Slot.progress, dw);
+      final video = measure(_Slot.video, dw);
+      final hasVideo = c[_Slot.video] != null;
+
+      // Without lyrics.
+      final rightA =
+          details.height +
+          28 +
+          progress.height +
+          (hasVideo ? 20 + video.height : 0);
+      final rowA = max(artA, rightA);
+      final totalA = rowA + 36 + transport.height + 8 + secondary.height;
+      final yA = max<double>(16, (h - totalA) / 2);
+      final coverA = Rect.fromLTWH(xA, yA + (rowA - artA) / 2, artA, artA);
+      final detailsA = Offset(xA + artA + 48, yA + (rowA - rightA) / 2);
+      final progressA = detailsA.translate(0, details.height + 28);
+      final videoA = progressA.translate(0, progress.height + 20);
+      final transportA = Offset(
+        xA + (cwA - transport.width) / 2,
+        yA + rowA + 36,
+      );
+      final secondaryA = Offset(
+        xA + (cwA - secondary.width) / 2,
+        transportA.dy + transport.height + 8,
+      );
+      final heightA = yA + totalA + 16;
+
+      // With lyrics.
+      final tScale = min<double>(1, colB / max<double>(1, transport.width));
+      final sScale = min<double>(1, colB / max<double>(1, secondary.width));
+      final totalB =
+          artB +
+          24 +
+          details.height +
+          16 +
+          progress.height +
+          16 +
+          transport.height * tScale +
+          8 +
+          secondary.height * sScale +
+          (hasVideo ? 20 + video.height : 0);
+      final yB = max<double>(8, (h - totalB) / 2);
+      final coverB = Rect.fromLTWH(xB + (colB - artB) / 2, yB, artB, artB);
+      final detailsB = Offset(xB, coverB.bottom + 24);
+      final progressB = detailsB.translate(0, details.height + 16);
+      final transportB = Offset(
+        xB + (colB - transport.width * tScale) / 2,
+        progressB.dy + progress.height + 16,
+      );
+      final secondaryB = Offset(
+        xB + (colB - secondary.width * sScale) / 2,
+        transportB.dy + transport.height * tScale + 8,
+      );
+      final videoB = Offset(xB, secondaryB.dy + secondary.height * sScale + 20);
+      final heightB = max(h, yB + totalB + 24);
+
+      placeTight(_Slot.cover, Rect.lerp(coverA, coverB, t)!);
+      place(_Slot.details, Offset.lerp(detailsA, detailsB, t)!);
+      place(_Slot.progress, Offset.lerp(progressA, progressB, t)!);
+      place(_Slot.video, Offset.lerp(videoA, videoB, t)!);
+      place(
+        _Slot.transport,
+        Offset.lerp(transportA, transportB, t)!,
+        scale: _lerp(1, tScale, t),
+      );
+      place(
+        _Slot.secondary,
+        Offset.lerp(secondaryA, secondaryB, t)!,
+        scale: _lerp(1, sScale, t),
+      );
+      // Lyrics slide in from a little to the right as they fade in.
+      final lyricsLeft = xB + colB + gapB;
+      placeTight(
+        _Slot.lyrics,
+        Rect.fromLTWH(
+          lyricsLeft + (1 - t) * 48,
+          8,
+          max(0, cwB - colB - gapB),
+          max(0, h - 32),
+        ),
+      );
+      height = _lerp(heightA, heightB, t);
+    } else {
+      final cw = max<double>(0, w - 48);
+      const x = 24.0;
+      final art = max<double>(160, min(cw, h * 0.45));
+      final lyricsHeight = (h * 0.5).clamp(220.0, 560.0);
+      final details = measure(_Slot.details, cw);
+      final progress = measure(_Slot.progress, cw);
+      final video = measure(_Slot.video, cw);
+      final hasVideo = c[_Slot.video] != null;
+      final tScale = min<double>(1, cw / max<double>(1, transport.width));
+      final sScale = min<double>(1, cw / max<double>(1, secondary.width));
+
+      // The lyrics take the cover's place; everything below follows.
+      const top = 16.0;
+      placeTight(_Slot.cover, Rect.fromLTWH((w - art) / 2, top, art, art));
+      placeTight(_Slot.lyrics, Rect.fromLTWH(x, top, cw, lyricsHeight));
+      var y = top + _lerp(art, lyricsHeight, t) + _lerp(28, 16, t);
+      place(_Slot.details, Offset(x, y));
+      y += details.height + 20;
+      place(_Slot.progress, Offset(x, y));
+      y += progress.height + 20;
+      place(
+        _Slot.transport,
+        Offset((w - transport.width * tScale) / 2, y),
+        scale: tScale,
+      );
+      y += transport.height * tScale + 8;
+      place(
+        _Slot.secondary,
+        Offset((w - secondary.width * sScale) / 2, y),
+        scale: sScale,
+      );
+      y += secondary.height * sScale;
+      if (hasVideo) {
+        place(_Slot.video, Offset(x, y + 24));
+        y += 24 + video.height;
+      }
+      height = y + 24;
+    }
+    size = constraints.constrain(Size(w, max(h, height)));
+  }
+
+  Matrix4 _transformOf(_StageParentData data) =>
+      Matrix4.translationValues(data.offset.dx, data.offset.dy, 0)
+        ..scaleByDouble(data.scale, data.scale, 1, 1);
+
+  @override
+  void paint(PaintingContext context, Offset offset) {
+    for (var child = firstChild; child != null; child = childAfter(child)) {
+      final data = child.parentData! as _StageParentData;
+      if (data.scale == 1) {
+        context.paintChild(child, offset + data.offset);
+      } else {
+        context.pushTransform(
+          needsCompositing,
+          offset,
+          _transformOf(data),
+          (context, offset) => context.paintChild(child!, offset),
+        );
+      }
+    }
+  }
+
+  @override
+  bool hitTestChildren(BoxHitTestResult result, {required Offset position}) {
+    for (var child = lastChild; child != null; child = childBefore(child)) {
+      final data = child.parentData! as _StageParentData;
+      final hit = result.addWithPaintTransform(
+        transform: _transformOf(data),
+        position: position,
+        hitTest: (result, position) =>
+            child!.hitTest(result, position: position),
+      );
+      if (hit) return true;
+    }
+    return false;
+  }
+
+  @override
+  void applyPaintTransform(RenderBox child, Matrix4 transform) {
+    transform.multiply(_transformOf(child.parentData! as _StageParentData));
   }
 }
 
@@ -571,13 +1060,18 @@ class _SecondaryControls extends ConsumerWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Tooltip(
-          message: lyrics ? 'Hide lyrics' : 'Show lyrics',
-          child: PillButton(
-            label: 'Lyrics',
-            icon: Icons.format_quote_rounded,
-            filled: lyrics,
-            onPressed: ref.read(lyricsVisibleProvider.notifier).toggle,
+        // PillButton has no Liquid Glass response of its own.
+        LiquidPress(
+          pressedScale: 0.94,
+          bubbleScale: 1.06,
+          child: Tooltip(
+            message: lyrics ? 'Hide lyrics' : 'Show lyrics',
+            child: PillButton(
+              label: 'Lyrics',
+              icon: Icons.format_quote_rounded,
+              filled: lyrics,
+              onPressed: ref.read(lyricsVisibleProvider.notifier).toggle,
+            ),
           ),
         ),
         const SizedBox(width: NoirSpacing.sm),
@@ -598,6 +1092,8 @@ class _LargeArtwork extends StatelessWidget {
   const _LargeArtwork({required this.state, required this.size});
 
   final PlaybackState state;
+
+  /// The size its image is decoded for; the layout may draw it smaller.
   final double size;
 
   @override
@@ -639,11 +1135,14 @@ class _LargeArtwork extends StatelessWidget {
   }
 }
 
-class _TrackInfo extends ConsumerWidget {
-  const _TrackInfo({required this.state, required this.large});
+/// Title (with the save heart), artist and album. [large] runs from 0
+/// (beside lyrics, narrow windows) to 1 (wide, beside the cover) and sizes
+/// the title between the two.
+class _TrackDetails extends ConsumerWidget {
+  const _TrackDetails({required this.state, required this.large});
 
   final PlaybackState state;
-  final bool large;
+  final double large;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -664,7 +1163,7 @@ class _TrackInfo extends ConsumerWidget {
                 track.title,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style: large ? t.displaySmall : t.headlineSmall,
+                style: TextStyle.lerp(t.headlineSmall, t.displaySmall, large),
               ),
             ),
             if (track.localId != null)
@@ -699,9 +1198,7 @@ class _TrackInfo extends ConsumerWidget {
       ],
     );
     return Column(
-      crossAxisAlignment: large
-          ? CrossAxisAlignment.start
-          : CrossAxisAlignment.stretch,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
       children: [
         _TrackChange(trackId: track.id, child: details),
@@ -711,16 +1208,6 @@ class _TrackInfo extends ConsumerWidget {
             state.message ?? "This item can't be played.",
             style: t.bodySmall?.copyWith(color: c.destructive),
           ),
-        ],
-        SizedBox(height: large ? 28 : 20),
-        const ProgressSlider(),
-        if (large &&
-            track.source == MediaSource.youtube &&
-            !ref.watch(
-              settingsProvider.select((s) => s.hideYouTubePlayer),
-            )) ...[
-          const SizedBox(height: 20),
-          const _YouTubePlayerTile(),
         ],
       ],
     );
@@ -744,6 +1231,7 @@ class _YouTubePlayerTile extends ConsumerWidget {
         );
         return Align(
           alignment: Alignment.centerLeft,
+          widthFactor: 1,
           child: inSheet
               ? SizedBox.fromSize(size: size)
               : VideoSlot(size: size),
@@ -770,37 +1258,41 @@ class _TrackChange extends StatelessWidget {
   Widget build(BuildContext context) {
     final duration = NoirEffects.of(context).motion(NoirMotion.slow);
     final key = ValueKey(trackId);
+    final switcher = AnimatedSwitcher(
+      duration: duration,
+      switchInCurve: NoirMotion.standard,
+      switchOutCurve: NoirMotion.exit,
+      layoutBuilder: (current, previous) => Stack(
+        alignment: Alignment.topLeft,
+        children: [...previous, ?current],
+      ),
+      transitionBuilder: (child, animation) {
+        final incoming = child.key == key;
+        return FadeTransition(
+          opacity: animation,
+          child: AnimatedBuilder(
+            animation: animation,
+            child: child,
+            builder: (context, child) {
+              final away = 1 - animation.value;
+              return Transform.translate(
+                offset: Offset(0, incoming ? away * _rise : -away * _rise),
+                child: child,
+              );
+            },
+          ),
+        );
+      },
+      child: KeyedSubtree(key: key, child: child),
+    );
+    // A zero-length AnimatedSize trips over its own relayout when the
+    // details resize (the title shrinking beside lyrics).
+    if (duration == Duration.zero) return switcher;
     return AnimatedSize(
       duration: duration,
       curve: NoirMotion.standard,
       alignment: Alignment.topCenter,
-      child: AnimatedSwitcher(
-        duration: duration,
-        switchInCurve: NoirMotion.standard,
-        switchOutCurve: NoirMotion.exit,
-        layoutBuilder: (current, previous) => Stack(
-          alignment: Alignment.topLeft,
-          children: [...previous, ?current],
-        ),
-        transitionBuilder: (child, animation) {
-          final incoming = child.key == key;
-          return FadeTransition(
-            opacity: animation,
-            child: AnimatedBuilder(
-              animation: animation,
-              child: child,
-              builder: (context, child) {
-                final away = 1 - animation.value;
-                return Transform.translate(
-                  offset: Offset(0, incoming ? away * _rise : -away * _rise),
-                  child: child,
-                );
-              },
-            ),
-          );
-        },
-        child: KeyedSubtree(key: key, child: child),
-      ),
+      child: switcher,
     );
   }
 }
@@ -938,11 +1430,17 @@ class _CoverSwitcherState extends ConsumerState<_CoverSwitcher> {
 }
 
 /// Lyrics, cross-fading as a whole between songs (the view itself only
-/// fades between its loading and loaded states).
+/// fades between its loading and loaded states). Nothing is shown — or
+/// looked up — until [ready].
 class _Lyrics extends StatelessWidget {
-  const _Lyrics({required this.track, this.compact = false});
+  const _Lyrics({
+    required this.track,
+    required this.ready,
+    this.compact = false,
+  });
 
   final Track track;
+  final bool ready;
   final bool compact;
 
   @override
@@ -951,11 +1449,9 @@ class _Lyrics extends StatelessWidget {
       duration: NoirEffects.of(context).motion(NoirMotion.slow),
       layoutBuilder: (current, previous) =>
           Stack(fit: StackFit.expand, children: [...previous, ?current]),
-      child: LyricsView(
-        key: ValueKey(track.id),
-        track: track,
-        compact: compact,
-      ),
+      child: ready
+          ? LyricsView(key: ValueKey(track.id), track: track, compact: compact)
+          : const SizedBox.expand(key: ValueKey('waiting')),
     );
   }
 }

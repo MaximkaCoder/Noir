@@ -1,9 +1,11 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:noir/features/accounts/domain/account_connection.dart';
+import 'package:noir/features/discover/application/discover_providers.dart';
 import 'package:noir/features/lyrics/domain/lyrics.dart';
 import 'package:noir/integrations/lyrics/lrclib_client.dart';
 import 'package:noir/integrations/lyrics/lrclib_source.dart';
+import 'package:noir/integrations/lyrics/ytm_lyrics_source.dart';
 
 /// Whether Now Playing shows lyrics. In memory only; off at launch.
 final lyricsVisibleProvider = NotifierProvider<LyricsVisible, bool>(
@@ -21,10 +23,17 @@ class LyricsVisible extends Notifier<bool> {
   void set({required bool visible}) => state = visible;
 }
 
-/// Lyrics services, tried in order.
-final lyricsSourcesProvider = Provider<List<LyricsSource>>(
-  (ref) => [LrclibLyricsSource(LrclibClient(ref.watch(httpClientProvider)))],
-);
+/// Lyrics services, in order of preference ([LyricsRepository]). YouTube
+/// tracks ask YouTube Music first, by their video; local files ask LRCLIB
+/// first and YouTube Music's song search only if that has no timed lyrics.
+final lyricsSourcesProvider = Provider<List<LyricsSource>>((ref) {
+  final ytm = ref.watch(innerTubeClientProvider);
+  return [
+    YtmLyricsSource.byVideo(ytm),
+    LrclibLyricsSource(LrclibClient(ref.watch(httpClientProvider))),
+    YtmLyricsSource.bySearch(ytm),
+  ];
+});
 
 final lyricsRepositoryProvider = Provider<LyricsRepository>(
   (ref) => LyricsRepository(ref.watch(lyricsSourcesProvider)),
@@ -47,6 +56,10 @@ final lyricsProvider = FutureProvider.autoDispose
 
 /// Asks each source in turn and remembers the answers (including "none")
 /// for the last [capacity] tracks. Errors are not remembered.
+///
+/// Time-synced lyrics (or "instrumental") end the search at once; plain
+/// lyrics are kept while later sources get a chance to answer with timed
+/// ones, and are the answer if none does.
 class LyricsRepository {
   LyricsRepository(this._sources, {this.capacity = 50});
 
@@ -60,15 +73,29 @@ class LyricsRepository {
       return _cache[request] = _cache.remove(request);
     }
     Object? failure;
+    PlainLyrics? plain;
     for (final source in _sources) {
       try {
         final lyrics = await source.find(request, cancel: cancel);
-        if (lyrics != null) return _remember(request, lyrics);
+        if (lyrics is PlainLyrics) {
+          plain ??= lyrics;
+        } else if (lyrics != null) {
+          return _remember(request, lyrics);
+        }
       } on DioException catch (e) {
         if (CancelToken.isCancel(e)) rethrow;
         failure ??= e;
+      } on LyricsUnavailable catch (e) {
+        failure ??= e.cause;
+      }
+      if (cancel?.isCancelled ?? false) {
+        throw DioException.requestCancelled(
+          requestOptions: RequestOptions(),
+          reason: 'cancelled',
+        );
       }
     }
+    if (plain != null) return _remember(request, plain);
     if (failure != null) throw LyricsUnavailable(failure);
     return _remember(request, null);
   }

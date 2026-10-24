@@ -1,0 +1,30 @@
+{
+ "responseContext": {
+  "visitorData": "CgtGQUtFVklTSVRPUijAgICAgA%3D%3D"
+ },
+ "contents": {
+  "sectionListRenderer": {
+   "contents": [
+    {
+     "musicDescriptionShelfRenderer": {
+      "description": {
+       "runs": [
+        {
+         "text": "First plain line\nSecond plain line\n\nAfter a break"
+        }
+       ]
+      },
+      "footer": {
+       "runs": [
+        {
+         "text": "Source: Musixmatch"
+        }
+       ]
+      },
+      "maxCollapsedLines": 0
+     }
+    }
+   ]
+  }
+ }
+}

@@ -72,10 +72,7 @@ Rect _islandRect(WidgetTester tester) =>
 double _islandOpacity(WidgetTester tester) {
   var opacity = 1.0;
   for (final o in tester.widgetList<Opacity>(
-    find.ancestor(
-      of: find.byType(LiquidGlass),
-      matching: find.byType(Opacity),
-    ),
+    find.ancestor(of: find.byType(LiquidGlass), matching: find.byType(Opacity)),
   )) {
     opacity *= o.opacity;
   }
@@ -84,9 +81,7 @@ double _islandOpacity(WidgetTester tester) {
 
 /// The morphing shape Now Playing is clipped to.
 Rect _morphRect(WidgetTester tester) =>
-    (tester
-                .widget<ClipRRect>(find.byKey(NowPlayingTransition.clipKey))
-                .clipper!
+    (tester.widget<ClipRRect>(find.byKey(NowPlayingTransition.clipKey)).clipper!
             as NowPlayingClipper)
         .shape
         .outerRect;
@@ -237,8 +232,9 @@ void main() {
       expect(after.blurSigma, lessThan(before.blurSigma));
       expect(after.saturation, greaterThan(before.saturation));
       expect(after.refraction, greaterThan(before.refraction));
-      final level = (await SettingsRepository(app.db).loadSettings())
-          .glassLevel;
+      final level = (await SettingsRepository(
+        app.db,
+      ).loadSettings()).glassLevel;
       expect(level, greaterThan(90));
 
       // The capsule's surface itself turned clearer.
@@ -367,7 +363,7 @@ void main() {
       expect(_islandOpacity(tester), 1);
     });
 
-    testWidgets('without an island it fades and scales from the bottom', (
+    testWidgets('without an island it fades and rises from the bottom', (
       tester,
     ) async {
       final app = await _playing(tester, size: const Size(400, 800));
@@ -394,7 +390,10 @@ void main() {
             )
             .first,
       );
-      expect(grow.transform.storage[0], lessThan(1));
+      // Moved, not scaled: a scale changing every frame re-renders the
+      // whole page each frame.
+      expect(grow.transform.storage[0], 1);
+      expect(grow.transform.storage[13], greaterThan(0));
       await tester.pumpAndSettle();
       expect(find.byType(NowPlayingScreen), findsOneWidget);
     });

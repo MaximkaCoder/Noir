@@ -43,20 +43,38 @@ Anything you play still goes through the official YouTube embedded player.
 version, OS, locale, settings and item counts — no paths, titles, history or
 account data.
 
-## Lyrics (LRCLIB)
+## Lyrics (YouTube Music, LRCLIB)
 
-Lyrics come from [LRCLIB](https://lrclib.net), a free community lyrics
-database. A lookup happens only while the Lyrics panel is open in Now
-Playing, for the song currently playing, and sends LRCLIB:
+A lyrics lookup happens only while the Lyrics panel is open in Now Playing,
+for the song currently playing. Lyrics are off at every launch; leave the
+panel closed and nothing is ever sent.
+
+**YouTube Music** (anonymous, through the same logged-out client as
+discovery above — no cookies, sign-in or tokens). For a YouTube song NOIR
+asks music.youtube.com for that video's Lyrics tab, then for the lyrics
+behind it. Time-synced lyrics are only given to YouTube Music's Android
+app, so that one request introduces itself as the Android app (its client
+name, version and user agent) and carries no visitor id; plain lyrics are
+asked as the web client. Sent: the video id and the lyrics page id, plus the
+system language and country. Lyrics there are licensed from providers such
+as Musixmatch or LyricFind, which NOIR names under the lyrics.
+
+**LRCLIB** ([lrclib.net](https://lrclib.net), a free community lyrics
+database) is asked for local files first, and for YouTube songs when YouTube
+Music has no time-synced lyrics. It is sent:
 
 - the song title and artist (for YouTube videos: the cleaned-up video title
   and channel name), the album for local files, and the duration in seconds;
 - a `User-Agent: NOIR/<version>` header, plus your IP address as with any
   web request.
 
-No account, identifier, file path or listening history is sent. Answers are
-kept in memory for the last 50 songs and are gone when NOIR quits. Lyrics
-are off at every launch; leave the panel closed and nothing is ever sent.
+When LRCLIB has no time-synced lyrics for a local file, NOIR searches
+YouTube Music's songs for its artist and title (anonymously, as above),
+and uses the lyrics of a song whose title, artist and length (within 3 s)
+match.
+
+No account, file path or listening history is sent. Answers are kept in
+memory for the last 50 songs and are gone when NOIR quits.
 
 ## Google / YouTube (future version)
 
