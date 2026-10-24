@@ -50,7 +50,7 @@ class LyricsView extends ConsumerWidget {
       data: (data) => switch (data) {
         null => const EmptyState(
           key: ValueKey('none'),
-          icon: Icons.lyrics_outlined,
+          icon: Icons.format_quote_rounded,
           title: 'No lyrics found',
           message: 'There are no lyrics for this song yet.',
           compact: true,

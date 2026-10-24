@@ -2,7 +2,9 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:math';
 import 'dart:ui';
+import 'dart:ui' as ui show Image;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -62,7 +64,7 @@ class NowPlayingScreen extends ConsumerWidget {
           body: Stack(
             fit: StackFit.expand,
             children: [
-              _ArtworkBackdrop(source: _backdropSource(current?.track)),
+              _ArtworkBackdrop(source: _backdropSource(ref, current?.track)),
               SafeArea(
                 child: GestureDetector(
                   onVerticalDragEnd: (d) {
@@ -125,12 +127,16 @@ class NowPlayingScreen extends ConsumerWidget {
     );
   }
 
-  /// A small image is plenty for a heavily blurred background.
-  static String? _backdropSource(Track? track) {
+  /// A small image is plenty for a heavily blurred background. YouTube
+  /// tracks use the square album art once it's known: their video
+  /// thumbnails often carry black side bars that would tint the edges.
+  static String? _backdropSource(WidgetRef ref, Track? track) {
     if (track == null) return null;
-    return track.source == MediaSource.youtube
-        ? YouTubeCover.thumbnail(track.uri)
-        : track.artwork;
+    if (track.source != MediaSource.youtube) return track.artwork;
+    final own = track.artworkUrl;
+    if (own != null && isGoogleArt(own)) return resizeGoogleArt(own, 226);
+    return ref.watch(resolvedArtProvider(track.uri))?.squareUrl(226) ??
+        YouTubeCover.thumbnail(track.uri);
   }
 }
 
@@ -148,12 +154,17 @@ class _ArtworkBackdrop extends StatefulWidget {
 }
 
 class _ArtworkBackdropState extends State<_ArtworkBackdrop> {
-  ImageProvider? _shown;
-  ({String? source, bool blur})? _requested;
+  Widget? _shown;
+  String? _requested;
+  bool _started = false;
 
-  /// Gaussian blur on a 128 px decode; Performance mode skips the filter and
-  /// lets bilinear upscaling of a 20 px decode do the softening.
-  static const _sigma = 70.0;
+  /// The artwork is blurred once into a [_blurSize] px bitmap, which is then
+  /// upscaled with bicubic filtering. A large-sigma blur at screen size is
+  /// downsampled internally and shows blocks; blurring small and scaling up
+  /// smoothly doesn't. It is a one-off per track, so Performance mode gets
+  /// it too.
+  static const _blurSize = 48;
+  static const _sigma = 4.0;
 
   @override
   void didChangeDependencies() {
@@ -171,10 +182,9 @@ class _ArtworkBackdropState extends State<_ArtworkBackdrop> {
   /// never passes through an empty frame.
   void _load() {
     final source = widget.source;
-    final blur = NoirEffects.of(context).ambient;
-    final request = (source: source, blur: blur);
-    if (request == _requested) return;
-    _requested = request;
+    if (_started && source == _requested) return;
+    _started = true;
+    _requested = source;
     if (source == null) {
       _shown = null;
       return;
@@ -183,17 +193,67 @@ class _ArtworkBackdropState extends State<_ArtworkBackdrop> {
       isRemoteImage(source)
           ? NetworkImage(source)
           : FileImage(File(source)) as ImageProvider,
-      width: blur ? 128 : 20,
+      width: 160,
     );
-    var failed = false;
     unawaited(
-      precacheImage(provider, context, onError: (_, _) => failed = true).then((
-        _,
-      ) {
-        if (!mounted || _requested != request) return;
-        setState(() => _shown = failed ? null : provider);
+      _blurred(provider).then((image) {
+        if (!mounted || _requested != source) return;
+        setState(
+          () => _shown = image == null
+              ? null
+              : Image(
+                  key: ValueKey(source),
+                  image: image,
+                  fit: BoxFit.cover,
+                  gaplessPlayback: true,
+                  filterQuality: FilterQuality.high,
+                  excludeFromSemantics: true,
+                ),
+        );
       }),
     );
+  }
+
+  /// Decodes [provider] and bakes the blur into a tiny bitmap. Null when
+  /// the image can't be loaded.
+  Future<ImageProvider?> _blurred(ImageProvider provider) async {
+    final done = Completer<ImageInfo?>();
+    final stream = provider.resolve(createLocalImageConfiguration(context));
+    final listener = ImageStreamListener(
+      (info, _) {
+        if (!done.isCompleted) done.complete(info);
+      },
+      onError: (_, _) {
+        if (!done.isCompleted) done.complete(null);
+      },
+    );
+    stream.addListener(listener);
+    final info = await done.future;
+    stream.removeListener(listener);
+    if (info == null) return null;
+    try {
+      final src = info.image;
+      final h = max(1, (_blurSize * src.height / src.width).round());
+      // Draw a little past the edges so the blur doesn't darken them.
+      const pad = 12.0;
+      final recorder = PictureRecorder();
+      Canvas(recorder).drawImageRect(
+        src,
+        Rect.fromLTWH(0, 0, src.width.toDouble(), src.height.toDouble()),
+        Rect.fromLTWH(-pad, -pad, _blurSize + 2 * pad, h + 2 * pad),
+        Paint()
+          ..filterQuality = FilterQuality.medium
+          ..imageFilter = ImageFilter.blur(
+            sigmaX: _sigma,
+            sigmaY: _sigma,
+            tileMode: TileMode.clamp,
+          ),
+      );
+      final baked = await recorder.endRecording().toImage(_blurSize, h);
+      return _BitmapImage(baked);
+    } finally {
+      info.dispose();
+    }
   }
 
   @override
@@ -203,26 +263,7 @@ class _ArtworkBackdropState extends State<_ArtworkBackdrop> {
     final dark = Theme.of(context).brightness == Brightness.dark;
     final shown = _shown;
 
-    Widget? art;
-    if (shown != null) {
-      art = Image(
-        image: shown,
-        fit: BoxFit.cover,
-        gaplessPlayback: true,
-        filterQuality: FilterQuality.low,
-        excludeFromSemantics: true,
-      );
-      if (fx.ambient) {
-        art = ImageFiltered(
-          imageFilter: ImageFilter.blur(
-            sigmaX: _sigma,
-            sigmaY: _sigma,
-            tileMode: TileMode.clamp,
-          ),
-          child: art,
-        );
-      }
-    }
+    final art = shown;
 
     // Text sits directly on this, so the scrim follows the theme: dark
     // wash under light text, light wash under dark text.
@@ -238,7 +279,7 @@ class _ArtworkBackdropState extends State<_ArtworkBackdrop> {
                 Stack(fit: StackFit.expand, children: [...previous, ?current]),
             child: art == null
                 ? const SizedBox.expand(key: ValueKey('none'))
-                : RepaintBoundary(key: ValueKey(shown), child: art),
+                : RepaintBoundary(key: art.key, child: art),
           ),
           if (art != null)
             DecoratedBox(
@@ -247,12 +288,14 @@ class _ArtworkBackdropState extends State<_ArtworkBackdrop> {
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
                   colors: [
-                    scrim.withValues(alpha: dark ? 0.42 : 0.58),
-                    scrim.withValues(alpha: dark ? 0.62 : 0.74),
+                    scrim.withValues(alpha: dark ? 0.55 : 0.62),
+                    scrim.withValues(alpha: dark ? 0.72 : 0.78),
                   ],
                 ),
               ),
             ),
+          // Fine grain breaks up 8-bit banding in the smooth gradients.
+          if (art != null) const _Grain(),
         ],
       ),
     );
@@ -528,11 +571,14 @@ class _SecondaryControls extends ConsumerWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        NoirIconButton(
-          icon: lyrics ? Icons.lyrics_rounded : Icons.lyrics_outlined,
-          tooltip: lyrics ? 'Hide lyrics' : 'Show lyrics',
-          active: lyrics,
-          onPressed: ref.read(lyricsVisibleProvider.notifier).toggle,
+        Tooltip(
+          message: lyrics ? 'Hide lyrics' : 'Show lyrics',
+          child: PillButton(
+            label: 'Lyrics',
+            icon: Icons.format_quote_rounded,
+            filled: lyrics,
+            onPressed: ref.read(lyricsVisibleProvider.notifier).toggle,
+          ),
         ),
         const SizedBox(width: NoirSpacing.sm),
         const VolumeControl(),
@@ -1138,4 +1184,105 @@ class _LinkedTextState extends State<_LinkedText> {
       style: widget.style,
     );
   }
+}
+
+/// An already decoded bitmap as an [ImageProvider], so the baked blur goes
+/// through [Image] like any other artwork.
+class _BitmapImage extends ImageProvider<_BitmapImage> {
+  const _BitmapImage(this.image);
+
+  final ui.Image image;
+
+  @override
+  Future<_BitmapImage> obtainKey(ImageConfiguration configuration) =>
+      SynchronousFuture(this);
+
+  @override
+  ImageStreamCompleter loadImage(
+    _BitmapImage key,
+    ImageDecoderCallback decode,
+  ) => OneFrameImageStreamCompleter(
+    SynchronousFuture(ImageInfo(image: key.image.clone())),
+  );
+}
+
+/// Static film grain, a few percent strong, tiled over the backdrop.
+class _Grain extends StatefulWidget {
+  const _Grain();
+
+  @override
+  State<_Grain> createState() => _GrainState();
+}
+
+class _GrainState extends State<_Grain> {
+  static Future<ui.Image>? _tile;
+  ui.Image? _image;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(
+      (_tile ??= _makeTile()).then((image) {
+        if (mounted) setState(() => _image = image);
+      }),
+    );
+  }
+
+  static const _alpha = 6;
+
+  static Future<ui.Image> _makeTile() {
+    const size = 96;
+    final random = Random(7);
+    final pixels = Uint8List(size * size * 4);
+    for (var i = 0; i < pixels.length; i += 4) {
+      // Premultiplied: a grey of up to [_alpha] over a [_alpha] coverage.
+      final v = random.nextInt(_alpha + 1);
+      pixels
+        ..[i] = v
+        ..[i + 1] = v
+        ..[i + 2] = v
+        ..[i + 3] = _alpha;
+    }
+    final done = Completer<ui.Image>();
+    decodeImageFromPixels(
+      pixels,
+      size,
+      size,
+      PixelFormat.rgba8888,
+      done.complete,
+    );
+    return done.future;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final image = _image;
+    if (image == null) return const SizedBox.shrink();
+    return IgnorePointer(
+      child: CustomPaint(painter: _GrainPainter(image), size: Size.infinite),
+    );
+  }
+}
+
+class _GrainPainter extends CustomPainter {
+  _GrainPainter(this.image);
+
+  final ui.Image image;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.drawRect(
+      Offset.zero & size,
+      Paint()
+        ..shader = ImageShader(
+          image,
+          TileMode.repeated,
+          TileMode.repeated,
+          Matrix4.identity().storage,
+        ),
+    );
+  }
+
+  @override
+  bool shouldRepaint(_GrainPainter old) => old.image != image;
 }

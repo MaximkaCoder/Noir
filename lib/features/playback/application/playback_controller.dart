@@ -435,9 +435,10 @@ class PlaybackController extends Notifier<PlaybackState> {
     // The engine may have switched source; controls follow its abilities.
     state = state.copyWith(capabilities: _engine.capabilities);
     if (!ok || state.current?.uid != item.uid) return; // Failed/superseded.
+    // Saved before play(): the YouTube engine's play may take a while.
+    _saveSession(force: true);
     if (autoplay) await _engine.play();
     _recordPlay(item.track);
-    _saveSession(force: true);
   }
 
   void _recordPlay(Track track) {
