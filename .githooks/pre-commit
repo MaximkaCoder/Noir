@@ -1,0 +1,24 @@
+#!/bin/sh
+# Blocks commits that contain credentials. Enable once per clone:
+#   git config core.hooksPath .githooks
+patterns='AIza[0-9A-Za-z_-]{30,}|GOCSPX-[0-9A-Za-z_-]+|ya29\.[0-9A-Za-z_-]{20,}|1//0[0-9A-Za-z_-]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY|ghp_[0-9A-Za-z]{30,}|github_pat_[0-9A-Za-z_]{30,}|xox[abprs]-[0-9A-Za-z-]+|"client_secret"[[:space:]]*:|"refresh_token"[[:space:]]*:'
+
+files=$(git diff --cached --name-only --diff-filter=ACM)
+[ -z "$files" ] && exit 0
+
+bad_names=$(printf '%s\n' "$files" | grep -iE '(^|/)(\.env|client_secret[^/]*\.json|[^/]*credentials[^/]*\.json|key\.properties|local\.properties)$|\.(pem|p12|jks|keystore)$')
+if [ -n "$bad_names" ]; then
+  echo "pre-commit: refusing to commit credential files:" >&2
+  printf '  %s\n' $bad_names >&2
+  exit 1
+fi
+
+hits=$(printf '%s\n' "$files" | while IFS= read -r f; do
+  git show ":$f" 2>/dev/null | grep -nIE "$patterns" | sed "s|^|$f:|"
+done)
+if [ -n "$hits" ]; then
+  echo "pre-commit: possible secret found (commit blocked):" >&2
+  printf '%s\n' "$hits" | cut -c1-120 >&2
+  exit 1
+fi
+exit 0

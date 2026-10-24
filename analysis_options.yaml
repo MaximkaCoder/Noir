@@ -1,0 +1,26 @@
+include: package:very_good_analysis/analysis_options.yaml
+
+analyzer:
+  exclude:
+    - "**/*.g.dart"
+    - "**/*.freezed.dart"
+    - spikes/**
+    - test/generated_migrations/**
+    - build/**
+    - android/**
+    - ios/**
+    - windows/**
+    - macos/**
+  language:
+    strict-casts: true
+    strict-inference: true
+    strict-raw-types: true
+
+linter:
+  rules:
+    # Application code, not a published library.
+    public_member_api_docs: false
+    # freezed's `const factory X(...) = _X;` pattern requires the type name.
+    unnecessary_type_name_in_constructor: false
+    # Riverpod provider types are long and internal; the initializer says it all.
+    specify_nonobvious_property_types: false
