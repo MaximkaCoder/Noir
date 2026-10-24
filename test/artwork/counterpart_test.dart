@@ -46,18 +46,35 @@ void main() {
       );
     });
 
-    test('rejects a length more than 5 s off', () {
+    test('without a sure artist match, rejects a length more than 5 s off', () {
       expect(
         acceptsCounterpart(
-          video(),
+          video(artist: null),
           song(duration: const Duration(minutes: 3, seconds: 40)),
         ),
         isFalse,
       );
       expect(
         acceptsCounterpart(
-          video(),
+          video(artist: null),
           song(duration: const Duration(minutes: 3, seconds: 27)),
+        ),
+        isFalse,
+      );
+    });
+
+    test('an exact title and artist match allows up to 90 s', () {
+      expect(
+        acceptsCounterpart(
+          video(duration: const Duration(minutes: 4, seconds: 42)),
+          song(duration: const Duration(minutes: 3, seconds: 48)),
+        ),
+        isTrue,
+      );
+      expect(
+        acceptsCounterpart(
+          video(duration: const Duration(minutes: 5, seconds: 10)),
+          song(),
         ),
         isFalse,
       );

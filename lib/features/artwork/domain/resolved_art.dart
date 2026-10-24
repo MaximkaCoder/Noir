@@ -108,6 +108,9 @@ String? squareArtOf(YtmQueueEntry entry) {
 /// How far a song's length may differ from its video's.
 const counterpartDurationTolerance = Duration(seconds: 5);
 
+/// The allowance when the title and artist match almost exactly.
+const counterpartExactMatchTolerance = Duration(seconds: 90);
+
 /// What to search YouTube Music's songs for to find [video]'s audio twin:
 /// the cleaned title and artist ("Artist - Song (Official Video)" →
 /// `Song Artist`). Null when the title cleans to nothing.
@@ -127,20 +130,26 @@ bool acceptsCounterpart(YtmQueueEntry video, Track song) {
   final a = video.duration;
   final b = song.duration;
   if (a == null || b == null) return false;
-  if ((a - b).abs() > counterpartDurationTolerance) return false;
   final guess = songGuesses(
     title: video.title,
     artist: video.artist,
   ).firstOrNull;
   if (guess == null) return false;
-  if (similarity(guess.title, cleanSongTitle(song.title)) < 0.8) return false;
+  final titleMatch = similarity(guess.title, cleanSongTitle(song.title));
+  if (titleMatch < 0.8) return false;
   final videoArtist = guess.artist;
   final songArtist = song.artist;
-  if (videoArtist != null &&
-      songArtist != null &&
-      similarity(videoArtist, songArtist) < 0.5) {
-    return false;
-  }
+  final artistMatch = videoArtist != null && songArtist != null
+      ? similarity(videoArtist, songArtist)
+      : null;
+  if (artistMatch != null && artistMatch < 0.5) return false;
+  // Music videos often run longer than the song (intros, skits), so a near
+  // exact title and artist match may differ by up to a minute and a half.
+  final exact = titleMatch >= 0.95 && (artistMatch ?? 0) >= 0.8;
+  final tolerance = exact
+      ? counterpartExactMatchTolerance
+      : counterpartDurationTolerance;
+  if ((a - b).abs() > tolerance) return false;
   final art = song.artworkUrl;
   return art != null && isGoogleArt(art);
 }
