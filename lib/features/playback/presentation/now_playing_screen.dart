@@ -22,12 +22,10 @@ import 'package:noir/features/playback/presentation/youtube_video_layer.dart';
 import 'package:noir/features/playlists/presentation/add_to_playlist.dart';
 import 'package:noir/features/queue/presentation/queue_panel.dart';
 import 'package:noir/features/settings/presentation/settings_controller.dart';
-import 'package:noir/features/youtube/application/youtube_providers.dart';
 import 'package:noir/features/youtube/presentation/save_button.dart';
 import 'package:noir/features/youtube/presentation/youtube_cover.dart';
 import 'package:noir/shared/models/media.dart';
 import 'package:noir/shared/models/playback.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 /// NOIR's signature screen: large artwork over a blurred wash of itself,
 /// title, progress, transport, and optionally time-synced lyrics. The queue
@@ -624,53 +622,6 @@ class _TrackInfo extends ConsumerWidget {
           Text(
             track.album!,
             style: t.bodyLarge?.copyWith(color: c.textTertiary),
-          ),
-        ],
-        if (track.source == MediaSource.youtube) ...[
-          const SizedBox(height: 10),
-          Wrap(
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              DecoratedBox(
-                decoration: BoxDecoration(
-                  color: c.hover,
-                  borderRadius: NoirRadii.pillAll,
-                  border: Border.all(color: c.glassBorder),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 4,
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.smart_display_outlined,
-                        size: 14,
-                        color: c.textSecondary,
-                      ),
-                      const SizedBox(width: 6),
-                      Text('Playing from YouTube', style: t.labelMedium),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(width: 4),
-              TextButton(
-                onPressed: () => unawaited(
-                  launchUrl(
-                    youTubeMusicUrl(videoId: track.uri),
-                    mode: LaunchMode.externalApplication,
-                  ),
-                ),
-                style: TextButton.styleFrom(
-                  foregroundColor: c.textPrimary,
-                  textStyle: t.labelMedium,
-                ),
-                child: const Text('Open in YouTube Music'),
-              ),
-            ],
           ),
         ],
         if (failed) ...[
