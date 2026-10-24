@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noir/app/app.dart';
 import 'package:noir/core/database/app_database.dart';
@@ -39,6 +40,7 @@ class TestApp {
     bool withMusic = true,
     double textScale = 1,
     FakeInnerTubeClient? innerTube,
+    List<Override> overrides = const [],
   }) async {
     tester.view
       ..physicalSize = size
@@ -65,6 +67,7 @@ class TestApp {
             importedMusic: Directory('${tmp.path}/imported'),
           ),
         ),
+        ...overrides,
       ],
     );
     if (withMusic) {

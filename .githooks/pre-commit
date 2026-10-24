@@ -13,6 +13,23 @@ if [ -n "$bad_names" ]; then
   exit 1
 fi
 
+# Local-only modules (lib/private, test/private) never enter the repository,
+# and public files must not reference the tool they use.
+local_only=$(git diff --cached --name-only --no-renames --diff-filter=ACM | grep -iE '^(lib|test)/private/|yt[-_]?dlp')
+if [ -n "$local_only" ]; then
+  echo "pre-commit: refusing to commit local-only paths:" >&2
+  printf '  %s\n' $local_only >&2
+  exit 1
+fi
+local_refs=$(printf '%s\n' "$files" | while IFS= read -r f; do
+  git show ":$f" 2>/dev/null | grep -nIiE 'yt[-_]?dlp' | sed "s|^|$f:|"
+done)
+if [ -n "$local_refs" ]; then
+  echo "pre-commit: public files reference a local-only tool:" >&2
+  printf '%s\n' "$local_refs" | cut -c1-120 >&2
+  exit 1
+fi
+
 hits=$(printf '%s\n' "$files" | while IFS= read -r f; do
   git show ":$f" 2>/dev/null | grep -nIE "$patterns" | sed "s|^|$f:|"
 done)

@@ -68,3 +68,7 @@ spikes/**/.dart_tool/
 
 # Agent worktrees
 .claude/worktrees/
+
+# Optional local-only modules and their tests (see tool/run.ps1)
+lib/private/
+test/private/

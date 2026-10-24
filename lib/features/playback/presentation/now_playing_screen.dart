@@ -475,7 +475,7 @@ class _WideLyricsLayout extends ConsumerWidget {
                     fit: BoxFit.scaleDown,
                     child: _SecondaryControls(),
                   ),
-                  if (track.source == MediaSource.youtube && !hidePlayer) ...[
+                  if (state.showsVideoPlayer && !hidePlayer) ...[
                     const SizedBox(height: 20),
                     const _YouTubePlayerTile(),
                   ],
@@ -548,8 +548,7 @@ class _NarrowLayout extends ConsumerWidget {
           ),
           const SizedBox(height: 8),
           const FittedBox(fit: BoxFit.scaleDown, child: _SecondaryControls()),
-          if (state.current!.track.source == MediaSource.youtube &&
-              !hidePlayer) ...[
+          if (state.showsVideoPlayer && !hidePlayer) ...[
             const SizedBox(height: 24),
             const _YouTubePlayerTile(),
           ],
@@ -715,7 +714,7 @@ class _TrackInfo extends ConsumerWidget {
         SizedBox(height: large ? 28 : 20),
         const ProgressSlider(),
         if (large &&
-            track.source == MediaSource.youtube &&
+            state.showsVideoPlayer &&
             !ref.watch(
               settingsProvider.select((s) => s.hideYouTubePlayer),
             )) ...[

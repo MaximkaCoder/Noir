@@ -8,6 +8,7 @@ import 'package:noir/features/discover/application/discover_providers.dart';
 import 'package:noir/features/home/data/history_repository.dart';
 import 'package:noir/features/library/application/library_scan_controller.dart';
 import 'package:noir/features/library/data/library_repository.dart';
+import 'package:noir/features/playback/domain/audio_source_provider.dart';
 import 'package:noir/features/playback/domain/playback_engine.dart';
 import 'package:noir/features/playback/domain/routing_engine.dart';
 import 'package:noir/features/settings/data/settings_repository.dart';
@@ -21,6 +22,11 @@ import 'package:noir/shared/models/media.dart';
 import 'package:noir/shared/models/playback.dart';
 import 'package:path/path.dart' as p;
 
+/// Optional local files for non-local tracks; none by default.
+final audioFilesProvider = Provider<AudioFileProvider>(
+  (ref) => const NoAudioFiles(),
+);
+
 final playbackEngineProvider = Provider<PlaybackEngine>((ref) {
   final dirs = ref.watch(appDirectoriesProvider);
   final engine = RoutingEngine({
@@ -29,7 +35,7 @@ final playbackEngineProvider = Provider<PlaybackEngine>((ref) {
       MediaSource.youtube: YouTubeEmbedEngine(
         pageDir: Directory(p.join(dirs.artwork.parent.path, 'yt_player')),
       ),
-  });
+  }, files: ref.watch(audioFilesProvider));
   ref.onDispose(engine.dispose);
   return engine;
 });
@@ -71,6 +77,10 @@ class PlaybackController extends Notifier<PlaybackState> {
   /// Queue order before shuffle was enabled, to restore it afterwards.
   List<int>? _unshuffledUids;
   bool _crossfading = false;
+
+  /// Queue item found not to share the current engine, so it isn't
+  /// re-checked on every position tick.
+  int? _noFadeUid;
   DateTime _lastSessionSave = DateTime.fromMillisecondsSinceEpoch(0);
 
   /// Off until [restoreSession] has run (or the user starts something), so
@@ -372,6 +382,8 @@ class PlaybackController extends Notifier<PlaybackState> {
         tracks[index],
         start: Duration(milliseconds: json['positionMs']! as int),
       );
+      // The restored item may play on another engine than the default.
+      state = state.copyWith(capabilities: _engine.capabilities);
     } on Object catch (e) {
       debugPrint('Playback session could not be restored: ${e.runtimeType}');
     }
@@ -417,7 +429,15 @@ class PlaybackController extends Notifier<PlaybackState> {
       final known = _unshuffledUids!.toSet();
       _unshuffledUids!.addAll(queue.map((q) => q.uid).where(known.add));
     }
+    _hintUpcoming();
     _saveSession(force: true);
+  }
+
+  /// Tells the audio file provider what is likely to play next.
+  void _hintUpcoming() {
+    if (state.index == null) return;
+    final next = state.upcoming.take(2).map((q) => q.track).toList();
+    if (next.isNotEmpty) ref.read(audioFilesProvider).prefetch(next);
   }
 
   Future<void> _startAt(int index) async {
@@ -435,6 +455,7 @@ class PlaybackController extends Notifier<PlaybackState> {
     // The engine may have switched source; controls follow its abilities.
     state = state.copyWith(capabilities: _engine.capabilities);
     if (!ok || state.current?.uid != item.uid) return; // Failed/superseded.
+    _hintUpcoming();
     // Saved before play(): the YouTube engine's play may take a while.
     _saveSession(force: true);
     if (autoplay) await _engine.play();
@@ -607,18 +628,33 @@ class PlaybackController extends Notifier<PlaybackState> {
         : (state.repeat == RepeatMode.all ? 0 : null);
     if (nextIndex == null) return;
     final next = state.queue[nextIndex];
-    // No fades across sources (e.g. into a YouTube video).
-    if (next.track.source != state.queue[index].track.source) return;
+    if (next.uid == _noFadeUid) return;
 
     _crossfading = true;
+    unawaited(_crossfadeInto(index, next, fade));
+  }
+
+  /// Fades into [next] (at the queue position after [from]) when both play
+  /// on the same engine; never across engines (e.g. into a YouTube video).
+  Future<void> _crossfadeInto(int from, QueueItem next, Duration fade) async {
+    final engine = _engine;
+    final current = state.queue[from].track;
+    final same = engine is RoutingEngine
+        ? await engine.canCrossfadeTo(next.track)
+        : next.track.source == current.source;
+    final nextIndex = state.queue.indexWhere((q) => q.uid == next.uid);
+    if (!same || state.index != from || nextIndex < 0 || !state.isPlaying) {
+      if (!same) _noFadeUid = next.uid;
+      _crossfading = false;
+      return;
+    }
     state = state.copyWith(index: nextIndex);
     _recordPlay(next.track);
-    unawaited(
-      _engine.crossfadeTo(next.track, fade).whenComplete(() {
-        _crossfading = false;
-        _saveSession(force: true);
-      }),
-    );
+    _hintUpcoming();
+    await _engine.crossfadeTo(next.track, fade).whenComplete(() {
+      _crossfading = false;
+      _saveSession(force: true);
+    });
   }
 }
 
