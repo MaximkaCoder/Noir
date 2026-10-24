@@ -204,6 +204,39 @@ YtmTrackPage parsePlaylistContinuation(Map<String, Object?> json) {
   );
 }
 
+/// `music/get_queue`: the requested videos keyed by video id. A
+/// `playlistPanelVideoWrapperRenderer` pairs a video with its song (or song
+/// with its video) twin; both are returned, each pointing at the other.
+Map<String, YtmQueueEntry> parseQueue(Map<String, Object?> json) {
+  final datas = json['queueDatas'];
+  if (datas is! List) throw const FormatException('get_queue: no queue data');
+  final entries = <String, YtmQueueEntry>{};
+  for (final data in datas) {
+    final content = navMap(data, ['content']);
+    final wrapper = navMap(content, ['playlistPanelVideoWrapperRenderer']);
+    final primary =
+        navMap(content, ['playlistPanelVideoRenderer']) ??
+        navMap(wrapper, ['primaryRenderer', 'playlistPanelVideoRenderer']);
+    final twinBody = navMap(navList(wrapper, ['counterpart']).firstOrNull, [
+      'counterpartRenderer',
+      'playlistPanelVideoRenderer',
+    ]);
+    final twin = twinBody == null ? null : _queueEntry(twinBody);
+    final entry = primary == null
+        ? null
+        : _queueEntry(primary, counterpart: twin);
+    if (entry == null) continue;
+    entries[entry.videoId] = entry;
+    if (twin != null) {
+      entries.putIfAbsent(
+        twin.videoId,
+        () => _queueEntry(twinBody!, counterpart: entry)!,
+      );
+    }
+  }
+  return entries;
+}
+
 // --------------------------------------------------------------- items --
 
 /// One shelf/search entry, or null for renderers NOIR does not show
@@ -596,6 +629,47 @@ Track? _panelTrack(Map<String, Object?> body) {
     album: _albumOf(segments.expand((s) => s)),
     duration: parseClock(textOf(body['lengthText'])),
     artworkUrl: bestThumbnail(body['thumbnail']),
+  );
+}
+
+YtmQueueEntry? _queueEntry(
+  Map<String, Object?> body, {
+  YtmQueueEntry? counterpart,
+}) {
+  final track = _panelTrack(body);
+  if (track == null) return null;
+  final artists = <YtmLink>[];
+  YtmLink? album;
+  for (final byline in [body['longBylineText'], body['shortBylineText']]) {
+    for (final run in navList(byline, ['runs'])) {
+      final name = navString(run, ['text'])?.trim();
+      final endpoint = nav(run, ['navigationEndpoint']);
+      final browseId = navString(endpoint, ['browseEndpoint', 'browseId']);
+      if (name == null || name.isEmpty || browseId == null) continue;
+      final link = (name: name, browseId: browseId);
+      final pageType = _pageType(endpoint);
+      if (pageType == 'MUSIC_PAGE_TYPE_ALBUM' || browseId.startsWith('MPRE')) {
+        album ??= link;
+      } else if ((pageType == 'MUSIC_PAGE_TYPE_ARTIST' ||
+              pageType == 'MUSIC_PAGE_TYPE_USER_CHANNEL' ||
+              browseId.startsWith('UC')) &&
+          !artists.any((a) => a.browseId == browseId)) {
+        artists.add(link);
+      }
+    }
+    // The short byline only repeats the long one, minus links.
+    if (artists.isNotEmpty || album != null) break;
+  }
+  return YtmQueueEntry(
+    videoId: track.uri,
+    title: track.title,
+    artist: track.artist,
+    duration: track.duration,
+    thumbnailUrl: bestThumbnail(body['thumbnail']),
+    videoType: _videoType(body['navigationEndpoint']),
+    artists: artists,
+    album: album,
+    counterpart: counterpart,
   );
 }
 
