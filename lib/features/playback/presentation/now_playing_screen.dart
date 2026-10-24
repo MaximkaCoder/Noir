@@ -17,6 +17,7 @@ import 'package:noir/features/playback/presentation/playback_controls.dart';
 import 'package:noir/features/playback/presentation/youtube_video_layer.dart';
 import 'package:noir/features/playlists/presentation/add_to_playlist.dart';
 import 'package:noir/features/queue/presentation/queue_panel.dart';
+import 'package:noir/features/settings/presentation/settings_controller.dart';
 import 'package:noir/features/youtube/application/youtube_providers.dart';
 import 'package:noir/features/youtube/presentation/youtube_cover.dart';
 import 'package:noir/shared/models/media.dart';
@@ -176,14 +177,17 @@ class _WideLayout extends ConsumerWidget {
   }
 }
 
-class _NarrowLayout extends StatelessWidget {
+class _NarrowLayout extends ConsumerWidget {
   const _NarrowLayout({required this.state, required this.box});
 
   final PlaybackState state;
   final BoxConstraints box;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final hidePlayer = ref.watch(
+      settingsProvider.select((s) => s.hideYouTubePlayer),
+    );
     final art = (box.maxWidth - 48).clamp(160.0, box.maxHeight * 0.45);
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
@@ -195,7 +199,8 @@ class _NarrowLayout extends StatelessWidget {
           _TrackInfo(state: state, large: false),
           const SizedBox(height: 20),
           const PlaybackControls(large: true),
-          if (state.current!.track.source == MediaSource.youtube) ...[
+          if (state.current!.track.source == MediaSource.youtube &&
+              !hidePlayer) ...[
             const SizedBox(height: 24),
             const _YouTubePlayerTile(),
           ],
@@ -340,7 +345,11 @@ class _TrackInfo extends ConsumerWidget {
         ],
         SizedBox(height: large ? 28 : 20),
         const ProgressSlider(),
-        if (large && track.source == MediaSource.youtube) ...[
+        if (large &&
+            track.source == MediaSource.youtube &&
+            !ref.watch(
+              settingsProvider.select((s) => s.hideYouTubePlayer),
+            )) ...[
           const SizedBox(height: 20),
           const _YouTubePlayerTile(),
         ],

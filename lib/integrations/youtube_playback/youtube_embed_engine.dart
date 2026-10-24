@@ -243,6 +243,9 @@ class YouTubeEmbedEngine implements PlaybackEngine {
 <script>
   function send(m){ window.chrome.webview.postMessage(JSON.stringify(m)); }
   var player = null, timer = null;
+  // playVideo() right after cueVideoById() is lost when the cue finishes
+  // later (the player ends up "cued"), so a pending play is retried then.
+  var wantPlay = false;
   var tag = document.createElement('script');
   tag.src = 'https://www.youtube.com/iframe_api';
   document.head.appendChild(tag);
@@ -259,6 +262,8 @@ class YouTubeEmbedEngine implements PlaybackEngine {
       events: {
         onReady: function(){ send({event:'ready'}); },
         onStateChange: function(e){
+          if (e.data === 5 && wantPlay) { player.playVideo(); return; }
+          if (e.data === 1) wantPlay = false;
           send({event:'state', data: e.data});
           clearInterval(timer);
           if (e.data === 1) timer = setInterval(tick, 250);
@@ -269,10 +274,10 @@ class YouTubeEmbedEngine implements PlaybackEngine {
     });
   }
   window.noir = {
-    cue: function(id, s){ player.cueVideoById({videoId: id, startSeconds: s}); },
-    play: function(){ player.playVideo(); },
-    pause: function(){ player.pauseVideo(); },
-    stop: function(){ player.stopVideo(); },
+    cue: function(id, s){ wantPlay = false; player.cueVideoById({videoId: id, startSeconds: s}); },
+    play: function(){ wantPlay = true; player.playVideo(); },
+    pause: function(){ wantPlay = false; player.pauseVideo(); },
+    stop: function(){ wantPlay = false; player.stopVideo(); },
     seek: function(s){ player.seekTo(s, true); tick(); },
     volume: function(v){ player.setVolume(v); }
   };

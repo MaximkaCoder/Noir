@@ -33,10 +33,14 @@ String _playerHtml(String origin) => '''
   function onYouTubeIframeAPIReady() {
     player = new YT.Player('player', {
       width: 480, height: 270, videoId: '$_videoId',
-      playerVars: { playsinline: 1, mute: 1, autoplay: 1 $origin },
+      playerVars: { playsinline: 1, controls: 0, rel: 0 $origin },
       events: {
-        onReady: function(){ send({event:'ready'}); player.playVideo(); },
-        onStateChange: function(e){ send({event:'state', data:e.data, t: player.getCurrentTime()}); },
+        onReady: function(){ send({event:'ready'}); },
+        onStateChange: function(e){
+          send({event:'state', data:e.data, t: player.getCurrentTime()});
+          if (e.data === 5 && window.wantPlay) player.playVideo();
+          if (e.data === 1) window.wantPlay = false;
+        },
         onError: function(e){ send({event:'error', data:e.data}); }
       }
     });
@@ -73,6 +77,11 @@ class _SpikeAppState extends State<SpikeApp> {
 
   Future<void> _init() async {
     stdout.writeln('SPIKE: mode=$_mode webview=${await WebviewController.getWebViewVersion()}');
+    if (const bool.fromEnvironment('FLAG')) {
+      await WebviewController.initializeEnvironment(
+          additionalArguments: '--autoplay-policy=no-user-gesture-required');
+      stdout.writeln('SPIKE: flag set');
+    }
     await _controller.initialize();
     _controller.webMessage.listen((m) => stdout.writeln('SPIKE: $m'));
     if (_mode == 'mapped') {
@@ -87,6 +96,12 @@ class _SpikeAppState extends State<SpikeApp> {
       await _controller.loadStringContent(_playerHtml(''));
     }
     setState(() => _ready = true);
+    // Like NOIR: cue, then play from outside the page (no user gesture).
+    Timer(const Duration(seconds: 6), () async {
+      await _controller.executeScript("player.cueVideoById({videoId:'$_videoId',startSeconds:0})");
+      await _controller.executeScript('window.wantPlay = true; player.playVideo()');
+      stdout.writeln('SPIKE: play sent');
+    });
   }
 
   @override

@@ -140,6 +140,19 @@ class SettingsScreen extends ConsumerWidget {
                 const AccountConnectionCard(),
                 const _Section('Library'),
                 const _LibrarySettings(),
+                const _Section('Experimental'),
+                _ToggleTile(
+                  icon: Icons.visibility_off_outlined,
+                  title: 'Hide YouTube player',
+                  subtitle:
+                      'Plays YouTube as audio only and keeps playing when the '
+                      "window is hidden. This breaks YouTube's API policies; "
+                      "Google may revoke NOIR's access (your account is not "
+                      'affected). For personal testing only.',
+                  value: s.hideYouTubePlayer,
+                  onChanged: (v) =>
+                      set((s) => s.copyWith(hideYouTubePlayer: v)),
+                ),
                 const _Section('About'),
                 const _About(),
               ],

@@ -9,6 +9,7 @@ import 'package:noir/app/theme/glass_theme.dart';
 import 'package:noir/core/widgets/buttons.dart';
 import 'package:noir/core/widgets/glass_surface.dart';
 import 'package:noir/features/playback/application/playback_controller.dart';
+import 'package:noir/features/settings/presentation/settings_controller.dart';
 import 'package:noir/shared/models/media.dart';
 import 'package:webview_windows/webview_windows.dart';
 
@@ -44,6 +45,7 @@ class _YouTubeVideoLayerState extends ConsumerState<YouTubeVideoLayer> {
   late final AppLifecycleListener _lifecycle;
 
   void _pauseIfPlaying() {
+    if (ref.read(settingsProvider).hideYouTubePlayer) return;
     final s = ref.read(playbackProvider);
     if (s.current?.track.source == MediaSource.youtube && s.isPlaying) {
       unawaited(ref.read(playbackProvider.notifier).pause());
@@ -75,10 +77,17 @@ class _YouTubeVideoLayerState extends ConsumerState<YouTubeVideoLayer> {
     );
     if (engine == null) return const SizedBox.shrink();
 
+    final hidden = ref.watch(
+      settingsProvider.select((s) => s.hideYouTubePlayer),
+    );
     final slot = ref.watch(videoSlotProvider);
     final size = MediaQuery.sizeOf(context);
-    final mini = slot == null;
-    final rect = slot ?? _miniRect(size);
+    final mini = slot == null && !hidden;
+    // Experimental hidden mode: the player keeps running in a 2 px,
+    // fully transparent box so only its audio is perceived.
+    final rect = hidden
+        ? const Rect.fromLTWH(0, 0, 2, 2)
+        : slot ?? _miniRect(size);
     final fx = NoirEffects.of(context);
 
     return Stack(
@@ -89,20 +98,23 @@ class _YouTubeVideoLayerState extends ConsumerState<YouTubeVideoLayer> {
           curve: NoirMotion.standard,
           child: Offstage(
             offstage: !isYouTube,
-            child: ValueListenableBuilder(
-              valueListenable: engine.ready,
-              builder: (context, ready, _) => ClipRRect(
-                borderRadius: BorderRadius.circular(mini ? 12 : 16),
-                child: ColoredBox(
-                  color: Colors.black,
-                  child: ready
-                      ? Webview(engine.controller)
-                      : const Center(
-                          child: SizedBox.square(
-                            dimension: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2),
+            child: Opacity(
+              opacity: hidden ? 0 : 1,
+              child: ValueListenableBuilder(
+                valueListenable: engine.ready,
+                builder: (context, ready, _) => ClipRRect(
+                  borderRadius: BorderRadius.circular(mini ? 12 : 16),
+                  child: ColoredBox(
+                    color: Colors.black,
+                    child: ready
+                        ? Webview(engine.controller)
+                        : const Center(
+                            child: SizedBox.square(
+                              dimension: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
                           ),
-                        ),
+                  ),
                 ),
               ),
             ),

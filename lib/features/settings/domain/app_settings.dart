@@ -33,6 +33,12 @@ abstract class AppSettings with _$AppSettings {
     @Default(true) bool resumeSession,
     @Default(PlayBehavior.playContext) PlayBehavior playBehavior,
     @Default(false) bool sidebarCollapsed,
+
+    /// Experimental, off by default: plays YouTube without a visible player
+    /// and keeps playing when the window is hidden. This breaks YouTube API
+    /// Services policies (III.I.7, III.I.9) and can get NOIR's API access
+    /// revoked; it exists for personal testing only.
+    @Default(false) bool hideYouTubePlayer,
   }) = _AppSettings;
 
   factory AppSettings.fromJson(Map<String, Object?> json) =>
