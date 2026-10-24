@@ -1,34 +1,48 @@
-/// Public OAuth client configuration, injected at build time:
+/// Public OAuth client configuration, injected at build time from a
+/// gitignored file:
 ///
-///   flutter run --dart-define=NOIR_GOOGLE_DESKTOP_CLIENT_ID=...
+///   flutter run -d windows --dart-define-from-file=config/oauth.local.json
 ///
-/// Client IDs are public identifiers, not secrets. No client secret or token
-/// is ever compiled into NOIR or committed to the repository. See
+/// Google documents desktop apps as public clients whose secret "is obviously
+/// not treated as a secret"; it still never goes into the repository. See
 /// docs/oauth-flow.md.
 class GoogleOAuthConfig {
-  const GoogleOAuthConfig({this.desktopClientId, this.androidServerClientId});
+  const GoogleOAuthConfig({this.desktopClientId, this.desktopClientSecret});
 
   factory GoogleOAuthConfig.fromEnvironment() {
-    const desktop = String.fromEnvironment('NOIR_GOOGLE_DESKTOP_CLIENT_ID');
-    const android = String.fromEnvironment('NOIR_GOOGLE_ANDROID_CLIENT_ID');
+    const id = String.fromEnvironment('NOIR_GOOGLE_DESKTOP_CLIENT_ID');
+    const secret = String.fromEnvironment('NOIR_GOOGLE_DESKTOP_CLIENT_SECRET');
     return GoogleOAuthConfig(
-      desktopClientId: desktop.isEmpty ? null : desktop,
-      androidServerClientId: android.isEmpty ? null : android,
+      desktopClientId: id.isEmpty ? null : id,
+      desktopClientSecret: secret.isEmpty ? null : secret,
     );
   }
 
   final String? desktopClientId;
-  final String? androidServerClientId;
+  final String? desktopClientSecret;
 
-  /// Minimum scope for every read-only feature in the capability matrix.
+  bool get isConfigured => desktopClientId != null;
+
+  static const youtubeReadOnlyScope =
+      'https://www.googleapis.com/auth/youtube.readonly';
+
+  /// Minimum scope set for every read-only feature in the capability matrix.
   static const readOnlyScopes = [
     'openid',
     'email',
     'profile',
-    'https://www.googleapis.com/auth/youtube.readonly',
+    youtubeReadOnlyScope,
   ];
 
   /// Requested incrementally, only when the user first edits a playlist.
   static const playlistWriteScope =
       'https://www.googleapis.com/auth/youtube.force-ssl';
+
+  static final authorizationEndpoint = Uri.parse(
+    'https://accounts.google.com/o/oauth2/v2/auth',
+  );
+  static final tokenEndpoint = Uri.parse('https://oauth2.googleapis.com/token');
+  static final revokeEndpoint = Uri.parse(
+    'https://oauth2.googleapis.com/revoke',
+  );
 }

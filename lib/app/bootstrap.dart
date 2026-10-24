@@ -14,6 +14,7 @@ import 'package:noir/features/playback/application/playback_controller.dart';
 import 'package:noir/features/playback/presentation/media_session.dart';
 import 'package:noir/features/settings/data/settings_repository.dart';
 import 'package:noir/features/settings/presentation/settings_controller.dart';
+import 'package:noir/features/youtube/application/youtube_sync.dart';
 import 'package:window_manager/window_manager.dart';
 
 /// Everything that must happen before the first frame: native audio init,
@@ -46,6 +47,9 @@ Future<void> bootstrap() async {
     await startMediaSession(container);
   }
   unawaited(container.read(playbackProvider.notifier).restoreSession());
+  // Keeps YouTube sync alive for the app's lifetime (Riverpod pauses
+  // providers nobody listens to).
+  container.listen(youTubeSyncProvider, (_, _) {});
 
   runApp(
     UncontrolledProviderScope(container: container, child: const NoirApp()),

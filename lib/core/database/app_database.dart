@@ -16,6 +16,10 @@ part 'app_database.g.dart';
     PlayHistory,
     SearchHistory,
     KeyValues,
+    YtPlaylists,
+    YtVideos,
+    YtPlaylistItems,
+    YtLikes,
   ],
 )
 class AppDatabase extends _$AppDatabase {
@@ -33,7 +37,7 @@ class AppDatabase extends _$AppDatabase {
   );
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -46,6 +50,14 @@ class AppDatabase extends _$AppDatabase {
         'CREATE INDEX idx_entries_playlist '
         'ON playlist_entries (playlist_id, position)',
       );
+    },
+    onUpgrade: (m, from, to) async {
+      if (from < 2) {
+        await m.createTable(ytPlaylists);
+        await m.createTable(ytVideos);
+        await m.createTable(ytPlaylistItems);
+        await m.createTable(ytLikes);
+      }
     },
     beforeOpen: (details) async {
       await customStatement('PRAGMA foreign_keys = ON');

@@ -71,3 +71,60 @@ class KeyValues extends Table {
   @override
   Set<Column<Object>> get primaryKey => {key};
 }
+
+// ---------------------------------------------------------------- YouTube --
+// Cache of data from the YouTube Data API for the connected account. Rows are
+// refreshed or deleted within 30 days (YouTube API Services policy III.E.4)
+// and all of them are deleted when the account is disconnected.
+
+@DataClassName('YtPlaylistRow')
+class YtPlaylists extends Table {
+  TextColumn get id => text()();
+  TextColumn get title => text()();
+  IntColumn get itemCount => integer()();
+  TextColumn get etag => text()();
+  TextColumn get thumbnailUrl => text().nullable()();
+  TextColumn get privacy => text().nullable()();
+
+  /// Order as returned by YouTube.
+  IntColumn get position => integer()();
+  DateTimeColumn get syncedAt => dateTime()();
+
+  /// Set once the playlist's items have been downloaded for this etag.
+  TextColumn get itemsEtag => text().nullable()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {id};
+}
+
+@DataClassName('YtVideoRow')
+class YtVideos extends Table {
+  TextColumn get id => text()();
+  TextColumn get title => text()();
+  TextColumn get channelTitle => text()();
+  IntColumn get durationMs => integer().nullable()();
+  TextColumn get thumbnailUrl => text().nullable()();
+  BoolColumn get embeddable => boolean().withDefault(const Constant(true))();
+  DateTimeColumn get syncedAt => dateTime()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {id};
+}
+
+class YtPlaylistItems extends Table {
+  TextColumn get playlistId =>
+      text().references(YtPlaylists, #id, onDelete: KeyAction.cascade)();
+  IntColumn get position => integer()();
+  TextColumn get videoId => text()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {playlistId, position};
+}
+
+class YtLikes extends Table {
+  TextColumn get videoId => text()();
+  IntColumn get position => integer()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {videoId};
+}
