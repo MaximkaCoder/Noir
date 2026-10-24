@@ -37,9 +37,7 @@ class FakeHttp implements HttpClientAdapter {
   ) async {
     final bytes = <int>[];
     if (requestStream != null) {
-      await for (final chunk in requestStream) {
-        bytes.addAll(chunk);
-      }
+      await requestStream.forEach(bytes.addAll);
     }
     final request = FakeRequest(options, utf8.decode(bytes));
     requests.add(request);

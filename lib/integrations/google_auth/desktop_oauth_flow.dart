@@ -64,7 +64,7 @@ sealed class OAuthException implements Exception {
   final String message;
 
   @override
-  String toString() => '$runtimeType: $message';
+  String toString() => 'OAuthException: $message';
 }
 
 final class OAuthCancelled extends OAuthException {
@@ -95,15 +95,12 @@ typedef UrlLauncher = Future<bool> Function(Uri url);
 /// https://developers.google.com/identity/protocols/oauth2/native-app
 class DesktopOAuthFlow {
   DesktopOAuthFlow({
-    required GoogleOAuthConfig config,
-    required Dio dio,
-    required UrlLauncher launch,
+    required this._config,
+    required this._dio,
+    required this._launch,
     this.timeout = const Duration(minutes: 5),
     Random? random,
-  }) : _config = config,
-       _dio = dio,
-       _launch = launch,
-       _random = random ?? Random.secure();
+  }) : _random = random ?? Random.secure();
 
   final GoogleOAuthConfig _config;
   final Dio _dio;

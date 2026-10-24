@@ -62,11 +62,10 @@ class YouTubeApiException implements Exception {
 /// page.
 class YouTubeApi {
   YouTubeApi({
-    required Dio dio,
-    required Future<String> Function({bool forceRefresh}) accessToken,
+    required this._dio,
+    required this._accessToken,
     this.retryDelay = const Duration(milliseconds: 500),
-  }) : _dio = dio,
-       _accessToken = accessToken;
+  });
 
   final Dio _dio;
   final Future<String> Function({bool forceRefresh}) _accessToken;

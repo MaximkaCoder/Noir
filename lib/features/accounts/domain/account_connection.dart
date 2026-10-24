@@ -84,11 +84,10 @@ class UnconfiguredAccountService implements AccountConnectionService {
 
 class GoogleAccountService implements AccountConnectionService {
   GoogleAccountService({
-    required DesktopOAuthFlow flow,
-    required TokenStore store,
+    required this._flow,
+    required this._store,
     this.scopes = GoogleOAuthConfig.readOnlyScopes,
-  }) : _flow = flow,
-       _store = store;
+  });
 
   final DesktopOAuthFlow _flow;
   final TokenStore _store;

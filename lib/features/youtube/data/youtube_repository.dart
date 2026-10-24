@@ -251,7 +251,8 @@ class YouTubeRepository {
     )..where((v) => v.syncedAt.isSmallerThanValue(cutoff))).go();
     await _db.customStatement(
       'DELETE FROM yt_videos WHERE id NOT IN '
-      '(SELECT video_id FROM yt_playlist_items UNION SELECT video_id FROM yt_likes)',
+      '(SELECT video_id FROM yt_playlist_items '
+      'UNION SELECT video_id FROM yt_likes)',
     );
   });
 

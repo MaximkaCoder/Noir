@@ -24,7 +24,7 @@ void main() {
     () async {
       final schema = await verifier.schemaAt(1);
       schema.rawDatabase.execute(
-        "INSERT INTO tracks (path, title, file_size, modified_at, added_at) "
+        'INSERT INTO tracks (path, title, file_size, modified_at, added_at) '
         "VALUES ('a.mp3', 'Kept', 1, 0, 0)",
       );
       final db = AppDatabase(schema.newConnection());

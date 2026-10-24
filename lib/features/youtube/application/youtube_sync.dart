@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:noir/features/accounts/domain/account_connection.dart';
@@ -12,8 +11,7 @@ final youTubeApiProvider = Provider<YouTubeApi>((ref) {
   final account = ref.watch(accountServiceProvider);
   return YouTubeApi(
     dio: ref.watch(httpClientProvider),
-    accessToken: ({bool forceRefresh = false}) =>
-        account.accessToken(forceRefresh: forceRefresh),
+    accessToken: account.accessToken,
   );
 });
 
@@ -99,10 +97,13 @@ class YouTubeSyncController extends Notifier<YouTubeSyncState>
     return _running ??= _sync(force: force).whenComplete(() => _running = null);
   }
 
+  /// Completes when no sync is running.
+  Future<void> whenIdle() => _running ?? Future.value();
+
   @override
-  void didChangeAppLifecycleState(AppLifecycleState lifecycle) {
-    if (lifecycle != AppLifecycleState.resumed) return;
-    final last = state.lastSyncAt;
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) return;
+    final last = this.state.lastSyncAt;
     if (last == null || DateTime.now().difference(last) > foregroundGap) {
       unawaited(sync());
     }

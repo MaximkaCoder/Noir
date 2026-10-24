@@ -142,6 +142,9 @@ void main() {
   });
 
   tearDown(() async {
+    // Let background syncs (started by the connected event) finish before
+    // the database closes.
+    await container.read(youTubeSyncProvider.notifier).whenIdle();
     container.dispose();
     await db.close();
   });
@@ -151,9 +154,11 @@ void main() {
 
   List<String> calls() => [
     for (final r in http.requests)
-      '${r.uri.pathSegments.last}'
-          '${r.uri.queryParameters['playlistId'] ?? ''}'
-          '${r.uri.queryParameters['pageToken'] ?? ''}',
+      [
+        r.uri.pathSegments.last,
+        r.uri.queryParameters['playlistId'] ?? '',
+        r.uri.queryParameters['pageToken'] ?? '',
+      ].join(),
   ];
 
   test('sync stores playlists in order with playable tracks only', () async {
