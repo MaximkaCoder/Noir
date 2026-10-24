@@ -240,3 +240,62 @@ final ytmAlbumProvider = FutureProvider.autoDispose
       _cacheFor(ref, const Duration(minutes: 10));
       return ref.read(innerTubeClientProvider).album(browseId);
     }, retry: _noRetry);
+
+enum YtmCollectionKind { playlist, album }
+
+typedef YtmCollectionRef = ({YtmCollectionKind kind, String id});
+
+/// An opened playlist or album with paging: [YtmCollectionController.loadMore]
+/// appends the next tracks of a long playlist.
+final ytmCollectionProvider = AsyncNotifierProvider.autoDispose
+    .family<YtmCollectionController, YtmCollection, YtmCollectionRef>(
+      YtmCollectionController.new,
+      retry: _noRetry,
+    );
+
+class YtmCollectionController extends AsyncNotifier<YtmCollection> {
+  YtmCollectionController(this.target);
+
+  final YtmCollectionRef target;
+  bool _loadingMore = false;
+
+  @override
+  Future<YtmCollection> build() {
+    _cacheFor(ref, const Duration(minutes: 10));
+    final client = ref.read(innerTubeClientProvider);
+    return switch (target.kind) {
+      YtmCollectionKind.playlist => client.playlist(target.id),
+      YtmCollectionKind.album => client.album(target.id),
+    };
+  }
+
+  /// Returns false when there is nothing more, a page is already loading,
+  /// or the request failed.
+  Future<bool> loadMore() async {
+    final current = state.value;
+    final token = current?.continuation;
+    if (current == null || token == null || _loadingMore) return false;
+    _loadingMore = true;
+    try {
+      final page = await ref.read(innerTubeClientProvider).playlistMore(token);
+      if (!ref.mounted) return false;
+      state = AsyncData(
+        YtmCollection(
+          id: current.id,
+          title: current.title,
+          subtitle: current.subtitle,
+          author: current.author,
+          thumbnailUrl: current.thumbnailUrl,
+          playlistId: current.playlistId,
+          tracks: [...current.tracks, ...page.tracks],
+          continuation: page.continuation,
+        ),
+      );
+      return true;
+    } on InnerTubeException {
+      return false;
+    } finally {
+      _loadingMore = false;
+    }
+  }
+}

@@ -6,6 +6,8 @@ import 'package:noir/app/shell/navigation.dart';
 import 'package:noir/app/theme/design_tokens.dart';
 import 'package:noir/app/theme/glass_theme.dart';
 import 'package:noir/core/widgets/noir_backdrop.dart';
+import 'package:noir/features/discover/application/discover_providers.dart';
+import 'package:noir/features/discover/presentation/ytm_collection_screen.dart';
 import 'package:noir/features/home/presentation/home_screen.dart';
 import 'package:noir/features/library/presentation/collection_screens.dart';
 import 'package:noir/features/library/presentation/library_screen.dart';
@@ -35,6 +37,13 @@ final routerProvider = Provider<GoRouter>((ref) {
                 path: '/',
                 pageBuilder: (context, state) =>
                     _page(context, state, const HomeScreen()),
+                routes: [
+                  _ytmRoute(
+                    'discover/playlist/:id',
+                    YtmCollectionKind.playlist,
+                  ),
+                  _ytmRoute('discover/album/:id', YtmCollectionKind.album),
+                ],
               ),
             ],
           ),
@@ -44,6 +53,10 @@ final routerProvider = Provider<GoRouter>((ref) {
                 path: '/search',
                 pageBuilder: (context, state) =>
                     _page(context, state, const SearchScreen()),
+                routes: [
+                  _ytmRoute('playlist/:id', YtmCollectionKind.playlist),
+                  _ytmRoute('album/:id', YtmCollectionKind.album),
+                ],
               ),
             ],
           ),
@@ -175,6 +188,23 @@ final routerProvider = Provider<GoRouter>((ref) {
   ref.onDispose(router.dispose);
   return router;
 });
+
+/// A YouTube Music playlist or album page (Discover on Home, or Search).
+GoRoute _ytmRoute(String path, YtmCollectionKind kind) => GoRoute(
+  path: path,
+  pageBuilder: (context, state) {
+    final id = state.pathParameters['id']!;
+    return _page(
+      context,
+      state,
+      YtmCollectionScreen(
+        key: ValueKey('${kind.name}:$id'),
+        kind: kind,
+        id: id,
+      ),
+    );
+  },
+);
 
 /// Pages inside the shell branches: the same fade-through as branch
 /// switches, instead of the platform default slide.

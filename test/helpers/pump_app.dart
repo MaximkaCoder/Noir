@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:noir/app/app.dart';
 import 'package:noir/core/database/app_database.dart';
 import 'package:noir/core/database/database_provider.dart';
+import 'package:noir/features/discover/application/discover_providers.dart';
 import 'package:noir/features/library/application/library_scan_controller.dart';
 import 'package:noir/features/library/data/library_repository.dart';
 import 'package:noir/features/playback/application/playback_controller.dart';
@@ -13,15 +14,20 @@ import 'package:noir/features/settings/domain/app_settings.dart';
 import 'package:noir/features/settings/presentation/settings_controller.dart';
 
 import 'fake_engine.dart';
+import 'fake_innertube_client.dart';
 import 'test_database.dart';
 
 /// Pumps the full app (router, shell, theme) over an in-memory database and
 /// a fake audio engine, at a given window size.
 class TestApp {
-  TestApp._(this.db, this.engine, this.container);
+  TestApp._(this.db, this.engine, this.innerTube, this.container);
 
   final AppDatabase db;
   final FakeEngine engine;
+
+  /// YouTube Music stand-in; by default an empty home feed. Tests never
+  /// reach the network.
+  final FakeInnerTubeClient innerTube;
   final ProviderContainer container;
 
   static Future<TestApp> pump(
@@ -30,6 +36,7 @@ class TestApp {
     AppSettings settings = const AppSettings(),
     bool withMusic = true,
     double textScale = 1,
+    FakeInnerTubeClient? innerTube,
   }) async {
     tester.view
       ..physicalSize = size
@@ -40,11 +47,13 @@ class TestApp {
 
     final db = inMemoryDatabase();
     final engine = FakeEngine();
+    final ytm = innerTube ?? FakeInnerTubeClient();
     final tmp = Directory.systemTemp.createTempSync('noir_widget_');
     final container = ProviderContainer(
       overrides: [
         databaseProvider.overrideWithValue(db),
         playbackEngineProvider.overrideWithValue(engine),
+        innerTubeClientProvider.overrideWithValue(ytm),
         initialSettingsProvider.overrideWithValue(settings),
         appDirectoriesProvider.overrideWithValue(
           AppDirectories(
@@ -91,6 +100,6 @@ class TestApp {
       await db.close();
       tmp.deleteSync(recursive: true);
     });
-    return TestApp._(db, engine, container);
+    return TestApp._(db, engine, ytm, container);
   }
 }

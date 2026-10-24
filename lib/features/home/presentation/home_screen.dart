@@ -11,6 +11,7 @@ import 'package:noir/core/widgets/buttons.dart';
 import 'package:noir/core/widgets/glass_surface.dart';
 import 'package:noir/core/widgets/menus.dart';
 import 'package:noir/core/widgets/states.dart';
+import 'package:noir/features/discover/presentation/discover_section.dart';
 import 'package:noir/features/home/application/pinned_playlists.dart';
 import 'package:noir/features/library/application/library_providers.dart';
 import 'package:noir/features/library/application/library_scan_controller.dart';
@@ -23,7 +24,8 @@ import 'package:noir/shared/models/media.dart';
 import 'package:noir/shared/widgets/media_tiles.dart';
 import 'package:noir/shared/widgets/page_scaffold.dart';
 
-/// Quiet, editorial start page built only from the user's own data.
+/// Quiet, editorial start page: the user's own music first, then Discover
+/// (YouTube Music's anonymous home feed).
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
 
@@ -31,13 +33,13 @@ class HomeScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final count = ref.watch(trackCountProvider);
     return switch (count) {
-      AsyncData(value: 0) => const _Welcome(),
+      AsyncData(value: 0) => const _Refreshable(child: _Welcome()),
       AsyncError() => const ErrorState(
         message:
             "Your library couldn't be opened. Restart NOIR; if it keeps "
             'happening, export diagnostics from Settings → About.',
       ),
-      AsyncData() => const _Dashboard(),
+      AsyncData() => const _Refreshable(child: _Dashboard()),
       _ => const SizedBox.shrink(),
     };
   }
@@ -171,6 +173,7 @@ class _Dashboard extends ConsumerWidget {
             ),
           ),
         ],
+        DiscoverSection(tileWidth: tile),
       ],
     );
   }
@@ -564,6 +567,8 @@ class _Welcome extends ConsumerWidget {
     final t = Theme.of(context).textTheme;
     final scan = ref.watch(libraryScanProvider);
     final ctrl = ref.read(libraryScanProvider.notifier);
+    final compact =
+        WindowClass.of(MediaQuery.sizeOf(context).width) == WindowClass.compact;
     return PageScaffold(
       slivers: [
         const SliverToBoxAdapter(
@@ -646,7 +651,21 @@ class _Welcome extends ConsumerWidget {
             style: t.bodySmall,
           ),
         ),
+        DiscoverSection(tileWidth: compact ? 128 : 150),
       ],
     );
   }
+}
+
+/// Pull to refresh (touch) reloads Discover.
+class _Refreshable extends ConsumerWidget {
+  const _Refreshable({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) => RefreshIndicator(
+    onRefresh: () => refreshDiscover(ref, force: true, context: context),
+    child: child,
+  );
 }

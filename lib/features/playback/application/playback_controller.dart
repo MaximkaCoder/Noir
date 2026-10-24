@@ -4,6 +4,7 @@ import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:noir/features/discover/application/discover_providers.dart';
 import 'package:noir/features/home/data/history_repository.dart';
 import 'package:noir/features/library/application/library_scan_controller.dart';
 import 'package:noir/features/library/data/library_repository.dart';
@@ -13,6 +14,8 @@ import 'package:noir/features/settings/data/settings_repository.dart';
 import 'package:noir/features/settings/domain/app_settings.dart';
 import 'package:noir/features/settings/presentation/settings_controller.dart';
 import 'package:noir/integrations/local_audio/local_audio_engine.dart';
+import 'package:noir/integrations/youtube_music/innertube_client.dart';
+import 'package:noir/integrations/youtube_music/ytm_models.dart';
 import 'package:noir/integrations/youtube_playback/youtube_embed_engine.dart';
 import 'package:noir/shared/models/media.dart';
 import 'package:noir/shared/models/playback.dart';
@@ -70,6 +73,26 @@ class PlaybackController extends Notifier<PlaybackState> {
   bool _crossfading = false;
   DateTime _lastSessionSave = DateTime.fromMillisecondsSinceEpoch(0);
 
+  /// Keeps playback going past the end of the queue with YouTube Music radio
+  /// (like its autoplay) when the queue holds a YouTube track and repeat is
+  /// off. Tests switch it off.
+  bool autoplayRadio = true;
+
+  /// Radio tracks appended per request.
+  static const radioBatch = 20;
+
+  /// How long before the last track ends the next radio batch is fetched.
+  static const radioLeadTime = Duration(seconds: 30);
+
+  /// Where the radio left off: continuing after [_RadioCursor.anchorUid]
+  /// uses its continuation instead of starting a new radio.
+  _RadioCursor? _radio;
+  Future<bool>? _radioFetch;
+
+  /// Last queue item a lead-time radio fetch was attempted for, so a failed
+  /// request is not repeated on every position tick.
+  int? _radioTriedUid;
+
   AppSettings get _settings => ref.read(settingsProvider);
 
   @override
@@ -123,6 +146,23 @@ class PlaybackController extends Notifier<PlaybackState> {
       message: null,
     );
     await _loadCurrent(autoplay: true);
+  }
+
+  /// Plays [seed], then YouTube Music radio based on it. A local seed is
+  /// matched to a YouTube Music song by artist and title; without a match
+  /// only the seed plays. Works regardless of [autoplayRadio].
+  Future<void> startRadio(Track seed) async {
+    _unshuffledUids = null;
+    _radio = null;
+    state = state.copyWith(
+      queue: [_item(seed)],
+      index: 0,
+      shuffle: false,
+      message: null,
+    );
+    final radio = _fetchRadio(seed: seed);
+    await _loadCurrent(autoplay: true);
+    await radio;
   }
 
   void playNext(Track track) {
@@ -408,6 +448,8 @@ class PlaybackController extends Notifier<PlaybackState> {
       await _engine.play();
     } else if (state.hasNext) {
       await next();
+    } else if (_radioEligible && await _extendWithRadio() && state.hasNext) {
+      await next();
     } else {
       state = state.copyWith(status: PlaybackStatus.completed);
       _saveSession(force: true);
@@ -416,7 +458,116 @@ class PlaybackController extends Notifier<PlaybackState> {
 
   void _onPosition(Duration position) {
     _saveSession();
+    _maybePrefetchRadio(position);
     _maybeCrossfade(position);
+  }
+
+  // ---------------------------------------------------------------- radio --
+
+  bool get _radioEligible =>
+      autoplayRadio &&
+      state.repeat == RepeatMode.off &&
+      state.queue.any((q) => q.track.source == MediaSource.youtube);
+
+  /// Fetches more radio while the last track still plays, so the next one
+  /// is queued (and crossfades work) before it ends.
+  void _maybePrefetchRadio(Duration position) {
+    final index = state.index;
+    final current = state.current;
+    final duration = _engine.currentDuration;
+    if (current == null ||
+        index != state.queue.length - 1 ||
+        current.uid == _radioTriedUid ||
+        duration == null ||
+        duration - position > radioLeadTime ||
+        !_radioEligible) {
+      return;
+    }
+    _radioTriedUid = current.uid;
+    unawaited(_extendWithRadio());
+  }
+
+  /// Joins a radio request already in flight instead of starting another.
+  Future<bool> _extendWithRadio() =>
+      _radioFetch ??= _fetchRadio().whenComplete(() => _radioFetch = null);
+
+  /// Appends up to [radioBatch] radio tracks not already queued, seeded by
+  /// [seed] or else the last YouTube track in the queue. Returns whether
+  /// anything was added. Never throws and never reports to the user: radio
+  /// is a bonus and must not interrupt playback.
+  Future<bool> _fetchRadio({Track? seed}) async {
+    if (state.queue.isEmpty) return false;
+    final anchor = state.queue.last.uid;
+    try {
+      final client = ref.read(innerTubeClientProvider);
+      final seen = {
+        for (final q in state.queue)
+          if (q.track.source == MediaSource.youtube) q.track.uri,
+      };
+      final cursor = _radio;
+      YtmTrackPage page;
+      String? playlistId;
+      if (seed == null &&
+          cursor != null &&
+          cursor.anchorUid == anchor &&
+          cursor.continuation != null) {
+        playlistId = cursor.playlistId;
+        page = await client.radioMore(
+          cursor.continuation!,
+          playlistId: playlistId,
+        );
+      } else {
+        final videoId = seed == null
+            ? state.queue
+                  .map((q) => q.track)
+                  .where((t) => t.source == MediaSource.youtube)
+                  .lastOrNull
+                  ?.uri
+            : await _youTubeIdFor(seed, client);
+        if (videoId == null) return false;
+        seen.add(videoId);
+        page = await client.radio(videoId);
+      }
+      final fresh = <Track>[];
+      // A page may only repeat what is queued; look a little further.
+      for (var pages = 1; ; pages++) {
+        fresh.addAll(
+          page.tracks
+              .where((t) => seen.add(t.uri))
+              .take(radioBatch - fresh.length),
+        );
+        playlistId = page.playlistId ?? playlistId;
+        final next = page.continuation;
+        if (fresh.isNotEmpty || next == null || pages >= 3) break;
+        page = await client.radioMore(next, playlistId: playlistId);
+      }
+      // The queue changed meanwhile (new list played, items added): drop.
+      if (!ref.mounted ||
+          state.queue.isEmpty ||
+          state.queue.last.uid != anchor ||
+          fresh.isEmpty) {
+        return false;
+      }
+      _setQueue([...state.queue, for (final t in fresh) _item(t)]);
+      _radio = _RadioCursor(
+        anchorUid: state.queue.last.uid,
+        continuation: page.continuation,
+        playlistId: playlistId,
+      );
+      return true;
+    } on Object catch (e) {
+      debugPrint('Radio unavailable: ${e.runtimeType}');
+      return false;
+    }
+  }
+
+  /// The YouTube video id for [track]: its own, or the best YouTube Music
+  /// song match for a local file.
+  Future<String?> _youTubeIdFor(Track track, InnerTubeClient client) async {
+    if (track.source == MediaSource.youtube) return track.uri;
+    final query = [?track.artist, track.title].join(' ');
+    final results = await client.search(query);
+    return results.items.whereType<YtmTrackItem>().firstOrNull?.videoId;
   }
 
   void _maybeCrossfade(Duration position) {
@@ -453,4 +604,18 @@ class PlaybackController extends Notifier<PlaybackState> {
       }),
     );
   }
+}
+
+/// Where YouTube Music radio continues after the queue item [anchorUid].
+@immutable
+class _RadioCursor {
+  const _RadioCursor({
+    required this.anchorUid,
+    this.continuation,
+    this.playlistId,
+  });
+
+  final int anchorUid;
+  final String? continuation;
+  final String? playlistId;
 }
