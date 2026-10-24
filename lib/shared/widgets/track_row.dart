@@ -203,6 +203,7 @@ class _TrackRowState extends ConsumerState<TrackRow> {
           'Add to queue',
           icon: Icons.queue_music_rounded,
         ),
+        const NoirMenuItem('radio', 'Start radio', icon: Icons.radio_rounded),
         if (track.localId != null) ...[
           const NoirMenuItem(
             'playlist',
@@ -241,6 +242,8 @@ class _TrackRowState extends ConsumerState<TrackRow> {
       case 'queue':
         playback.addToQueue([track]);
         showToast(context, 'Added to queue');
+      case 'radio':
+        unawaited(playback.startRadio(track));
       case 'playlist':
         await addToPlaylist(context, ref, [track]);
       case 'favorite':
