@@ -9,6 +9,7 @@ import 'package:noir/core/formatters.dart';
 import 'package:noir/core/widgets/artwork.dart';
 import 'package:noir/core/widgets/buttons.dart';
 import 'package:noir/core/widgets/glass_surface.dart';
+import 'package:noir/core/widgets/menus.dart';
 import 'package:noir/core/widgets/states.dart';
 import 'package:noir/features/home/application/pinned_playlists.dart';
 import 'package:noir/features/library/application/library_providers.dart';
@@ -265,16 +266,15 @@ class _PinnedRow extends ConsumerWidget {
           artwork: data.$3,
           onTap: () => context.go(pin.location),
           onContextMenu: (position) async {
-            final overlay =
-                Overlay.of(context).context.findRenderObject()! as RenderBox;
-            final action = await showMenu<String>(
-              context: context,
-              position: RelativeRect.fromRect(
-                position & const Size(1, 1),
-                Offset.zero & overlay.size,
-              ),
+            final action = await showNoirMenu<String>(
+              context,
+              anchor: position & Size.zero,
               items: const [
-                PopupMenuItem(value: 'unpin', child: Text('Unpin from Home')),
+                NoirMenuItem(
+                  'unpin',
+                  'Unpin from Home',
+                  icon: Icons.push_pin_outlined,
+                ),
               ],
             );
             if (action == 'unpin') {
@@ -346,25 +346,36 @@ class _HeroRow extends ConsumerWidget {
       },
     );
 
-    if (compact || main == null) {
-      return Column(
-        children: [
-          ?main,
-          if (main != null) const SizedBox(height: NoirSpacing.md),
-          shuffle,
-        ],
-      );
-    }
-    return SizedBox(
-      height: 120 + MediaQuery.textScalerOf(context).scale(52),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Expanded(flex: 7, child: main),
-          const SizedBox(width: NoirSpacing.lg),
-          Expanded(flex: 3, child: shuffle),
-        ],
-      ),
+    final scaler = MediaQuery.textScalerOf(context);
+    return LayoutBuilder(
+      builder: (context, box) {
+        // Side by side only while the small card has room for its text
+        // (large text sizes in medium windows stack them instead).
+        final sideBySide =
+            !compact &&
+            main != null &&
+            (box.maxWidth - NoirSpacing.lg) * 0.3 >= scaler.scale(160);
+        if (!sideBySide) {
+          return Column(
+            children: [
+              ?main,
+              if (main != null) const SizedBox(height: NoirSpacing.md),
+              shuffle,
+            ],
+          );
+        }
+        return SizedBox(
+          height: 120 + scaler.scale(52),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(flex: 7, child: main),
+              const SizedBox(width: NoirSpacing.lg),
+              Expanded(flex: 3, child: shuffle),
+            ],
+          ),
+        );
+      },
     );
   }
 }

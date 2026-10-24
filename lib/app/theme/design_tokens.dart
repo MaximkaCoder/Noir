@@ -140,12 +140,23 @@ abstract final class NoirBlur {
   static const double reduced = 10;
 }
 
+/// Always pass durations through `NoirEffects.of(context).motion(...)` so
+/// "Animations off" and the system reduced-motion flag make them instant.
 abstract final class NoirMotion {
   static const Duration fast = Duration(milliseconds: 120);
   static const Duration medium = Duration(milliseconds: 220);
+
+  /// Layout changes: sidebar width, player island, page fade-through.
+  static const Duration layout = Duration(milliseconds: 250);
   static const Duration slow = Duration(milliseconds: 360);
   static const Curve standard = Curves.easeOutCubic;
   static const Curve emphasized = Curves.easeInOutCubicEmphasized;
+
+  /// Leaving elements: quick to start, so the incoming one gets the stage.
+  static const Curve exit = Curves.easeInCubic;
+
+  /// Distance incoming pages and popups travel (logical px).
+  static const double shift = 8;
 }
 
 /// Window-width breakpoints for the adaptive shell.

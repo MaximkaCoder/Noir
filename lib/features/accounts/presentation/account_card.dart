@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:noir/app/theme/design_tokens.dart';
+import 'package:noir/app/theme/glass_theme.dart';
 import 'package:noir/core/widgets/buttons.dart';
 import 'package:noir/core/widgets/dialogs.dart';
 import 'package:noir/core/widgets/glass_surface.dart';
@@ -98,120 +99,138 @@ class AccountConnectionCard extends ConsumerWidget {
       ],
     ];
 
+    final fx = NoirEffects.of(context);
     return GlassSurface(
       blur: 0,
       padding: const EdgeInsets.all(NoirSpacing.lg),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              CircleAvatar(
-                radius: 18,
-                backgroundColor: c.hover,
-                child: Icon(
-                  Icons.play_circle_outline_rounded,
-                  color: c.textPrimary,
+      // Connecting / connected swap whole sections; let the card resize.
+      child: AnimatedSize(
+        duration: fx.motion(NoirMotion.medium),
+        curve: NoirMotion.standard,
+        alignment: Alignment.topCenter,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                CircleAvatar(
+                  radius: 18,
+                  backgroundColor: c.hover,
+                  child: Icon(
+                    Icons.play_circle_outline_rounded,
+                    color: c.textPrimary,
+                  ),
                 ),
-              ),
-              const SizedBox(width: NoirSpacing.md),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Google / YouTube', style: t.titleSmall),
-                    Text(status, style: t.bodySmall),
-                  ],
+                const SizedBox(width: NoirSpacing.md),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Google / YouTube', style: t.titleSmall),
+                      AnimatedSwitcher(
+                        duration: fx.motion(NoirMotion.medium),
+                        layoutBuilder: (current, previous) => Stack(
+                          alignment: Alignment.centerLeft,
+                          children: [...previous, ?current],
+                        ),
+                        child: Text(
+                          status,
+                          key: ValueKey(status),
+                          style: t.bodySmall,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
+              ],
+            ),
+            if (account.message != null) ...[
+              const SizedBox(height: NoirSpacing.md),
+              Text(
+                account.message!,
+                style: t.bodySmall?.copyWith(color: c.destructive),
               ),
             ],
-          ),
-          if (account.message != null) ...[
+            if (account.status == AccountStatus.connected) ...[
+              const SizedBox(height: NoirSpacing.md),
+              line(
+                Icons.schedule_rounded,
+                sync.lastSyncAt == null
+                    ? 'Not synced yet'
+                    : 'Last synced ${_ago(sync.lastSyncAt!)} · updates every '
+                          '15 minutes while NOIR is open',
+              ),
+              if (sync.status == SyncStatus.failed && sync.message != null)
+                line(Icons.error_outline_rounded, sync.message!),
+              line(
+                Icons.lock_outline_rounded,
+                account.grantedScopes.contains(
+                      GoogleOAuthConfig.playlistWriteScope,
+                    )
+                    ? 'Access: view and manage your YouTube account'
+                    : 'Access: view your YouTube account (read-only)',
+              ),
+            ] else ...[
+              const SizedBox(height: NoirSpacing.md),
+              Text(
+                'Connecting lets NOIR read your YouTube account. Here is what '
+                "YouTube's official APIs allow:",
+                style: t.bodySmall?.copyWith(color: c.textPrimary),
+              ),
+              const SizedBox(height: NoirSpacing.xs),
+              line(
+                Icons.check_rounded,
+                'Your playlists (also those made in YouTube Music), liked '
+                'videos and subscriptions — read-only.',
+              ),
+              line(
+                Icons.check_rounded,
+                'Playback through the official YouTube player, with the video '
+                'visible.',
+              ),
+              line(
+                Icons.close_rounded,
+                'Saved albums, songs and artists from the YouTube Music '
+                'library — no official API.',
+              ),
+              line(
+                Icons.close_rounded,
+                'Background, screen-off, audio-only or offline YouTube '
+                'playback — not permitted.',
+              ),
+            ],
+            if (actions.isNotEmpty) ...[
+              const SizedBox(height: NoirSpacing.lg),
+              Wrap(
+                spacing: NoirSpacing.sm,
+                runSpacing: NoirSpacing.sm,
+                children: actions,
+              ),
+            ],
             const SizedBox(height: NoirSpacing.md),
             Text(
-              account.message!,
-              style: t.bodySmall?.copyWith(color: c.destructive),
+              'Sign-in happens in your browser — NOIR never sees your Google '
+              'password. You can also revoke access at any time in your Google '
+              'Account.',
+              style: t.labelSmall,
             ),
-          ],
-          if (account.status == AccountStatus.connected) ...[
-            const SizedBox(height: NoirSpacing.md),
-            line(
-              Icons.schedule_rounded,
-              sync.lastSyncAt == null
-                  ? 'Not synced yet'
-                  : 'Last synced ${_ago(sync.lastSyncAt!)} · updates every '
-                        '15 minutes while NOIR is open',
-            ),
-            if (sync.status == SyncStatus.failed && sync.message != null)
-              line(Icons.error_outline_rounded, sync.message!),
-            line(
-              Icons.lock_outline_rounded,
-              account.grantedScopes.contains(
-                    GoogleOAuthConfig.playlistWriteScope,
-                  )
-                  ? 'Access: view and manage your YouTube account'
-                  : 'Access: view your YouTube account (read-only)',
-            ),
-          ] else ...[
-            const SizedBox(height: NoirSpacing.md),
-            Text(
-              'Connecting lets NOIR read your YouTube account. Here is what '
-              "YouTube's official APIs allow:",
-              style: t.bodySmall?.copyWith(color: c.textPrimary),
-            ),
-            const SizedBox(height: NoirSpacing.xs),
-            line(
-              Icons.check_rounded,
-              'Your playlists (also those made in YouTube Music), liked '
-              'videos and subscriptions — read-only.',
-            ),
-            line(
-              Icons.check_rounded,
-              'Playback through the official YouTube player, with the video '
-              'visible.',
-            ),
-            line(
-              Icons.close_rounded,
-              'Saved albums, songs and artists from the YouTube Music '
-              'library — no official API.',
-            ),
-            line(
-              Icons.close_rounded,
-              'Background, screen-off, audio-only or offline YouTube '
-              'playback — not permitted.',
-            ),
-          ],
-          if (actions.isNotEmpty) ...[
-            const SizedBox(height: NoirSpacing.lg),
-            Wrap(
-              spacing: NoirSpacing.sm,
-              runSpacing: NoirSpacing.sm,
-              children: actions,
-            ),
-          ],
-          const SizedBox(height: NoirSpacing.md),
-          Text(
-            'Sign-in happens in your browser — NOIR never sees your Google '
-            'password. You can also revoke access at any time in your Google '
-            'Account.',
-            style: t.labelSmall,
-          ),
-          if (account.status != AccountStatus.notConfigured)
-            TextButton(
-              onPressed: () => unawaited(
-                launchUrl(
-                  _permissionsPage,
-                  mode: LaunchMode.externalApplication,
+            if (account.status != AccountStatus.notConfigured)
+              TextButton(
+                onPressed: () => unawaited(
+                  launchUrl(
+                    _permissionsPage,
+                    mode: LaunchMode.externalApplication,
+                  ),
                 ),
+                style: TextButton.styleFrom(
+                  foregroundColor: c.textSecondary,
+                  padding: EdgeInsets.zero,
+                  textStyle: t.labelSmall,
+                ),
+                child: const Text('Open Google Account permissions'),
               ),
-              style: TextButton.styleFrom(
-                foregroundColor: c.textSecondary,
-                padding: EdgeInsets.zero,
-                textStyle: t.labelSmall,
-              ),
-              child: const Text('Open Google Account permissions'),
-            ),
-        ],
+          ],
+        ),
       ),
     );
   }

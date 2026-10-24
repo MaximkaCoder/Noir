@@ -94,9 +94,17 @@ class PlaybackControls extends ConsumerWidget {
 /// Seekable progress with elapsed / remaining time. Only this widget
 /// rebuilds on position ticks.
 class ProgressSlider extends ConsumerStatefulWidget {
-  const ProgressSlider({this.showLabels = true, super.key});
+  const ProgressSlider({
+    this.showLabels = true,
+    this.inlineLabels = false,
+    super.key,
+  });
 
   final bool showLabels;
+
+  /// Times beside a thin bar whose thumb appears on hover (player island)
+  /// instead of below it.
+  final bool inlineLabels;
 
   @override
   ConsumerState<ProgressSlider> createState() => _ProgressSliderState();
@@ -104,6 +112,7 @@ class ProgressSlider extends ConsumerStatefulWidget {
 
 class _ProgressSliderState extends ConsumerState<ProgressSlider> {
   double? _dragMs;
+  bool _hovered = false;
 
   @override
   Widget build(BuildContext context) {
@@ -137,7 +146,14 @@ class _ProgressSliderState extends ConsumerState<ProgressSlider> {
       child: SliderTheme(
         data: SliderTheme.of(context).copyWith(
           thumbShape: RoundSliderThumbShape(
-            enabledThumbRadius: _dragMs == null ? 5 : 7,
+            enabledThumbRadius: _dragMs != null
+                ? 7
+                : !widget.inlineLabels
+                ? 5
+                : _hovered
+                ? 6
+                : 0,
+            disabledThumbRadius: widget.inlineLabels ? 0 : null,
           ),
         ),
         child: Slider(
@@ -159,6 +175,21 @@ class _ProgressSliderState extends ConsumerState<ProgressSlider> {
         ),
       ),
     );
+    if (widget.inlineLabels) {
+      return MouseRegion(
+        onEnter: (_) => setState(() => _hovered = true),
+        onExit: (_) => setState(() => _hovered = false),
+        child: Row(
+          children: [
+            if (widget.showLabels)
+              Text(formatClock(shown), style: t, textAlign: TextAlign.end),
+            Expanded(child: slider),
+            if (widget.showLabels)
+              Text('-${formatClock(duration - shown)}', style: t),
+          ],
+        ),
+      );
+    }
     if (!widget.showLabels) return slider;
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -204,7 +235,10 @@ class ProgressLine extends ConsumerWidget {
 }
 
 class VolumeControl extends ConsumerWidget {
-  const VolumeControl({super.key});
+  const VolumeControl({this.showSlider = true, super.key});
+
+  /// Without the slider only the mute toggle remains (narrow layouts).
+  final bool showSlider;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -225,16 +259,17 @@ class VolumeControl extends ConsumerWidget {
           size: 18,
           onPressed: () => unawaited(ctrl.setVolume(volume == 0 ? 0.8 : 0)),
         ),
-        SizedBox(
-          width: 96,
-          child: Semantics(
-            label: 'Volume',
-            child: Slider(
-              value: volume,
-              onChanged: (v) => unawaited(ctrl.setVolume(v)),
+        if (showSlider)
+          SizedBox(
+            width: 96,
+            child: Semantics(
+              label: 'Volume',
+              child: Slider(
+                value: volume,
+                onChanged: (v) => unawaited(ctrl.setVolume(v)),
+              ),
             ),
           ),
-        ),
       ],
     );
   }

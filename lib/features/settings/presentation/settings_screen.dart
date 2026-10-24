@@ -10,6 +10,7 @@ import 'package:noir/app/theme/glass_theme.dart';
 import 'package:noir/core/widgets/buttons.dart';
 import 'package:noir/core/widgets/dialogs.dart';
 import 'package:noir/core/widgets/glass_surface.dart';
+import 'package:noir/core/widgets/reveal.dart';
 import 'package:noir/features/accounts/presentation/account_card.dart';
 import 'package:noir/features/home/data/history_repository.dart';
 import 'package:noir/features/library/application/library_providers.dart';
@@ -101,8 +102,9 @@ class SettingsScreen extends ConsumerWidget {
                   onChanged: (v) =>
                       set((s) => s.copyWith(crossfadeSeconds: v ? 6 : 0)),
                 ),
-                if (s.crossfadeSeconds > 0)
-                  _SliderTile(
+                Reveal(
+                  visible: s.crossfadeSeconds > 0,
+                  child: _SliderTile(
                     label: 'Crossfade length',
                     value: s.crossfadeSeconds.toDouble(),
                     min: 1,
@@ -112,6 +114,7 @@ class SettingsScreen extends ConsumerWidget {
                     onChanged: (v) =>
                         set((s) => s.copyWith(crossfadeSeconds: v.round())),
                   ),
+                ),
                 _SliderTile(
                   label: 'Volume at startup',
                   value: s.defaultVolume,
@@ -194,6 +197,7 @@ class _ThemePicker extends StatelessWidget {
     ];
     final t = Theme.of(context).textTheme;
     final c = context.noir;
+    final fx = NoirEffects.of(context);
     return Row(
       children: [
         for (final (mode, icon, label) in options) ...[
@@ -217,19 +221,23 @@ class _ThemePicker extends StatelessWidget {
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(
-                            icon,
-                            size: 20,
-                            color: value == mode
-                                ? c.textPrimary
-                                : c.textSecondary,
+                          TweenAnimationBuilder<Color?>(
+                            tween: ColorTween(
+                              end: value == mode
+                                  ? c.textPrimary
+                                  : c.textSecondary,
+                            ),
+                            duration: fx.motion(NoirMotion.medium),
+                            builder: (_, color, _) =>
+                                Icon(icon, size: 20, color: color),
                           ),
                           const SizedBox(height: 6),
-                          Text(
-                            label,
-                            style: t.labelMedium?.copyWith(
+                          AnimatedDefaultTextStyle(
+                            duration: fx.motion(NoirMotion.medium),
+                            style: t.labelMedium!.copyWith(
                               color: value == mode ? c.textPrimary : null,
                             ),
+                            child: Text(label),
                           ),
                         ],
                       ),
@@ -286,6 +294,7 @@ class _ToggleTile extends StatelessWidget {
       child: InkWell(
         onTap: () => onChanged(!value),
         borderRadius: NoirRadii.mdAll,
+        hoverDuration: NoirEffects.of(context).motion(NoirMotion.fast),
         child: Padding(
           padding: const EdgeInsets.symmetric(
             vertical: NoirSpacing.sm,

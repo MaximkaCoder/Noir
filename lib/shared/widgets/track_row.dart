@@ -4,9 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:noir/app/theme/app_theme.dart';
 import 'package:noir/app/theme/design_tokens.dart';
+import 'package:noir/app/theme/glass_theme.dart';
 import 'package:noir/core/formatters.dart';
 import 'package:noir/core/widgets/artwork.dart';
 import 'package:noir/core/widgets/dialogs.dart';
+import 'package:noir/core/widgets/menus.dart';
 import 'package:noir/features/playback/application/playback_controller.dart';
 import 'package:noir/features/playlists/presentation/add_to_playlist.dart';
 import 'package:noir/features/settings/domain/app_settings.dart';
@@ -77,6 +79,7 @@ class _TrackRowState extends ConsumerState<TrackRow> {
             borderRadius: NoirRadii.mdAll,
             hoverColor: c.hover,
             focusColor: c.selected,
+            hoverDuration: NoirEffects.of(context).motion(NoirMotion.fast),
             child: Padding(
               padding: EdgeInsets.symmetric(
                 horizontal: NoirSpacing.sm,
@@ -174,32 +177,47 @@ class _TrackRowState extends ConsumerState<TrackRow> {
   Future<void> _showMenu(Offset position) async {
     final track = widget.track;
     final playback = ref.read(playbackProvider.notifier);
-    final overlay =
-        Overlay.of(context).context.findRenderObject()! as RenderBox;
-    final action = await showMenu<String>(
-      context: context,
-      position: RelativeRect.fromRect(
-        position & const Size(1, 1),
-        Offset.zero & overlay.size,
-      ),
+    final action = await showNoirMenu<String>(
+      context,
+      anchor: position & Size.zero,
       items: [
-        _item('play', Icons.play_arrow_rounded, 'Play'),
-        _item('next', Icons.playlist_play_rounded, 'Play next'),
-        _item('queue', Icons.queue_music_rounded, 'Add to queue'),
+        const NoirMenuItem('play', 'Play', icon: Icons.play_arrow_rounded),
+        const NoirMenuItem(
+          'next',
+          'Play next',
+          icon: Icons.playlist_play_rounded,
+        ),
+        const NoirMenuItem(
+          'queue',
+          'Add to queue',
+          icon: Icons.queue_music_rounded,
+        ),
         if (track.localId != null) ...[
-          _item('playlist', Icons.playlist_add_rounded, 'Add to playlist…'),
-          _item(
+          const NoirMenuItem(
+            'playlist',
+            'Add to playlist…',
+            icon: Icons.playlist_add_rounded,
+          ),
+          NoirMenuItem(
             'favorite',
-            track.isFavorite
+            track.isFavorite ? 'Remove from favorites' : 'Add to favorites',
+            icon: track.isFavorite
                 ? Icons.favorite_rounded
                 : Icons.favorite_border_rounded,
-            track.isFavorite ? 'Remove from favorites' : 'Add to favorites',
           ),
         ],
         if (track.source == MediaSource.youtube)
-          _item('open', Icons.open_in_new_rounded, 'Open in YouTube Music'),
+          const NoirMenuItem(
+            'open',
+            'Open in YouTube Music',
+            icon: Icons.open_in_new_rounded,
+          ),
         if (widget.onRemove != null)
-          _item('remove', Icons.remove_circle_outline, widget.removeLabel),
+          NoirMenuItem(
+            'remove',
+            widget.removeLabel,
+            icon: Icons.remove_circle_outline,
+          ),
       ],
     );
     if (!mounted) return;
@@ -227,19 +245,6 @@ class _TrackRowState extends ConsumerState<TrackRow> {
         widget.onRemove?.call();
     }
   }
-
-  PopupMenuItem<String> _item(String value, IconData icon, String label) =>
-      PopupMenuItem(
-        value: value,
-        height: 40,
-        child: Row(
-          children: [
-            Icon(icon, size: 18),
-            const SizedBox(width: NoirSpacing.md),
-            Text(label),
-          ],
-        ),
-      );
 }
 
 class _MoreButton extends StatelessWidget {
@@ -250,8 +255,9 @@ class _MoreButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Opacity(
+    return AnimatedOpacity(
       opacity: visible ? 1 : 0,
+      duration: NoirEffects.of(context).motion(NoirMotion.fast),
       child: Builder(
         builder: (context) => IconButton(
           tooltip: 'More',

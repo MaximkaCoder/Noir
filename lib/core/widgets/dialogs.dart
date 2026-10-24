@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:noir/app/theme/design_tokens.dart';
 import 'package:noir/app/theme/glass_theme.dart';
@@ -199,14 +201,133 @@ class _PromptBodyState extends State<_PromptBody> {
   }
 }
 
+OverlayEntry? _toast;
+
+/// Short confirmation at the bottom of the window. Fades and scales in, sits
+/// above the floating player (via the caller's bottom padding), and replaces
+/// any toast still showing. Never takes pointer input.
 void showToast(BuildContext context, String message) {
-  ScaffoldMessenger.maybeOf(context)
-    ?..hideCurrentSnackBar()
-    ..showSnackBar(
-      SnackBar(
-        content: Text(message),
-        width: 360,
-        duration: const Duration(seconds: 3),
+  final overlay = Overlay.maybeOf(context, rootOverlay: true);
+  if (overlay == null) return;
+  if (_toast?.mounted ?? false) _toast!.remove();
+  final bottom = MediaQuery.paddingOf(context).bottom + NoirSpacing.lg;
+  late final OverlayEntry entry;
+  entry = OverlayEntry(
+    builder: (_) => _Toast(
+      message: message,
+      bottom: bottom,
+      onDone: () {
+        if (identical(_toast, entry)) _toast = null;
+        if (entry.mounted) entry.remove();
+      },
+    ),
+  );
+  _toast = entry;
+  overlay.insert(entry);
+}
+
+class _Toast extends StatefulWidget {
+  const _Toast({
+    required this.message,
+    required this.bottom,
+    required this.onDone,
+  });
+
+  final String message;
+  final double bottom;
+  final VoidCallback onDone;
+
+  @override
+  State<_Toast> createState() => _ToastState();
+}
+
+class _ToastState extends State<_Toast> with SingleTickerProviderStateMixin {
+  static const _visible = Duration(seconds: 3);
+
+  // One controller drives in, hold and out, so nothing outlives the widget
+  // (no timers left behind when the app is torn down).
+  late final AnimationController _life = AnimationController(vsync: this);
+  late Animation<double> _shown;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_life.isAnimating || _life.isCompleted) return;
+    final fx = NoirEffects.of(context);
+    final fade = fx.motion(NoirMotion.medium).inMilliseconds;
+    final total = fade * 2 + _visible.inMilliseconds;
+    final edge = fade / total;
+    _shown = TweenSequence<double>([
+      if (edge > 0)
+        TweenSequenceItem(
+          tween: Tween<double>(
+            begin: 0,
+            end: 1,
+          ).chain(CurveTween(curve: NoirMotion.standard)),
+          weight: edge,
+        ),
+      TweenSequenceItem(tween: ConstantTween<double>(1), weight: 1 - edge * 2),
+      if (edge > 0)
+        TweenSequenceItem(
+          tween: Tween<double>(
+            begin: 1,
+            end: 0,
+          ).chain(CurveTween(curve: NoirMotion.exit)),
+          weight: edge,
+        ),
+    ]).animate(_life);
+    _life.duration = Duration(milliseconds: total);
+    unawaited(
+      _life.forward().whenComplete(() {
+        if (mounted) widget.onDone();
+      }),
+    );
+  }
+
+  @override
+  void dispose() {
+    _life.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.noir;
+    final fx = NoirEffects.of(context);
+    return Positioned(
+      left: NoirSpacing.lg,
+      right: NoirSpacing.lg,
+      bottom: widget.bottom,
+      child: IgnorePointer(
+        child: Center(
+          child: FadeTransition(
+            opacity: _shown,
+            child: ScaleTransition(
+              scale: Tween<double>(begin: 0.94, end: 1).animate(_shown),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 360),
+                child: Semantics(
+                  liveRegion: true,
+                  child: GlassSurface(
+                    borderRadius: NoirRadii.mdAll,
+                    shadow: 0.8,
+                    fillOpacity: fx.glass ? 3 : 1,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: NoirSpacing.lg,
+                      vertical: NoirSpacing.md,
+                    ),
+                    child: Text(
+                      widget.message,
+                      style: Theme.of(context).textTheme.bodyMedium
+                          ?.copyWith(color: c.textPrimary),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
       ),
     );
+  }
 }

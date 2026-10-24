@@ -7,6 +7,8 @@ import 'package:noir/app/theme/design_tokens.dart';
 import 'package:noir/core/formatters.dart';
 import 'package:noir/core/widgets/artwork.dart';
 import 'package:noir/core/widgets/buttons.dart';
+import 'package:noir/core/widgets/menus.dart';
+import 'package:noir/core/widgets/reveal.dart';
 import 'package:noir/core/widgets/states.dart';
 import 'package:noir/features/accounts/domain/account_connection.dart';
 import 'package:noir/features/library/application/library_providers.dart';
@@ -125,8 +127,9 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
             ),
           ),
         ),
-        if (_filtering)
-          SliverToBoxAdapter(
+        SliverToBoxAdapter(
+          child: Reveal(
+            visible: _filtering,
             child: Padding(
               padding: const EdgeInsets.only(bottom: NoirSpacing.md),
               child: TextField(
@@ -147,6 +150,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
               ),
             ),
           ),
+        ),
         ...switch (tab) {
           LibraryTab.playlists => _playlists(),
           LibraryTab.artists => _artists(),
@@ -349,23 +353,18 @@ class _SortButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return PopupMenuButton<TrackSort>(
+    return NoirMenuButton<TrackSort>(
       tooltip: 'Sort',
-      initialValue: sort,
+      icon: Icons.sort_rounded,
       onSelected: onChanged,
-      icon: Icon(
-        Icons.sort_rounded,
-        color: context.noir.textSecondary,
-        size: 20,
-      ),
-      itemBuilder: (_) => const [
-        PopupMenuItem(value: TrackSort.title, child: Text('Title')),
-        PopupMenuItem(value: TrackSort.artist, child: Text('Artist')),
-        PopupMenuItem(value: TrackSort.album, child: Text('Album')),
-        PopupMenuItem(
-          value: TrackSort.recentlyAdded,
-          child: Text('Recently added'),
-        ),
+      items: () => [
+        for (final (value, label) in const [
+          (TrackSort.title, 'Title'),
+          (TrackSort.artist, 'Artist'),
+          (TrackSort.album, 'Album'),
+          (TrackSort.recentlyAdded, 'Recently added'),
+        ])
+          NoirMenuItem(value, label, checked: value == sort),
       ],
     );
   }
@@ -379,9 +378,9 @@ class _AddMenu extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final scan = ref.read(libraryScanProvider.notifier);
-    return PopupMenuButton<String>(
+    return NoirMenuButton<String>(
       tooltip: 'Add',
-      icon: Icon(Icons.add_rounded, color: context.noir.textSecondary),
+      icon: Icons.add_rounded,
       onSelected: (v) async {
         switch (v) {
           case 'playlist':
@@ -396,14 +395,23 @@ class _AddMenu extends ConsumerWidget {
             await scan.importFiles();
         }
       },
-      itemBuilder: (_) => [
-        const PopupMenuItem(value: 'playlist', child: Text('New playlist')),
+      items: () => [
+        const NoirMenuItem(
+          'playlist',
+          'New playlist',
+          icon: Icons.playlist_add_rounded,
+        ),
         if (LibraryScanController.supportsFolders)
-          const PopupMenuItem(
-            value: 'folder',
-            child: Text('Add music folder…'),
+          const NoirMenuItem(
+            'folder',
+            'Add music folder…',
+            icon: Icons.create_new_folder_outlined,
           ),
-        const PopupMenuItem(value: 'files', child: Text('Add files…')),
+        const NoirMenuItem(
+          'files',
+          'Add files…',
+          icon: Icons.library_add_outlined,
+        ),
       ],
     );
   }
@@ -438,28 +446,30 @@ class _ScanBanner extends ConsumerWidget {
         true,
       ),
     };
-    if (text == null) return const SizedBox.shrink();
-    return Padding(
-      padding: const EdgeInsets.only(top: NoirSpacing.md),
-      child: Row(
-        children: [
-          if (icon == null)
-            const SizedBox.square(
-              dimension: 14,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            )
-          else
-            Icon(icon, size: 16),
-          const SizedBox(width: NoirSpacing.sm),
-          Expanded(child: Text(text, style: t.bodySmall)),
-          if (closable)
-            NoirIconButton(
-              icon: Icons.close_rounded,
-              tooltip: 'Dismiss',
-              size: 16,
-              onPressed: dismiss,
-            ),
-        ],
+    return Reveal(
+      visible: text != null,
+      child: Padding(
+        padding: const EdgeInsets.only(top: NoirSpacing.md),
+        child: Row(
+          children: [
+            if (icon == null)
+              const SizedBox.square(
+                dimension: 14,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            else
+              Icon(icon, size: 16),
+            const SizedBox(width: NoirSpacing.sm),
+            Expanded(child: Text(text ?? '', style: t.bodySmall)),
+            if (closable)
+              NoirIconButton(
+                icon: Icons.close_rounded,
+                tooltip: 'Dismiss',
+                size: 16,
+                onPressed: dismiss,
+              ),
+          ],
+        ),
       ),
     );
   }

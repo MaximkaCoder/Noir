@@ -60,8 +60,14 @@ class _MediaTileState extends State<MediaTile> {
                 children: [
                   AnimatedSlide(
                     offset: Offset(0, _hovered && fx.animations ? -0.02 : 0),
-                    duration: fx.motion(NoirMotion.fast),
-                    child: widget.artwork(widget.width),
+                    duration: fx.motion(NoirMotion.medium),
+                    curve: NoirMotion.standard,
+                    child: AnimatedScale(
+                      scale: _hovered && fx.animations ? 1.02 : 1,
+                      duration: fx.motion(NoirMotion.medium),
+                      curve: NoirMotion.standard,
+                      child: widget.artwork(widget.width),
+                    ),
                   ),
                   const SizedBox(height: NoirSpacing.sm + 2),
                   Text(
@@ -135,6 +141,7 @@ class CollectionRow extends StatelessWidget {
       onTap: onTap,
       borderRadius: NoirRadii.mdAll,
       hoverColor: c.hover,
+      hoverDuration: NoirEffects.of(context).motion(NoirMotion.fast),
       child: Padding(
         padding: const EdgeInsets.symmetric(
           horizontal: NoirSpacing.sm,
