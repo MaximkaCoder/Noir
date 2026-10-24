@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:noir/app/theme/design_tokens.dart';
 import 'package:noir/core/widgets/smooth_scroll.dart';
@@ -64,7 +66,15 @@ class PageScaffold extends StatelessWidget {
                 padding: EdgeInsets.symmetric(horizontal: pad),
                 sliver: s,
               ),
-            const SliverToBoxAdapter(child: SizedBox(height: NoirSpacing.xxxl)),
+            // Clears the floating player island (bottom padding) too.
+            SliverToBoxAdapter(
+              child: SizedBox(
+                height: math.max(
+                  NoirSpacing.xxxl,
+                  MediaQuery.paddingOf(context).bottom + NoirSpacing.lg,
+                ),
+              ),
+            ),
           ],
         ),
       ),

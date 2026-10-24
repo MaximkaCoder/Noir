@@ -28,17 +28,24 @@ class NoirIconButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.noir;
-    return IconButton(
-      icon: Icon(icon, size: size),
-      tooltip: tooltip,
-      onPressed: onPressed,
-      color: color ?? (active ? c.textPrimary : c.textSecondary),
-      disabledColor: c.textTertiary.withValues(alpha: 0.5),
-      hoverColor: c.hover,
-      focusColor: c.selected,
-      style: IconButton.styleFrom(
-        minimumSize: const Size.square(36),
-        padding: const EdgeInsets.all(NoirSpacing.sm),
+    // Active / inactive color changes fade instead of snapping.
+    return TweenAnimationBuilder<Color?>(
+      tween: ColorTween(
+        end: color ?? (active ? c.textPrimary : c.textSecondary),
+      ),
+      duration: NoirEffects.of(context).motion(NoirMotion.fast),
+      builder: (context, animated, _) => IconButton(
+        icon: Icon(icon, size: size),
+        tooltip: tooltip,
+        onPressed: onPressed,
+        color: animated,
+        disabledColor: c.textTertiary.withValues(alpha: 0.5),
+        hoverColor: c.hover,
+        focusColor: c.selected,
+        style: IconButton.styleFrom(
+          minimumSize: const Size.square(36),
+          padding: const EdgeInsets.all(NoirSpacing.sm),
+        ),
       ),
     );
   }
@@ -187,6 +194,7 @@ class PillChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.noir;
+    final fx = NoirEffects.of(context);
     return Semantics(
       selected: selected,
       button: true,
@@ -194,7 +202,8 @@ class PillChip extends StatelessWidget {
         onPressed: onSelected,
         scale: false,
         child: AnimatedContainer(
-          duration: NoirEffects.of(context).motion(NoirMotion.fast),
+          duration: fx.motion(NoirMotion.medium),
+          curve: NoirMotion.standard,
           padding: const EdgeInsets.symmetric(
             horizontal: NoirSpacing.lg,
             vertical: NoirSpacing.sm,
@@ -206,10 +215,12 @@ class PillChip extends StatelessWidget {
               color: selected ? c.glassBorder : Colors.transparent,
             ),
           ),
-          child: Text(
-            label,
-            style: Theme.of(context).textTheme.labelLarge
-                ?.copyWith(color: selected ? c.textPrimary : c.textSecondary),
+          child: AnimatedDefaultTextStyle(
+            duration: fx.motion(NoirMotion.medium),
+            curve: NoirMotion.standard,
+            style: Theme.of(context).textTheme.labelLarge!
+                .copyWith(color: selected ? c.textPrimary : c.textSecondary),
+            child: Text(label),
           ),
         ),
       ),

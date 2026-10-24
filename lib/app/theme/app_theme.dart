@@ -3,9 +3,19 @@ import 'package:flutter/material.dart';
 import 'package:noir/app/theme/design_tokens.dart';
 import 'package:noir/features/settings/domain/app_settings.dart';
 
+final _themes = <(Brightness, Density), ThemeData>{};
+
 /// Builds NOIR's custom theme. Material is only the foundation: colors,
 /// typography and component shapes all come from NOIR tokens.
-ThemeData buildNoirTheme(Brightness brightness, Density density) {
+///
+/// Cached: a fresh ThemeData never compares equal (its state-property
+/// closures differ), so rebuilding it on every settings change made
+/// MaterialApp lerp the whole theme for 200 ms — rebuilding the entire app
+/// each frame and stalling the Settings switch animations.
+ThemeData buildNoirTheme(Brightness brightness, Density density) =>
+    _themes[(brightness, density)] ??= _buildTheme(brightness, density);
+
+ThemeData _buildTheme(Brightness brightness, Density density) {
   final c = brightness == Brightness.dark
       ? NoirPalette.dark
       : NoirPalette.light;

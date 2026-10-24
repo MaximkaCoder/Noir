@@ -1,6 +1,9 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -24,9 +27,13 @@ final searchFocusProvider = Provider<FocusNode>((ref) {
 });
 
 /// Responsive frame around the four branch navigators:
-/// - expanded (wide desktop): sidebar + content + optional queue panel;
-/// - medium: icon rail + content + bottom player bar;
+/// - expanded (wide desktop): sidebar (collapsible to a rail) + content +
+///   optional queue panel;
+/// - medium: icon rail + content;
 /// - compact (phones): content + mini-player + bottom navigation.
+///
+/// Both desktop classes share one [Sidebar] whose width animates between
+/// them, and float the [PlayerIsland] over the bottom of the content.
 class AdaptiveShell extends ConsumerWidget {
   const AdaptiveShell({required this.shell, super.key});
 
@@ -34,7 +41,8 @@ class AdaptiveShell extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final width = MediaQuery.sizeOf(context).width;
+    final windowClass = WindowClass.of(MediaQuery.sizeOf(context).width);
+    final wide = windowClass == WindowClass.expanded;
     final collapsed = ref.watch(
       settingsProvider.select((s) => s.sidebarCollapsed),
     );
@@ -42,51 +50,20 @@ class AdaptiveShell extends ConsumerWidget {
     final artwork = ref.watch(
       playbackProvider.select((s) => s.current?.track.artwork),
     );
-    final fx = NoirEffects.of(context);
 
-    var windowClass = WindowClass.of(width);
-    if (windowClass == WindowClass.expanded && collapsed) {
-      windowClass = WindowClass.medium;
-    }
-    final showQueue =
-        queueOpen && WindowClass.of(width) == WindowClass.expanded;
-
-    final content = switch (windowClass) {
-      WindowClass.compact => _CompactLayout(shell: shell),
-      WindowClass.medium => Row(
-        children: [
-          NavRail(shell: shell),
-          Expanded(
-            child: Column(
-              children: [
-                Expanded(child: _Content(shell: shell)),
-                const PlayerBar(),
-              ],
-            ),
-          ),
-        ],
-      ),
-      WindowClass.expanded => Row(
-        children: [
-          Sidebar(shell: shell),
-          Expanded(child: _Content(shell: shell)),
-          AnimatedSize(
-            duration: fx.motion(NoirMotion.medium),
-            curve: NoirMotion.standard,
-            child: showQueue
-                ? const SizedBox(
-                    width: 360,
-                    child: GlassSurface(
-                      borderRadius: BorderRadius.zero,
-                      highlight: 0.4,
-                      child: QueuePanel(),
-                    ),
-                  )
-                : const SizedBox.shrink(),
-          ),
-        ],
-      ),
-    };
+    final content = windowClass == WindowClass.compact
+        ? _CompactLayout(shell: shell)
+        : Row(
+            children: [
+              Sidebar(
+                shell: shell,
+                collapsed: collapsed || !wide,
+                canToggle: wide,
+              ),
+              Expanded(child: _DesktopContent(shell: shell)),
+              _SidePanel(open: queueOpen && wide),
+            ],
+          );
 
     return _ShellShortcuts(
       shell: shell,
@@ -123,6 +100,128 @@ class _Content extends StatelessWidget {
   }
 }
 
+/// Content with the player island floating over its bottom edge. Pages
+/// scroll underneath the glass; the island's height is handed down as
+/// bottom [MediaQuery] padding so last rows and scrollbars stay clear of it.
+class _DesktopContent extends ConsumerStatefulWidget {
+  const _DesktopContent({required this.shell});
+
+  final StatefulNavigationShell shell;
+
+  @override
+  ConsumerState<_DesktopContent> createState() => _DesktopContentState();
+}
+
+class _DesktopContentState extends ConsumerState<_DesktopContent> {
+  double _islandHeight = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    final playing = ref.watch(
+      playbackProvider.select((s) => s.current != null),
+    );
+    final mq = MediaQuery.of(context);
+    final inset = playing ? _islandHeight : 0.0;
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: MediaQuery(
+            data: mq.copyWith(
+              padding: mq.padding.copyWith(
+                bottom: math.max(mq.padding.bottom, inset),
+              ),
+            ),
+            child: _Content(shell: widget.shell),
+          ),
+        ),
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: 0,
+          child: _HeightReporter(
+            onHeight: (h) {
+              if (mounted && h != _islandHeight) {
+                setState(() => _islandHeight = h);
+              }
+            },
+            child: const PlayerIsland(),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Reports its child's height after layout, whenever it changes.
+class _HeightReporter extends SingleChildRenderObjectWidget {
+  const _HeightReporter({required this.onHeight, required super.child});
+
+  final ValueChanged<double> onHeight;
+
+  @override
+  RenderObject createRenderObject(BuildContext context) =>
+      _RenderHeightReporter(onHeight);
+
+  @override
+  void updateRenderObject(
+    BuildContext context,
+    _RenderHeightReporter renderObject,
+  ) => renderObject.onHeight = onHeight;
+}
+
+class _RenderHeightReporter extends RenderProxyBox {
+  _RenderHeightReporter(this.onHeight);
+
+  ValueChanged<double> onHeight;
+  double? _reported;
+
+  @override
+  void performLayout() {
+    super.performLayout();
+    final h = size.height;
+    if (h == _reported) return;
+    _reported = h;
+    SchedulerBinding.instance.addPostFrameCallback((_) => onHeight(h));
+  }
+}
+
+/// Right-hand queue panel. Laid out at full width and revealed by
+/// animating its clip, so rows never reflow while it opens.
+class _SidePanel extends StatelessWidget {
+  const _SidePanel({required this.open});
+
+  static const double _width = 360;
+
+  final bool open;
+
+  @override
+  Widget build(BuildContext context) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween(end: open ? 1 : 0),
+      duration: NoirEffects.of(context).motion(NoirMotion.layout),
+      curve: NoirMotion.emphasized,
+      child: const GlassSurface(
+        borderRadius: BorderRadius.zero,
+        highlight: 0.4,
+        child: QueuePanel(),
+      ),
+      builder: (context, t, panel) => t == 0
+          ? const SizedBox.shrink()
+          : SizedBox(
+              width: _width * t,
+              child: ClipRect(
+                child: OverflowBox(
+                  alignment: Alignment.centerLeft,
+                  minWidth: _width,
+                  maxWidth: _width,
+                  child: panel,
+                ),
+              ),
+            ),
+    );
+  }
+}
+
 class _CompactLayout extends StatelessWidget {
   const _CompactLayout({required this.shell});
 
@@ -142,7 +241,14 @@ class _CompactLayout extends StatelessWidget {
               ),
             ),
           ),
-        Expanded(child: SafeArea(bottom: false, child: shell)),
+        // The bottom inset belongs to the navigation bar below.
+        Expanded(
+          child: MediaQuery.removePadding(
+            context: context,
+            removeBottom: true,
+            child: SafeArea(bottom: false, child: shell),
+          ),
+        ),
         const MobileMiniPlayer(),
         BottomNav(shell: shell),
       ],
@@ -287,6 +393,7 @@ class AccountAvatar extends StatelessWidget {
         child: InkResponse(
           onTap: onTap,
           radius: size / 2 + 4,
+          hoverDuration: NoirEffects.of(context).motion(NoirMotion.fast),
           child: Container(
             width: size,
             height: size,

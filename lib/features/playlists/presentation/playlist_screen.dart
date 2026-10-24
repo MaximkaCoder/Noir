@@ -4,10 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:noir/app/theme/app_theme.dart';
-import 'package:noir/app/theme/design_tokens.dart';
 import 'package:noir/core/formatters.dart';
 import 'package:noir/core/widgets/artwork.dart';
 import 'package:noir/core/widgets/dialogs.dart';
+import 'package:noir/core/widgets/menus.dart';
 import 'package:noir/core/widgets/states.dart';
 import 'package:noir/features/home/application/pinned_playlists.dart';
 import 'package:noir/features/home/presentation/pin_button.dart';
@@ -63,12 +63,9 @@ class PlaylistScreen extends ConsumerWidget {
                 : () => unawaited(playback.shuffleTracks(tracks)),
             actions: [
               PinButton(PinnedRef(PinKind.local, '${p.id}')),
-              PopupMenuButton<String>(
+              NoirMenuButton<String>(
                 tooltip: 'More',
-                icon: Icon(
-                  Icons.more_horiz_rounded,
-                  color: context.noir.textSecondary,
-                ),
+                icon: Icons.more_horiz_rounded,
                 onSelected: (v) async {
                   switch (v) {
                     case 'queue':
@@ -97,14 +94,23 @@ class PlaylistScreen extends ConsumerWidget {
                       }
                   }
                 },
-                itemBuilder: (_) => [
+                items: () => [
                   if (tracks.isNotEmpty)
-                    const PopupMenuItem(
-                      value: 'queue',
-                      child: Text('Add to queue'),
+                    const NoirMenuItem(
+                      'queue',
+                      'Add to queue',
+                      icon: Icons.queue_music_rounded,
                     ),
-                  const PopupMenuItem(value: 'rename', child: Text('Rename…')),
-                  const PopupMenuItem(value: 'delete', child: Text('Delete…')),
+                  const NoirMenuItem(
+                    'rename',
+                    'Rename…',
+                    icon: Icons.edit_outlined,
+                  ),
+                  const NoirMenuItem(
+                    'delete',
+                    'Delete…',
+                    icon: Icons.delete_outline_rounded,
+                  ),
                 ],
               ),
             ],
