@@ -3,9 +3,11 @@ import 'dart:io';
 import 'dart:math';
 import 'dart:ui';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:noir/app/theme/design_tokens.dart';
 import 'package:noir/app/theme/glass_theme.dart';
 import 'package:noir/core/platform/window_controls.dart';
@@ -14,6 +16,10 @@ import 'package:noir/core/widgets/buttons.dart';
 import 'package:noir/core/widgets/noir_backdrop.dart';
 import 'package:noir/core/widgets/smooth_scroll.dart';
 import 'package:noir/core/widgets/states.dart';
+import 'package:noir/features/artwork/application/artwork_providers.dart';
+import 'package:noir/features/artwork/domain/art_urls.dart';
+import 'package:noir/features/discover/presentation/ytm_artist_screen.dart';
+import 'package:noir/features/library/application/library_providers.dart';
 import 'package:noir/features/lyrics/application/lyrics_providers.dart';
 import 'package:noir/features/lyrics/presentation/lyrics_view.dart';
 import 'package:noir/features/playback/application/playback_controller.dart';
@@ -24,6 +30,7 @@ import 'package:noir/features/queue/presentation/queue_panel.dart';
 import 'package:noir/features/settings/presentation/settings_controller.dart';
 import 'package:noir/features/youtube/presentation/save_button.dart';
 import 'package:noir/features/youtube/presentation/youtube_cover.dart';
+import 'package:noir/integrations/youtube_music/ytm_models.dart';
 import 'package:noir/shared/models/media.dart';
 import 'package:noir/shared/models/playback.dart';
 
@@ -261,6 +268,13 @@ class _TopBar extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final track = state.current?.track;
+    final links = track?.source == MediaSource.youtube
+        ? ref.watch(ytmTrackLinksProvider(track!.uri))
+        : null;
+    final artists = track == null
+        ? const <_Destination>[]
+        : _artistsOf(track, links);
+    final album = track == null ? null : _albumOf(track, links);
     return WindowDragArea(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
@@ -274,7 +288,7 @@ class _TopBar extends ConsumerWidget {
               onPressed: onClose,
             ),
             const Spacer(),
-            if (track != null && track.localId != null)
+            if (track != null)
               PopupMenuButton<String>(
                 tooltip: 'More',
                 icon: Icon(
@@ -288,13 +302,37 @@ class _TopBar extends ConsumerWidget {
                   if (v == 'queue' && context.mounted) {
                     await showQueueSheet(context, ref);
                   }
+                  if (v == 'album' && context.mounted) {
+                    await album?.open(context, ref);
+                  }
+                  if (v.startsWith('artist ') && context.mounted) {
+                    await artists[int.parse(v.substring(7))].open(context, ref);
+                  }
                 },
-                itemBuilder: (_) => const [
-                  PopupMenuItem(
-                    value: 'playlist',
-                    child: Text('Add to playlist…'),
+                itemBuilder: (_) => [
+                  if (track.localId != null)
+                    const PopupMenuItem(
+                      value: 'playlist',
+                      child: Text('Add to playlist…'),
+                    ),
+                  const PopupMenuItem(
+                    value: 'queue',
+                    child: Text('Show queue'),
                   ),
-                  PopupMenuItem(value: 'queue', child: Text('Show queue')),
+                  for (final (i, a) in artists.indexed)
+                    PopupMenuItem(
+                      value: 'artist $i',
+                      child: Text(
+                        artists.length == 1
+                            ? 'Go to artist'
+                            : 'Go to ${a.label}',
+                      ),
+                    ),
+                  if (album != null)
+                    const PopupMenuItem(
+                      value: 'album',
+                      child: Text('Go to album'),
+                    ),
                 ],
               ),
             if (usesCustomWindowChrome) ...[
@@ -415,7 +453,7 @@ class _WideLyricsLayout extends ConsumerWidget {
             children: [
               SizedBox(width: column, child: side),
               const SizedBox(width: 56),
-              Expanded(child: LyricsView(track: track)),
+              Expanded(child: _Lyrics(track: track)),
             ],
           ),
         ),
@@ -454,7 +492,7 @@ class _NarrowLayout extends ConsumerWidget {
           if (lyrics)
             SizedBox(
               height: (box.maxHeight * 0.5).clamp(220.0, 560.0),
-              child: LyricsView(track: state.current!.track, compact: true),
+              child: _Lyrics(track: state.current!.track, compact: true),
             )
           else
             _LargeArtwork(state: state, size: art),
@@ -548,14 +586,7 @@ class _LargeArtwork extends StatelessWidget {
               color: Colors.white.withValues(alpha: dark ? 0.12 : 0.4),
             ),
           ),
-          child: track.source == MediaSource.youtube
-              ? YouTubeCover(videoId: track.uri, size: size)
-              : Artwork(
-                  path: track.artwork,
-                  size: size,
-                  radius: NoirRadii.xl,
-                  semanticLabel: 'Artwork for ${track.album ?? track.title}',
-                ),
+          child: _CoverSwitcher(track: track, size: size),
         ),
       ),
     );
@@ -576,10 +607,8 @@ class _TrackInfo extends ConsumerWidget {
     final failed =
         state.status == PlaybackStatus.error ||
         state.status == PlaybackStatus.unavailable;
-    return Column(
-      crossAxisAlignment: large
-          ? CrossAxisAlignment.start
-          : CrossAxisAlignment.stretch,
+    final details = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
         Row(
@@ -610,20 +639,26 @@ class _TrackInfo extends ConsumerWidget {
           ],
         ),
         const SizedBox(height: 6),
-        Text(
-          track.artistOrUnknown,
+        _ArtistLine(
+          track: track,
           style: t.titleMedium?.copyWith(
             color: c.textSecondary,
             fontWeight: FontWeight.w400,
           ),
         ),
-        if (track.album != null) ...[
-          const SizedBox(height: 4),
-          Text(
-            track.album!,
-            style: t.bodyLarge?.copyWith(color: c.textTertiary),
-          ),
-        ],
+        _AlbumLine(
+          track: track,
+          style: t.bodyLarge?.copyWith(color: c.textTertiary),
+        ),
+      ],
+    );
+    return Column(
+      crossAxisAlignment: large
+          ? CrossAxisAlignment.start
+          : CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _TrackChange(trackId: track.id, child: details),
         if (failed) ...[
           const SizedBox(height: 12),
           Text(
@@ -668,6 +703,439 @@ class _YouTubePlayerTile extends ConsumerWidget {
               : VideoSlot(size: size),
         );
       },
+    );
+  }
+}
+
+// ------------------------------------------------------- track changes --
+
+/// Cross-fades [child] when [trackId] changes: the new details rise a few
+/// pixels into place while the old ones fade out above them. The height
+/// follows smoothly, so nothing below jumps.
+class _TrackChange extends StatelessWidget {
+  const _TrackChange({required this.trackId, required this.child});
+
+  final String trackId;
+  final Widget child;
+
+  static const _rise = 7.0;
+
+  @override
+  Widget build(BuildContext context) {
+    final duration = NoirEffects.of(context).motion(NoirMotion.slow);
+    final key = ValueKey(trackId);
+    return AnimatedSize(
+      duration: duration,
+      curve: NoirMotion.standard,
+      alignment: Alignment.topCenter,
+      child: AnimatedSwitcher(
+        duration: duration,
+        switchInCurve: NoirMotion.standard,
+        switchOutCurve: NoirMotion.exit,
+        layoutBuilder: (current, previous) => Stack(
+          alignment: Alignment.topLeft,
+          children: [...previous, ?current],
+        ),
+        transitionBuilder: (child, animation) {
+          final incoming = child.key == key;
+          return FadeTransition(
+            opacity: animation,
+            child: AnimatedBuilder(
+              animation: animation,
+              child: child,
+              builder: (context, child) {
+                final away = 1 - animation.value;
+                return Transform.translate(
+                  offset: Offset(0, incoming ? away * _rise : -away * _rise),
+                  child: child,
+                );
+              },
+            ),
+          );
+        },
+        child: KeyedSubtree(key: key, child: child),
+      ),
+    );
+  }
+}
+
+/// The cover, cross-fading (with a slight zoom) to the next track's once
+/// that one is decoded, so the fade never passes through an empty frame.
+/// Keyed by track only: a YouTube cover keeps its own thumbnail → album
+/// art fade inside.
+class _CoverSwitcher extends ConsumerStatefulWidget {
+  const _CoverSwitcher({required this.track, required this.size});
+
+  final Track track;
+  final double size;
+
+  @override
+  ConsumerState<_CoverSwitcher> createState() => _CoverSwitcherState();
+}
+
+class _CoverSwitcherState extends ConsumerState<_CoverSwitcher> {
+  late Track _shown = widget.track;
+
+  /// The track whose cover is being decoded before it is shown.
+  String? _pending;
+
+  /// Longest wait for a cover before switching anyway (slow network).
+  static const _maxWait = Duration(seconds: 2);
+
+  @override
+  void didUpdateWidget(_CoverSwitcher old) {
+    super.didUpdateWidget(old);
+    final next = widget.track;
+    if (next.id == _shown.id) {
+      // Same song (e.g. favorite toggled), or back before the other loaded.
+      _shown = next;
+      _pending = null;
+      return;
+    }
+    if (next.id == _pending) return;
+    final image = _imageFor(next);
+    if (image == null) {
+      _shown = next;
+      _pending = null;
+      return;
+    }
+    _pending = next.id;
+    unawaited(
+      precacheImage(
+        image,
+        context,
+        onError: (_, _) {},
+      ).timeout(_maxWait, onTimeout: () {}).then((_) {
+        if (!mounted || _pending != next.id) return;
+        setState(() {
+          _shown = widget.track.id == next.id ? widget.track : next;
+          _pending = null;
+        });
+      }),
+    );
+  }
+
+  /// The image the cover of [track] will paint, requested exactly as
+  /// [Artwork] and [YouTubeCover] request it, so once it is precached the
+  /// new cover's first frame is complete. Null when there is nothing to
+  /// wait for.
+  ImageProvider? _imageFor(Track track) {
+    final size = widget.size;
+    final dpr = MediaQuery.devicePixelRatioOf(context);
+    final px = size * dpr;
+    if (track.source == MediaSource.youtube) {
+      return _youTubeImage(track.uri, size, dpr);
+    }
+    final source = track.artwork;
+    if (source == null) return null;
+    if (youtubeThumbnailVideoId(source) case final videoId?) {
+      return _youTubeImage(videoId, size, dpr);
+    }
+    if (isRemoteImage(source)) {
+      return isGoogleArt(source)
+          ? ResizeImage(
+              NetworkImage(resizeGoogleArt(source, px)),
+              width: artBucket(px),
+            )
+          : NetworkImage(source);
+    }
+    return ResizeImage(FileImage(File(source)), width: px.ceil());
+  }
+
+  ImageProvider _youTubeImage(String videoId, double size, double dpr) {
+    final px = size * dpr;
+    final art = ref.read(artworkResolverProvider).peek(videoId);
+    if (art?.squareUrl(px) case final url?) {
+      return ResizeImage(NetworkImage(url), width: artBucket(px));
+    }
+    final frame = youtubeFrame(px);
+    final width = frame.width * (size / frame.square);
+    return ResizeImage(
+      NetworkImage(youtubeFrameUrl(videoId, frame)),
+      width: min(frame.width, (width * dpr).ceil()),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final track = _shown;
+    final size = widget.size;
+    final key = ValueKey(track.id);
+    return AnimatedSwitcher(
+      duration: NoirEffects.of(context).motion(NoirMotion.slow),
+      switchInCurve: NoirMotion.standard,
+      layoutBuilder: (current, previous) =>
+          Stack(alignment: Alignment.center, children: [...previous, ?current]),
+      // The old cover stays opaque underneath until the new one covers it.
+      transitionBuilder: (child, animation) => child.key == key
+          ? FadeTransition(
+              opacity: animation,
+              child: ScaleTransition(
+                scale: Tween<double>(begin: 0.96, end: 1).animate(animation),
+                child: child,
+              ),
+            )
+          : child,
+      child: KeyedSubtree(
+        key: key,
+        child: track.source == MediaSource.youtube
+            ? YouTubeCover(videoId: track.uri, size: size)
+            : Artwork(
+                path: track.artwork,
+                size: size,
+                radius: NoirRadii.xl,
+                semanticLabel: 'Artwork for ${track.album ?? track.title}',
+              ),
+      ),
+    );
+  }
+}
+
+/// Lyrics, cross-fading as a whole between songs (the view itself only
+/// fades between its loading and loaded states).
+class _Lyrics extends StatelessWidget {
+  const _Lyrics({required this.track, this.compact = false});
+
+  final Track track;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedSwitcher(
+      duration: NoirEffects.of(context).motion(NoirMotion.slow),
+      layoutBuilder: (current, previous) =>
+          Stack(fit: StackFit.expand, children: [...previous, ?current]),
+      child: LyricsView(
+        key: ValueKey(track.id),
+        track: track,
+        compact: compact,
+      ),
+    );
+  }
+}
+
+// --------------------------------------------------------------- links --
+
+/// A page the playing track's artist or album name leads to.
+typedef _Destination = ({
+  String label,
+  Future<void> Function(BuildContext context, WidgetRef ref) open,
+});
+
+/// Closes Now Playing, then shows [location] in the shell beneath it.
+void _leaveFor(BuildContext context, String location, {Object? extra}) {
+  final router = GoRouter.of(context);
+  Navigator.of(context).pop();
+  router.go(location, extra: extra);
+}
+
+/// Artist pages for [track]: the local artist, or each YouTube Music artist
+/// once [links] are known.
+List<_Destination> _artistsOf(Track track, YtmTrackLinks? links) {
+  if (track.source == MediaSource.youtube) {
+    return [
+      for (final a in links?.artists ?? const <YtmLink>[])
+        (
+          label: a.name,
+          open: (context, ref) async => _leaveFor(
+            context,
+            '${ytmBranchBase(context)}/artist/'
+            '${Uri.encodeComponent(a.browseId)}',
+          ),
+        ),
+    ];
+  }
+  final artist = track.artist;
+  if (artist == null) return const [];
+  return [
+    (
+      label: artist,
+      open: (context, ref) async =>
+          _leaveFor(context, '/library/artist', extra: artist),
+    ),
+  ];
+}
+
+/// The album page for [track]: the local album, or the YouTube Music album
+/// once [links] are known.
+_Destination? _albumOf(Track track, YtmTrackLinks? links) {
+  if (track.source == MediaSource.youtube) {
+    final album = links?.album;
+    if (album == null) return null;
+    return (
+      label: track.album ?? album.name,
+      open: (context, ref) async => _leaveFor(
+        context,
+        '${ytmBranchBase(context)}/album/'
+        '${Uri.encodeComponent(album.browseId)}',
+      ),
+    );
+  }
+  final title = track.album;
+  if (title == null) return null;
+  return (
+    label: title,
+    open: (context, ref) async {
+      // The library groups albums by album artist, which a track does not
+      // carry: take the library's own entry when there is one.
+      final albums = await ref.read(albumsProvider.future);
+      if (!context.mounted) return;
+      final album =
+          albums
+              .where((a) => a.title == title && a.artist == track.artist)
+              .firstOrNull ??
+          albums.where((a) => a.title == title).firstOrNull ??
+          Album(
+            title: title,
+            artist: track.artistOrUnknown,
+            trackCount: 0,
+            artworkPath: track.artworkPath,
+          );
+      _leaveFor(context, '/library/album', extra: album);
+    },
+  );
+}
+
+/// The artist name(s); each one opens its artist page once known.
+class _ArtistLine extends ConsumerWidget {
+  const _ArtistLine({required this.track, required this.style});
+
+  final Track track;
+  final TextStyle? style;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final links = track.source == MediaSource.youtube
+        ? ref.watch(ytmTrackLinksProvider(track.uri))
+        : null;
+    final artists = _artistsOf(track, links);
+    if (artists.isEmpty) return Text(track.artistOrUnknown, style: style);
+    VoidCallback go(_Destination d) =>
+        () => unawaited(d.open(context, ref));
+
+    // Link the names where they stand in the byline ("A feat. B"), else
+    // list them: "A", "A & B", "A, B & C".
+    final text = track.artist ?? '';
+    final pieces = <_Piece>[];
+    var at = 0;
+    for (final a in artists) {
+      final i = text.indexOf(a.label, at);
+      if (i < 0) {
+        pieces.clear();
+        break;
+      }
+      if (i > at) pieces.add((text: text.substring(at, i), onTap: null));
+      pieces.add((text: a.label, onTap: go(a)));
+      at = i + a.label.length;
+    }
+    if (pieces.isEmpty) {
+      for (final (i, a) in artists.indexed) {
+        if (i > 0) {
+          pieces.add((
+            text: i == artists.length - 1 ? ' & ' : ', ',
+            onTap: null,
+          ));
+        }
+        pieces.add((text: a.label, onTap: go(a)));
+      }
+    } else if (at < text.length) {
+      pieces.add((text: text.substring(at), onTap: null));
+    }
+    return _LinkedText(pieces, style: style);
+  }
+}
+
+/// The album name, opening the album page once known; nothing when the
+/// track names no album.
+class _AlbumLine extends ConsumerWidget {
+  const _AlbumLine({required this.track, required this.style});
+
+  final Track track;
+  final TextStyle? style;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final links = track.source == MediaSource.youtube
+        ? ref.watch(ytmTrackLinksProvider(track.uri))
+        : null;
+    final album = _albumOf(track, links);
+    final text = album?.label ?? track.album;
+    if (text == null) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: _LinkedText([
+        (
+          text: text,
+          onTap: album == null
+              ? null
+              : () => unawaited(album.open(context, ref)),
+        ),
+      ], style: style),
+    );
+  }
+}
+
+typedef _Piece = ({String text, VoidCallback? onTap});
+
+/// Text whose tappable pieces show a pointer and an underline on hover.
+class _LinkedText extends StatefulWidget {
+  const _LinkedText(this.pieces, {required this.style});
+
+  final List<_Piece> pieces;
+  final TextStyle? style;
+
+  @override
+  State<_LinkedText> createState() => _LinkedTextState();
+}
+
+class _LinkedTextState extends State<_LinkedText> {
+  final _recognizers = <int, TapGestureRecognizer>{};
+  int? _hovered;
+
+  @override
+  void didUpdateWidget(_LinkedText old) {
+    super.didUpdateWidget(old);
+    _recognizers.removeWhere((i, r) {
+      final gone = i >= widget.pieces.length || widget.pieces[i].onTap == null;
+      if (gone) r.dispose();
+      return gone;
+    });
+    if (!_recognizers.containsKey(_hovered)) _hovered = null;
+  }
+
+  @override
+  void dispose() {
+    for (final r in _recognizers.values) {
+      r.dispose();
+    }
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Text.rich(
+      TextSpan(
+        children: [
+          for (final (i, piece) in widget.pieces.indexed)
+            if (piece.onTap case final onTap?)
+              TextSpan(
+                text: piece.text,
+                recognizer: (_recognizers[i] ??= TapGestureRecognizer())
+                  ..onTap = onTap,
+                mouseCursor: SystemMouseCursors.click,
+                onEnter: (_) => setState(() => _hovered = i),
+                onExit: (_) {
+                  if (_hovered == i) setState(() => _hovered = null);
+                },
+                style: _hovered == i
+                    ? const TextStyle(decoration: TextDecoration.underline)
+                    : null,
+              )
+            else
+              TextSpan(text: piece.text),
+        ],
+      ),
+      style: widget.style,
     );
   }
 }

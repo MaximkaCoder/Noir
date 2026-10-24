@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:ui' show lerpDouble;
 
 import 'package:flutter/material.dart' hide RepeatMode;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:noir/app/theme/app_theme.dart';
 import 'package:noir/app/theme/design_tokens.dart';
+import 'package:noir/app/theme/glass_theme.dart';
 import 'package:noir/core/formatters.dart';
 import 'package:noir/core/widgets/buttons.dart';
 import 'package:noir/features/playback/application/playback_controller.dart';
@@ -110,9 +112,48 @@ class ProgressSlider extends ConsumerStatefulWidget {
   ConsumerState<ProgressSlider> createState() => _ProgressSliderState();
 }
 
-class _ProgressSliderState extends ConsumerState<ProgressSlider> {
+class _ProgressSliderState extends ConsumerState<ProgressSlider>
+    with SingleTickerProviderStateMixin {
   double? _dragMs;
   bool _hovered = false;
+
+  /// Glides the thumb and times back to the start when another queue item
+  /// starts, instead of jumping; then they follow the position again.
+  late final AnimationController _rewind = AnimationController(
+    vsync: this,
+    value: 1,
+  )..addListener(() => setState(() {}));
+  double _rewindFromMs = 0;
+
+  /// The position last drawn.
+  double _shownMs = 0;
+
+  static const _rewindTime = Duration(milliseconds: 300);
+
+  @override
+  void initState() {
+    super.initState();
+    ref.listenManual(playbackProvider.select((s) => s.current?.uid), (
+      previous,
+      next,
+    ) {
+      if (previous == null || next == null || previous == next) return;
+      final duration = NoirEffects.of(context).motion(_rewindTime);
+      if (duration == Duration.zero || _shownMs == 0 || _dragMs != null) {
+        return;
+      }
+      _rewindFromMs = _shownMs;
+      _rewind
+        ..duration = duration
+        ..forward(from: 0);
+    });
+  }
+
+  @override
+  void dispose() {
+    _rewind.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -130,10 +171,17 @@ class _ProgressSliderState extends ConsumerState<ProgressSlider> {
         Duration.zero;
 
     final maxMs = duration.inMilliseconds.toDouble();
-    final valueMs = (_dragMs ?? position.inMilliseconds.toDouble()).clamp(
-      0.0,
-      maxMs > 0 ? maxMs : 0.0,
-    );
+    final liveMs = _dragMs ?? position.inMilliseconds.toDouble();
+    final valueMs =
+        (_rewind.isAnimating
+                ? lerpDouble(
+                    _rewindFromMs,
+                    liveMs,
+                    NoirMotion.standard.transform(_rewind.value),
+                  )!
+                : liveMs)
+            .clamp(0.0, maxMs > 0 ? maxMs : 0.0);
+    _shownMs = valueMs;
     final t = Theme.of(context).textTheme.labelSmall?.copyWith(
       fontFeatures: tabularFigures,
       color: context.noir.textSecondary,
@@ -160,7 +208,11 @@ class _ProgressSliderState extends ConsumerState<ProgressSlider> {
           value: valueMs,
           max: maxMs > 0 ? maxMs : 1,
           onChanged: canSeek && maxMs > 0
-              ? (v) => setState(() => _dragMs = v)
+              ? (v) => setState(() {
+                  // Seeking is never animated.
+                  _rewind.value = 1;
+                  _dragMs = v;
+                })
               : null,
           onChangeEnd: canSeek && maxMs > 0
               ? (v) {

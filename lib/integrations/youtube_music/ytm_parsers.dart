@@ -176,6 +176,71 @@ YtmCollection parseCollection(Map<String, Object?> json, {required String id}) {
   );
 }
 
+/// `browse` of an artist channel (`UC…`): header, top songs and the
+/// carousels below them (albums, singles, videos, related artists, …).
+YtmArtist parseArtist(Map<String, Object?> json, {required String id}) {
+  final header = renderer(json['header'])?.$2;
+  final sectionList = findMap(json['contents'], 'sectionListRenderer');
+  if (header == null && sectionList == null) {
+    throw const FormatException('artist: no header or sections');
+  }
+  final name = textOf(header?['title']) ?? '';
+  var topSongs = const <Track>[];
+  String? songsPlaylistId;
+  String? about;
+  final shelves = <YtmShelf>[];
+  for (final section in navList(sectionList, ['contents'])) {
+    final (kind, body) = renderer(section) ?? ('', const <String, Object?>{});
+    switch (kind) {
+      case 'musicShelfRenderer' when topSongs.isEmpty:
+        topSongs = _collectionTracks(
+          navList(body, ['contents']),
+          fallbackArtist: name.isEmpty ? null : name,
+        );
+        final all =
+            navString(nav(body, ['title', 'runs', 0, 'navigationEndpoint']), [
+              'browseEndpoint',
+              'browseId',
+            ]) ??
+            navString(body, ['bottomEndpoint', 'browseEndpoint', 'browseId']);
+        if (all != null && all.startsWith('VL')) {
+          songsPlaylistId = all.substring(2);
+        }
+      case 'musicDescriptionShelfRenderer':
+        about ??= textOf(body['description']);
+      default:
+        final shelf = _shelf(section);
+        if (shelf != null) shelves.add(shelf);
+    }
+  }
+  final subscribe = navMap(header, [
+    'subscriptionButton',
+    'subscribeButtonRenderer',
+  ]);
+  final count = textOf(subscribe?['subscriberCountText']);
+  final banner = header?['thumbnail'];
+  return YtmArtist(
+    browseId: id,
+    name: name,
+    // The immersive header only has a wide banner; a square crop of it
+    // (googleusercontent `-p`) serves as the avatar.
+    thumbnailUrl:
+        bestThumbnail(findKey(header?['foregroundThumbnail'], 'thumbnails')) ??
+        bestThumbnail(findKey(banner, 'thumbnails')),
+    bannerUrl: header?['foregroundThumbnail'] == null
+        ? _largestThumbnail(findKey(banner, 'thumbnails'))
+        : null,
+    subscribers:
+        textOf(subscribe?['longSubscriberCountText']) ??
+        (count == null ? null : '$count subscribers'),
+    audience: textOf(header?['monthlyListenerCount']),
+    description: textOf(header?['description']) ?? about,
+    topSongs: topSongs,
+    songsPlaylistId: songsPlaylistId,
+    shelves: shelves,
+  );
+}
+
 /// `browse` continuation of a long playlist.
 YtmTrackPage parsePlaylistContinuation(Map<String, Object?> json) {
   var items = const <Object?>[];
@@ -253,6 +318,17 @@ YtmItem? parseItem(Object? json) {
 /// Square artwork when YouTube Music has it (`*.googleusercontent.com`,
 /// resized to 544 px), otherwise the largest video thumbnail.
 String? bestThumbnail(Object? thumbnails) {
+  final best = _largestThumbnail(thumbnails);
+  if (best == null) return null;
+  final host = Uri.tryParse(best)?.host ?? '';
+  if (host.endsWith('googleusercontent.com') || host.endsWith('ggpht.com')) {
+    return _resizeGoogleImage(best);
+  }
+  return best;
+}
+
+/// URL of the widest thumbnail, unchanged.
+String? _largestThumbnail(Object? thumbnails) {
   final list = thumbnails is Map
       ? navList(thumbnails, ['thumbnails'])
       : navList(thumbnails);
@@ -271,12 +347,7 @@ String? bestThumbnail(Object? thumbnails) {
     }
   }
   if (best == null) return null;
-  if (best.startsWith('//')) best = 'https:$best';
-  final host = Uri.tryParse(best)?.host ?? '';
-  if (host.endsWith('googleusercontent.com') || host.endsWith('ggpht.com')) {
-    return _resizeGoogleImage(best);
-  }
-  return best;
+  return best.startsWith('//') ? 'https:$best' : best;
 }
 
 /// `3:21` / `1:02:03` → Duration.
