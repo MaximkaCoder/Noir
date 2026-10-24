@@ -23,6 +23,7 @@ import 'package:noir/features/playlists/presentation/add_to_playlist.dart';
 import 'package:noir/features/queue/presentation/queue_panel.dart';
 import 'package:noir/features/settings/presentation/settings_controller.dart';
 import 'package:noir/features/youtube/application/youtube_providers.dart';
+import 'package:noir/features/youtube/presentation/save_button.dart';
 import 'package:noir/features/youtube/presentation/youtube_cover.dart';
 import 'package:noir/shared/models/media.dart';
 import 'package:noir/shared/models/playback.dart';
@@ -606,6 +607,8 @@ class _TrackInfo extends ConsumerWidget {
                   ref.read(playbackProvider.notifier).toggleFavorite(track),
                 ),
               ),
+            if (track.source == MediaSource.youtube)
+              YouTubeSaveButton(track, size: 22),
           ],
         ),
         const SizedBox(height: 6),
