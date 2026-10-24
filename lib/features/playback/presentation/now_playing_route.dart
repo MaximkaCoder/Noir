@@ -9,9 +9,9 @@ import 'package:noir/app/theme/glass_theme.dart';
 /// page grows out of the island's capsule — rect and corners morphing to
 /// the full window — and shrinks back into it on close, whichever way it
 /// closes (chevron, Esc, swipe, back button). The island fades out early as
-/// a glass surface takes its place, and Now Playing fades and scales in
-/// over it. Without an island on screen (phones, nothing playing) the page
-/// fades and scales up from the bottom center instead.
+/// the page's own artwork backdrop takes its place, and Now Playing's
+/// content fades in over it. Without an island on screen (phones, nothing
+/// playing) the page fades and rises from below instead.
 abstract final class NowPlayingTransition {
   static const openDuration = Duration(milliseconds: 500);
   static const closeDuration = Duration(milliseconds: 400);
@@ -25,6 +25,21 @@ abstract final class NowPlayingTransition {
   /// How far Now Playing covers the island: 0 closed, 1 open. The island
   /// hides behind it as this rises.
   static final ValueNotifier<double> coverage = ValueNotifier(0);
+
+  /// The morph's easing over the route [animation], both ways.
+  static CurvedAnimation curve(Animation<double> animation) => CurvedAnimation(
+    parent: animation,
+    curve: NoirMotion.emphasized,
+    reverseCurve: NoirMotion.emphasized.flipped,
+  );
+
+  /// How visible Now Playing's content (everything over its backdrop) is at
+  /// the morph's eased progress [t]: it fades in once the shape has grown a
+  /// little, and out again early on close. Without an island the whole page
+  /// fades instead, so the content is fully shown.
+  static double contentOpacity(double t) => anchorRect == null
+      ? 1
+      : const Interval(0.2, 0.75).transform(t.clamp(0.0, 1.0));
 
   /// Registers the island: [rect] gives its on-screen capsule, or null
   /// while it is hidden.
@@ -114,11 +129,7 @@ class _MorphState extends State<_Morph> {
   }
 
   void _listen() {
-    _curve = CurvedAnimation(
-      parent: widget.animation,
-      curve: NoirMotion.emphasized,
-      reverseCurve: NoirMotion.emphasized.flipped,
-    );
+    _curve = NowPlayingTransition.curve(widget.animation);
     widget.animation
       ..addListener(_sync)
       ..addStatusListener(_status);
@@ -143,9 +154,6 @@ class _MorphState extends State<_Morph> {
 
   @override
   Widget build(BuildContext context) {
-    final fx = NoirEffects.of(context);
-    final c = context.noir;
-    final dark = Theme.of(context).brightness == Brightness.dark;
     return AnimatedBuilder(
       animation: _curve,
       child: widget.child,
@@ -156,71 +164,43 @@ class _MorphState extends State<_Morph> {
         final from = NowPlayingTransition.anchorRect;
         final done = t >= 1;
 
-        final RRect shape;
-        final double surface;
-        final double content;
-        final double scale;
-        final Alignment origin;
         if (from == null) {
-          // No island: a subtle fade and scale from the bottom center.
-          shape = RRect.fromRectAndRadius(full, Radius.zero);
-          surface = 0;
-          content = const Interval(0, 0.7).transform(t);
-          scale = lerpDouble(0.94, 1, t)!;
-          origin = Alignment.bottomCenter;
-        } else {
-          shape = RRect.fromRectAndRadius(
-            Rect.lerp(from, full, t)!,
-            Radius.circular(lerpDouble(from.shortestSide / 2, 0, t)!),
-          );
-          // Glass takes the island's place while the island fades out…
-          surface = const Interval(0, 0.3).transform(t);
-          // …then Now Playing fades and scales in over it.
-          content = const Interval(0.2, 0.75).transform(t);
-          scale = lerpDouble(0.9, 1, t)!;
-          origin = Alignment(
-            from.center.dx / size.width * 2 - 1,
-            from.center.dy / size.height * 2 - 1,
+          // No island: a subtle fade and rise from below. The layer stays
+          // window-sized, so it costs one reused offscreen.
+          return ClipRRect(
+            key: NowPlayingTransition.clipKey,
+            clipper: NowPlayingClipper(
+              RRect.fromRectAndRadius(full, Radius.zero),
+            ),
+            clipBehavior: Clip.none,
+            child: Opacity(
+              opacity: const Interval(0, 0.7).transform(t),
+              child: Transform.translate(
+                offset: Offset(0, (1 - t) * size.height * 0.04),
+                child: child,
+              ),
+            ),
           );
         }
 
-        final fill = !fx.glass
-            ? c.surfaceSolid
-            : Color.alphaBlend(
-                c.glassFill,
-                (dark ? Colors.black : Colors.white).withValues(alpha: 0.35),
-              );
-        final sigma = fx.glass ? lerpDouble(4, 24, t)! : 0.0;
+        // The page itself is the shape's material: its opaque artwork
+        // backdrop grows out of the capsule while the island fades out,
+        // and its content fades in over that backdrop
+        // ([NowPlayingTransition.contentOpacity]). The page is never
+        // scaled, blurred or faded as a whole: a scale that changes every
+        // frame made the raster thread re-render the whole page each frame
+        // (offscreen textures reallocated per frame, frames of 50–190 ms
+        // with Impeller on Windows), and a full-window backdrop blur and
+        // opacity layer only added to it.
+        final shape = RRect.fromRectAndRadius(
+          Rect.lerp(from, full, t)!,
+          Radius.circular(lerpDouble(from.shortestSide / 2, 0, t)!),
+        );
         return ClipRRect(
           key: NowPlayingTransition.clipKey,
           clipper: NowPlayingClipper(shape),
           clipBehavior: done ? Clip.none : Clip.antiAlias,
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              // The surface the shape is made of; gone once open, so the
-              // page does not keep a full-window blur alive.
-              IgnorePointer(
-                child: BackdropFilter(
-                  enabled: !done && surface > 0 && sigma > 0,
-                  filter: ImageFilter.blur(sigmaX: sigma, sigmaY: sigma),
-                  child: ColoredBox(
-                    color: done
-                        ? Colors.transparent
-                        : fill.withValues(alpha: fill.a * surface),
-                  ),
-                ),
-              ),
-              Opacity(
-                opacity: content,
-                child: Transform.scale(
-                  scale: scale,
-                  alignment: origin,
-                  child: child,
-                ),
-              ),
-            ],
-          ),
+          child: child,
         );
       },
     );

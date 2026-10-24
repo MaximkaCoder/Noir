@@ -9,8 +9,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:noir/app/app.dart';
 import 'package:noir/app/router.dart';
 import 'package:noir/core/database/database_provider.dart';
+import 'package:noir/core/platform/window_controls.dart';
 import 'package:noir/core/widgets/artwork.dart';
 import 'package:noir/core/widgets/glass_surface.dart';
+import 'package:noir/core/widgets/liquid_press.dart';
 import 'package:noir/features/accounts/domain/account_connection.dart';
 import 'package:noir/features/artwork/application/artwork_providers.dart';
 import 'package:noir/features/artwork/application/artwork_resolver.dart';
@@ -21,9 +23,12 @@ import 'package:noir/features/library/application/library_scan_controller.dart';
 import 'package:noir/features/library/data/library_repository.dart';
 import 'package:noir/features/library/presentation/collection_screens.dart';
 import 'package:noir/features/lyrics/application/lyrics_providers.dart';
+import 'package:noir/features/lyrics/presentation/karaoke_lyrics.dart';
+import 'package:noir/features/lyrics/presentation/lyrics_view.dart';
 import 'package:noir/features/playback/application/playback_controller.dart';
 import 'package:noir/features/playback/presentation/now_playing_screen.dart';
 import 'package:noir/features/playback/presentation/playback_controls.dart';
+import 'package:noir/features/settings/data/settings_repository.dart';
 import 'package:noir/features/settings/domain/app_settings.dart';
 import 'package:noir/features/settings/presentation/settings_controller.dart';
 import 'package:noir/integrations/youtube_music/ytm_models.dart';
@@ -211,10 +216,11 @@ void main() {
       app.engine.tick(const Duration(seconds: 6));
       await tester.pumpAndSettle();
       expect(colorOf(tester, 'Second line').a, 1);
-      expect(colorOf(tester, 'First line').a, lessThan(1));
+      // Sung lines recede further than the ones to come.
+      expect(colorOf(tester, 'Third line').a, lessThan(1));
       expect(
-        colorOf(tester, 'Third line').a,
-        lessThan(colorOf(tester, 'First line').a),
+        colorOf(tester, 'First line').a,
+        lessThan(colorOf(tester, 'Third line').a),
       );
 
       await tester.tap(find.text('Third line'));
@@ -244,6 +250,27 @@ void main() {
       );
     });
 
+    testWidgets('lines are large on wide windows', (tester) async {
+      await pumpNowPlaying(tester);
+      await tester.tap(find.byTooltip('Show lyrics'));
+      await tester.pumpAndSettle();
+      final size = tester
+          .widget<AnimatedDefaultTextStyle>(
+            find
+                .ancestor(
+                  of: find.text('First line'),
+                  matching: find.byType(AnimatedDefaultTextStyle),
+                )
+                .first,
+          )
+          .style
+          .fontSize!;
+      expect(size, inInclusiveRange(32, 40));
+      // The lyrics column takes over half the window.
+      final column = tester.getRect(find.byKey(NowPlayingScreen.lyricsKey));
+      expect(column.width, greaterThan(1360 * 0.5));
+    });
+
     testWidgets('says when there are none', (tester) async {
       await pumpNowPlaying(
         tester,
@@ -271,6 +298,273 @@ void main() {
       await tester.tap(find.text('Retry'));
       await tester.pumpAndSettle();
       expect(find.text('Instrumental'), findsOneWidget);
+    });
+  });
+
+  group('lyrics toggle', () {
+    testWidgets('the player glides aside instead of swapping layouts', (
+      tester,
+    ) async {
+      await pumpNowPlaying(tester);
+      final cover = find.byKey(NowPlayingScreen.coverKey);
+      final before = tester.getRect(cover);
+
+      await tester.tap(find.byTooltip('Show lyrics'));
+      await tester.pump();
+      await tester.pump(NowPlayingScreen.lyricsDuration ~/ 2);
+      final mid = tester.getRect(cover);
+      // The same cover, part way: no second layout tree.
+      expect(cover, findsOneWidget);
+      expect(find.byKey(NowPlayingScreen.lyricsKey), findsOneWidget);
+
+      await tester.pumpAndSettle();
+      final after = tester.getRect(cover);
+      expect(after.width, lessThan(before.width));
+      expect(mid.width, inExclusiveRange(after.width, before.width));
+      expect(
+        mid.left,
+        inExclusiveRange(
+          before.left < after.left ? before.left : after.left,
+          before.left < after.left ? after.left : before.left,
+        ),
+      );
+
+      // And back.
+      await tester.tap(find.byTooltip('Hide lyrics'));
+      await tester.pump();
+      await tester.pump(NowPlayingScreen.lyricsDuration ~/ 2);
+      expect(
+        tester.getRect(cover).width,
+        inExclusiveRange(after.width, before.width),
+      );
+      await tester.pumpAndSettle();
+      expect(tester.getRect(cover), before);
+      expect(find.byKey(NowPlayingScreen.lyricsKey), findsNothing);
+    });
+
+    testWidgets('narrow windows cross-fade the cover and the lyrics', (
+      tester,
+    ) async {
+      await pumpNowPlaying(tester, size: const Size(600, 900));
+      await tester.tap(find.byTooltip('Show lyrics'));
+      await tester.pump();
+      await tester.pump(NowPlayingScreen.lyricsDuration ~/ 2);
+      expect(find.byKey(NowPlayingScreen.coverKey), findsOneWidget);
+      expect(find.byKey(NowPlayingScreen.lyricsKey), findsOneWidget);
+      await tester.pumpAndSettle();
+      expect(find.byKey(NowPlayingScreen.coverKey), findsNothing);
+    });
+
+    testWidgets('with animations off it switches at once', (tester) async {
+      final app = await pumpNowPlaying(tester);
+      app.container
+          .read(settingsProvider.notifier)
+          .update((s) => s.copyWith(animations: false));
+      await tester.pumpAndSettle();
+      final cover = find.byKey(NowPlayingScreen.coverKey);
+      final before = tester.getRect(cover);
+      await tester.tap(find.byTooltip('Show lyrics'));
+      await tester.pump();
+      await tester.pump();
+      final shown = tester.getRect(cover);
+      expect(shown.width, lessThan(before.width));
+      await tester.pumpAndSettle();
+      expect(tester.getRect(cover), shown);
+    });
+  });
+
+  group('karaoke', () {
+    Future<({ProviderContainer container, FakeEngine engine, FakeHttp http})>
+    pumpKaraoke(WidgetTester tester, {String? lyrics}) async {
+      final app = await pumpNowPlaying(
+        tester,
+        lrclib: lyrics == null
+            ? null
+            : (_) => ok({
+                'trackName': 'Ash & Ember',
+                'artistName': 'Mara Vale',
+                'duration': 180,
+                'instrumental': false,
+                'plainLyrics': lyrics,
+              }),
+      );
+      // Paused: while playing, the fill animates every frame.
+      await app.container.read(playbackProvider.notifier).pause();
+      await tester.tap(find.byTooltip('Show lyrics'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Karaoke'));
+      await tester.pumpAndSettle();
+      return app;
+    }
+
+    testWidgets('the fill moves between position ticks while playing', (
+      tester,
+    ) async {
+      final app = await pumpKaraoke(tester);
+      app.engine.tick(const Duration(milliseconds: 5600));
+      await tester.pump();
+      await app.container.read(playbackProvider.notifier).resume();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 150));
+      final line = tester.widget<KaraokeLine>(find.byType(KaraokeLine));
+      expect(
+        line.position.value,
+        greaterThan(const Duration(milliseconds: 5700)),
+      );
+      await app.container.read(playbackProvider.notifier).pause();
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('shows the current line filling up and the next below', (
+      tester,
+    ) async {
+      final app = await pumpKaraoke(tester);
+      app.engine.tick(const Duration(milliseconds: 5600));
+      await tester.pumpAndSettle();
+
+      final line = tester.widget<KaraokeLine>(find.byType(KaraokeLine));
+      expect(line.text, 'Second line');
+      final lit = line.litFractionAt(line.position.value);
+      expect(lit, inExclusiveRange(0, 1));
+      // The next line waits below, the previous one above.
+      final next = tester.getRect(find.text('Third line'));
+      final current = tester.getRect(find.byType(KaraokeLine));
+      expect(next.top, greaterThan(current.bottom));
+      expect(find.text('First line'), findsOneWidget);
+
+      // Later in the line, more of it is lit.
+      app.engine.tick(const Duration(milliseconds: 6200));
+      await tester.pump();
+      final later = tester.widget<KaraokeLine>(find.byType(KaraokeLine));
+      expect(later.litFractionAt(later.position.value), greaterThan(lit));
+
+      // Then the next line takes over.
+      app.engine.tick(const Duration(milliseconds: 9500));
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<KaraokeLine>(find.byType(KaraokeLine)).text,
+        'Third line',
+      );
+    });
+
+    testWidgets('the choice is remembered', (tester) async {
+      final app = await pumpKaraoke(tester);
+      expect(
+        app.container.read(settingsProvider).lyricsMode,
+        LyricsMode.karaoke,
+      );
+      final saved = await tester.runAsync(
+        () => app.container.read(settingsRepositoryProvider).loadSettings(),
+      );
+      expect(saved!.lyricsMode, LyricsMode.karaoke);
+
+      await tester.tap(find.text('Lines'));
+      await tester.pumpAndSettle();
+      expect(app.container.read(settingsProvider).lyricsMode, LyricsMode.lines);
+      expect(find.byType(KaraokeLine), findsNothing);
+      expect(find.byType(SyncedLyricsList), findsOneWidget);
+    });
+
+    testWidgets('unsynced lyrics fall back to text with a hint', (
+      tester,
+    ) async {
+      await pumpKaraoke(tester, lyrics: 'Just words\nNo times');
+      expect(find.byType(KaraokeLine), findsNothing);
+      expect(find.textContaining('Just words'), findsOneWidget);
+      expect(
+        find.textContaining('Not time-synced, so no karaoke'),
+        findsOneWidget,
+      );
+    });
+  });
+
+  group('press feedback', () {
+    testWidgets('transport and secondary controls answer with LiquidPress', (
+      tester,
+    ) async {
+      await pumpNowPlaying(tester);
+      for (final tooltip in ['Next', 'Previous', 'Queue', 'Show lyrics']) {
+        expect(
+          find.ancestor(
+            of: _inPlayer(find.byTooltip(tooltip)).first,
+            matching: find.byType(LiquidPress),
+          ),
+          findsWidgets,
+          reason: tooltip,
+        );
+      }
+      expect(
+        find.descendant(
+          of: find.ancestor(
+            of: _inPlayer(find.byTooltip('Pause')).evaluate().isEmpty
+                ? _inPlayer(find.byTooltip('Play'))
+                : _inPlayer(find.byTooltip('Pause')),
+            matching: find.byType(LiquidPress),
+          ),
+          matching: find.byKey(LiquidPress.contentKey),
+        ),
+        findsWidgets,
+      );
+    });
+  });
+
+  group('window dots', () {
+    Color idleColor(WidgetTester tester, Finder controls) =>
+        (tester
+                    .widget<AnimatedContainer>(
+                      find
+                          .descendant(
+                            of: controls,
+                            matching: find.byKey(WindowControls.dotKey),
+                          )
+                          .first,
+                    )
+                    .decoration!
+                as BoxDecoration)
+            .color!;
+
+    testWidgets('over artwork they stand out from a dark backdrop', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData.dark(),
+          home: const Column(
+            children: [
+              WindowControls(key: ValueKey('plain')),
+              WindowControls(key: ValueKey('image'), onImage: true),
+            ],
+          ),
+        ),
+      );
+      final plain = idleColor(tester, find.byKey(const ValueKey('plain')));
+      final image = idleColor(tester, find.byKey(const ValueKey('image')));
+      expect(
+        image.computeLuminance(),
+        greaterThan(plain.computeLuminance() + 0.2),
+      );
+      final rim =
+          (tester
+                      .widget<AnimatedContainer>(
+                        find
+                            .descendant(
+                              of: find.byKey(const ValueKey('image')),
+                              matching: find.byKey(WindowControls.dotKey),
+                            )
+                            .first,
+                      )
+                      .decoration!
+                  as BoxDecoration)
+              .border;
+      expect(rim, isNotNull);
+    });
+
+    testWidgets('Now Playing uses the contrasting dots', (tester) async {
+      await pumpNowPlaying(tester);
+      final controls = tester.widget<WindowControls>(
+        _inPlayer(find.byType(WindowControls)),
+      );
+      expect(controls.onImage, isTrue);
     });
   });
 

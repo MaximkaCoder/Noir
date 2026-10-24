@@ -18,6 +18,15 @@ enum PlayBehavior {
   playSingle,
 }
 
+/// How Now Playing shows time-synced lyrics.
+enum LyricsMode {
+  /// The whole song as a list, the current line highlighted.
+  lines,
+
+  /// The current line large, filling word by word, with the next below.
+  karaoke,
+}
+
 @freezed
 abstract class AppSettings with _$AppSettings {
   const factory AppSettings({
@@ -37,6 +46,9 @@ abstract class AppSettings with _$AppSettings {
     @Default(true) bool resumeSession,
     @Default(PlayBehavior.playContext) PlayBehavior playBehavior,
     @Default(false) bool sidebarCollapsed,
+    @JsonKey(unknownEnumValue: LyricsMode.lines)
+    @Default(LyricsMode.lines)
+    LyricsMode lyricsMode,
 
     /// Experimental, off by default: plays YouTube without a visible player
     /// and keeps playing when the window is hidden. This breaks YouTube API

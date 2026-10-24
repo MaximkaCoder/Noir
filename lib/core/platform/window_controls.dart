@@ -16,7 +16,16 @@ bool get reservesWindowControlsSpace => Platform.isMacOS;
 /// docs/design/README.md). Colored while the window is focused, grey
 /// otherwise; symbols appear on hover; each dot has a tooltip.
 class WindowControls extends StatefulWidget {
-  const WindowControls({super.key});
+  const WindowControls({this.onImage = false, super.key});
+
+  /// Over artwork or another busy backdrop (Now Playing): the idle dots
+  /// become translucent light dots with a dark hairline and a soft shadow
+  /// in dark themes (dark-ish dots with a light rim in light themes), so
+  /// they stand out from whatever is behind them.
+  final bool onImage;
+
+  /// Each dot, for tests.
+  static const dotKey = ValueKey('window-controls-dot');
 
   @override
   State<WindowControls> createState() => _WindowControlsState();
@@ -72,6 +81,7 @@ class _WindowControlsState extends State<WindowControls> with WindowListener {
         _Dot(
           color: const Color(0xFFFEBC2E),
           focused: _focused,
+          onImage: widget.onImage,
           glyph: Icons.remove_rounded,
           tooltip: 'Minimize',
           onPressed: windowManager.minimize,
@@ -79,6 +89,7 @@ class _WindowControlsState extends State<WindowControls> with WindowListener {
         _Dot(
           color: const Color(0xFF28C840),
           focused: _focused,
+          onImage: widget.onImage,
           glyph: _maximized
               ? Icons.close_fullscreen_rounded
               : Icons.open_in_full_rounded,
@@ -90,6 +101,7 @@ class _WindowControlsState extends State<WindowControls> with WindowListener {
         _Dot(
           color: const Color(0xFFFF5F57),
           focused: _focused,
+          onImage: widget.onImage,
           glyph: Icons.close_rounded,
           tooltip: 'Close',
           onPressed: windowManager.close,
@@ -105,12 +117,16 @@ class _Dot extends StatefulWidget {
   const _Dot({
     required this.color,
     required this.focused,
+    required this.onImage,
     required this.glyph,
     required this.tooltip,
     required this.onPressed,
   });
 
   final Color color;
+
+  /// See [WindowControls.onImage].
+  final bool onImage;
 
   /// Whether the window is focused; unfocused windows dim the dots further.
   final bool focused;
@@ -131,9 +147,20 @@ class _DotState extends State<_Dot> {
   @override
   Widget build(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
-    final idle = dark
-        ? Color(widget.focused ? 0xFF3D3D3D : 0xFF2C2C2C)
-        : Color(widget.focused ? 0xFFC9C9C9 : 0xFFDDDDDD);
+    final Color idle;
+    Color? rim;
+    if (widget.onImage) {
+      idle = dark
+          ? Colors.white.withValues(alpha: widget.focused ? 0.62 : 0.4)
+          : Colors.black.withValues(alpha: widget.focused ? 0.42 : 0.26);
+      rim = dark
+          ? Colors.black.withValues(alpha: 0.4)
+          : Colors.white.withValues(alpha: 0.6);
+    } else {
+      idle = dark
+          ? Color(widget.focused ? 0xFF3D3D3D : 0xFF2C2C2C)
+          : Color(widget.focused ? 0xFFC9C9C9 : 0xFFDDDDDD);
+    }
     final duration = NoirEffects.of(context)
         .motion(const Duration(milliseconds: 180));
     return Tooltip(
@@ -160,6 +187,7 @@ class _DotState extends State<_Dot> {
                 height: 24,
                 child: Center(
                   child: AnimatedContainer(
+                    key: WindowControls.dotKey,
                     duration: duration,
                     curve: Curves.easeOut,
                     width: 12,
@@ -167,12 +195,22 @@ class _DotState extends State<_Dot> {
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       color: _lit ? widget.color : idle,
+                      border: rim == null
+                          ? null
+                          : Border.all(
+                              color: _lit ? Colors.transparent : rim,
+                              width: 0.5,
+                            ),
                       boxShadow: [
                         BoxShadow(
-                          color: widget.color.withValues(
-                            alpha: _lit ? 0.45 : 0,
-                          ),
-                          blurRadius: 8,
+                          color: _lit
+                              ? widget.color.withValues(alpha: 0.45)
+                              : widget.onImage
+                              ? Colors.black.withValues(
+                                  alpha: dark ? 0.35 : 0.12,
+                                )
+                              : widget.color.withValues(alpha: 0),
+                          blurRadius: _lit ? 8 : 4,
                         ),
                       ],
                     ),

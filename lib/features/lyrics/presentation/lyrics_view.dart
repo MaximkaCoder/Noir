@@ -6,16 +6,22 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:noir/app/theme/design_tokens.dart';
 import 'package:noir/app/theme/glass_theme.dart';
+import 'package:noir/core/widgets/buttons.dart';
+import 'package:noir/core/widgets/liquid_press.dart';
 import 'package:noir/core/widgets/smooth_scroll.dart';
 import 'package:noir/core/widgets/states.dart';
 import 'package:noir/features/lyrics/application/lyrics_providers.dart';
 import 'package:noir/features/lyrics/domain/lrc.dart';
 import 'package:noir/features/lyrics/domain/lyrics.dart';
+import 'package:noir/features/lyrics/presentation/karaoke_lyrics.dart';
 import 'package:noir/features/playback/application/playback_controller.dart';
+import 'package:noir/features/settings/domain/app_settings.dart';
+import 'package:noir/features/settings/presentation/settings_controller.dart';
 import 'package:noir/shared/models/media.dart';
 
-/// Lyrics for [track]: time-synced lines that follow playback, plain text,
-/// or a calm state explaining why there are none.
+/// Lyrics for [track]: time-synced lines that follow playback (as a list,
+/// or karaoke — see [LyricsMode]), plain text, or a calm state explaining
+/// why there are none.
 class LyricsView extends ConsumerWidget {
   const LyricsView({required this.track, this.compact = false, super.key});
 
@@ -28,6 +34,7 @@ class LyricsView extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final request = LyricsRequest.fromTrack(track);
     final lyrics = ref.watch(lyricsProvider(request));
+    final mode = ref.watch(settingsProvider.select((s) => s.lyricsMode));
     final fx = NoirEffects.of(context);
 
     final child = lyrics.when(
@@ -65,13 +72,30 @@ class LyricsView extends ConsumerWidget {
         PlainLyrics(:final text, :final source) => _Attributed(
           key: const ValueKey('plain'),
           source: source,
-          note: 'Not time-synced',
+          note: mode == LyricsMode.karaoke
+              ? 'Not time-synced, so no karaoke'
+              : 'Not time-synced',
           child: _PlainLyrics(text: text, compact: compact),
         ),
         SyncedLyrics(:final lines, :final source) => _Attributed(
           key: ValueKey(request),
           source: source,
-          child: SyncedLyricsList(lines: lines, compact: compact),
+          child: AnimatedSwitcher(
+            duration: fx.motion(NoirMotion.medium),
+            layoutBuilder: (current, previous) =>
+                Stack(fit: StackFit.expand, children: [...previous, ?current]),
+            child: mode == LyricsMode.karaoke
+                ? KaraokeLyrics(
+                    key: const ValueKey(LyricsMode.karaoke),
+                    lines: lines,
+                    compact: compact,
+                  )
+                : SyncedLyricsList(
+                    key: const ValueKey(LyricsMode.lines),
+                    lines: lines,
+                    compact: compact,
+                  ),
+          ),
         ),
       },
     );
@@ -104,7 +128,17 @@ class _Attributed extends StatelessWidget {
         Expanded(child: child),
         Padding(
           padding: const EdgeInsets.only(top: NoirSpacing.sm),
-          child: Text([?note, 'Lyrics from $source'].join(' · '), style: t),
+          // The toggle moves under the attribution when they don't fit.
+          child: Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: NoirSpacing.sm,
+            runSpacing: NoirSpacing.xs,
+            children: [
+              Text([?note, 'Lyrics from $source'].join(' · '), style: t),
+              const FittedBox(fit: BoxFit.scaleDown, child: LyricsModeToggle()),
+            ],
+          ),
         ),
       ],
     );
@@ -128,13 +162,49 @@ Widget _edgeFade(Widget child) => ShaderMask(
   child: child,
 );
 
-TextStyle? _lineStyle(BuildContext context, {required bool compact}) =>
-    Theme.of(context).textTheme.headlineSmall?.copyWith(
-      fontSize: compact ? 22 : 28,
-      fontWeight: FontWeight.w700,
-      height: 1.3,
-      letterSpacing: -0.3,
+/// Lines · Karaoke, remembered in the settings.
+class LyricsModeToggle extends ConsumerWidget {
+  const LyricsModeToggle({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final mode = ref.watch(settingsProvider.select((s) => s.lyricsMode));
+    Widget option(LyricsMode value, String label, String tooltip) => Tooltip(
+      message: tooltip,
+      child: LiquidPress(
+        pressedScale: 0.94,
+        bubbleScale: 1.06,
+        child: PillChip(
+          label: label,
+          selected: mode == value,
+          onSelected: () => ref
+              .read(settingsProvider.notifier)
+              .update((s) => s.copyWith(lyricsMode: value)),
+        ),
+      ),
     );
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        option(LyricsMode.lines, 'Lines', 'Show every line'),
+        option(
+          LyricsMode.karaoke,
+          'Karaoke',
+          'Light up the words as they are sung',
+        ),
+      ],
+    );
+  }
+}
+
+/// Lyric type size for an area of [box]: large and bold, following the
+/// window, within readable bounds.
+double lyricsFontSize(BoxConstraints box, {required bool compact}) {
+  final byWidth = box.maxWidth * 0.046;
+  final byHeight = box.maxHeight * 0.055;
+  final fit = byWidth < byHeight ? byWidth : byHeight;
+  return compact ? fit.clamp(20.0, 30.0) : fit.clamp(26.0, 40.0);
+}
 
 class _PlainLyrics extends StatelessWidget {
   const _PlainLyrics({required this.text, required this.compact});
@@ -144,10 +214,10 @@ class _PlainLyrics extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final style = _lineStyle(context, compact: compact)?.copyWith(
-      fontSize: compact ? 18 : 22,
+    final style = lyricLineStyle(context, compact ? 18 : 24).copyWith(
       color: context.noir.textPrimary.withValues(alpha: 0.8),
-      height: 1.55,
+      height: 1.5,
+      fontWeight: FontWeight.w600,
     );
     return ScrollConfiguration(
       behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
@@ -289,55 +359,59 @@ class _SyncedLyricsListState extends ConsumerState<SyncedLyricsList> {
     final canSeek = ref.watch(
       playbackProvider.select((s) => s.capabilities.canSeek),
     );
-    final base = _lineStyle(context, compact: widget.compact);
     _scroll.smooth = fx.animations;
 
     return LayoutBuilder(
-      builder: (context, box) => Listener(
-        // Wheel and trackpad scrolling don't send drag notifications.
-        onPointerSignal: (e) {
-          if (e is PointerScrollEvent) _pauseFollow();
-        },
-        onPointerPanZoomStart: (_) => _pauseFollow(),
-        child: NotificationListener<ScrollStartNotification>(
-          onNotification: (n) {
-            if (n.dragDetails != null) _pauseFollow();
-            return false;
+      builder: (context, box) {
+        final size = lyricsFontSize(box, compact: widget.compact);
+        final base = lyricLineStyle(context, size);
+        return Listener(
+          // Wheel and trackpad scrolling don't send drag notifications.
+          onPointerSignal: (e) {
+            if (e is PointerScrollEvent) _pauseFollow();
           },
-          child: ScrollConfiguration(
-            behavior: ScrollConfiguration.of(context)
-                .copyWith(scrollbars: false),
-            child: _edgeFade(
-              SingleChildScrollView(
-                controller: _scroll,
-                padding: EdgeInsets.only(
-                  top: box.maxHeight * SyncedLyricsList.anchor,
-                  bottom: box.maxHeight * 0.55,
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    for (final (i, line) in widget.lines.indexed)
-                      _Line(
-                        key: _keys[i],
-                        text: line.text,
-                        state: i == _active
-                            ? _LineState.active
-                            : i < _active
-                            ? _LineState.past
-                            : _LineState.future,
-                        style: base,
-                        color: c.textPrimary,
-                        duration: fx.motion(NoirMotion.slow),
-                        onTap: canSeek ? () => _seekTo(i) : null,
-                      ),
-                  ],
+          onPointerPanZoomStart: (_) => _pauseFollow(),
+          child: NotificationListener<ScrollStartNotification>(
+            onNotification: (n) {
+              if (n.dragDetails != null) _pauseFollow();
+              return false;
+            },
+            child: ScrollConfiguration(
+              behavior: ScrollConfiguration.of(context)
+                  .copyWith(scrollbars: false),
+              child: _edgeFade(
+                SingleChildScrollView(
+                  controller: _scroll,
+                  padding: EdgeInsets.only(
+                    top: box.maxHeight * SyncedLyricsList.anchor,
+                    bottom: box.maxHeight * 0.55,
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      for (final (i, line) in widget.lines.indexed)
+                        _Line(
+                          key: _keys[i],
+                          text: line.text,
+                          state: i == _active
+                              ? _LineState.active
+                              : i < _active
+                              ? _LineState.past
+                              : _LineState.future,
+                          style: base,
+                          color: c.textPrimary,
+                          gap: size * 0.3,
+                          duration: fx.motion(NoirMotion.slow),
+                          onTap: canSeek ? () => _seekTo(i) : null,
+                        ),
+                    ],
+                  ),
                 ),
               ),
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }
@@ -350,6 +424,7 @@ class _Line extends StatelessWidget {
     required this.state,
     required this.style,
     required this.color,
+    required this.gap,
     required this.duration,
     required this.onTap,
     super.key,
@@ -357,18 +432,22 @@ class _Line extends StatelessWidget {
 
   final String text;
   final _LineState state;
-  final TextStyle? style;
+  final TextStyle style;
   final Color color;
+
+  /// Space above and below the line.
+  final double gap;
   final Duration duration;
   final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     final active = state == _LineState.active;
+    // Sung lines recede further than the ones still to come.
     final alpha = switch (state) {
       _LineState.active => 1.0,
-      _LineState.past => 0.42,
-      _LineState.future => 0.26,
+      _LineState.past => 0.35,
+      _LineState.future => 0.55,
     };
     return Semantics(
       selected: active,
@@ -378,21 +457,19 @@ class _Line extends StatelessWidget {
         borderRadius: NoirRadii.mdAll,
         hoverColor: context.noir.hover,
         child: Padding(
-          padding: const EdgeInsets.symmetric(
+          padding: EdgeInsets.symmetric(
             horizontal: NoirSpacing.sm,
-            vertical: NoirSpacing.sm,
+            vertical: gap,
           ),
           child: AnimatedScale(
-            scale: active ? 1 : 0.94,
+            scale: active ? 1 : 0.97,
             alignment: Alignment.centerLeft,
             duration: duration,
             curve: NoirMotion.standard,
             child: AnimatedDefaultTextStyle(
               duration: duration,
               curve: NoirMotion.standard,
-              style: (style ?? const TextStyle()).copyWith(
-                color: color.withValues(alpha: alpha),
-              ),
+              style: style.copyWith(color: color.withValues(alpha: alpha)),
               child: Text(text.isEmpty ? '♪' : text),
             ),
           ),
