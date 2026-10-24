@@ -1,0 +1,331 @@
+{
+ "onResponseReceivedActions": [
+  {
+   "appendContinuationItemsAction": {
+    "continuationItems": [
+     {
+      "musicResponsiveListItemRenderer": {
+       "thumbnail": {
+        "musicThumbnailRenderer": {
+         "thumbnail": {
+          "thumbnails": [
+           {
+            "url": "https://i.ytimg.com/vi/qxZInIyOBXk/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3m7gIP3fowG6syt9IfMACJ_vEL2mA",
+            "width": 400,
+            "height": 225
+           }
+          ]
+         },
+         "thumbnailCrop": "MUSIC_THUMBNAIL_CROP_UNSPECIFIED",
+         "thumbnailScale": "MUSIC_THUMBNAIL_SCALE_ASPECT_FIT"
+        }
+       },
+       "flexColumns": [
+        {
+         "musicResponsiveListItemFlexColumnRenderer": {
+          "text": {
+           "runs": [
+            {
+             "text": "We Belong (Official Music Video)",
+             "navigationEndpoint": {
+              "watchEndpoint": {
+               "videoId": "qxZInIyOBXk",
+               "playlistId": "PLwNv9Hhd8gZjNoQdpd2kBa3fwXNeJjzDX",
+               "watchEndpointMusicSupportedConfigs": {
+                "watchEndpointMusicConfig": {
+                 "musicVideoType": "MUSIC_VIDEO_TYPE_OMV"
+                }
+               }
+              }
+             }
+            }
+           ]
+          },
+          "displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_HIGH"
+         }
+        },
+        {
+         "musicResponsiveListItemFlexColumnRenderer": {
+          "text": {
+           "runs": [
+            {
+             "text": "Pat Benatar",
+             "navigationEndpoint": {
+              "browseEndpoint": {
+               "browseId": "UC2kQ55vxVaZqFPmefRlX5yg",
+               "browseEndpointContextSupportedConfigs": {
+                "browseEndpointContextMusicConfig": {
+                 "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                }
+               }
+              }
+             }
+            }
+           ]
+          },
+          "displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_HIGH"
+         }
+        },
+        {
+         "musicResponsiveListItemFlexColumnRenderer": {
+          "text": {},
+          "displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_MEDIUM"
+         }
+        }
+       ],
+       "fixedColumns": [
+        {
+         "musicResponsiveListItemFixedColumnRenderer": {
+          "text": {
+           "runs": [
+            {
+             "text": "3:38"
+            }
+           ]
+          },
+          "displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_HIGH",
+          "size": "MUSIC_RESPONSIVE_LIST_ITEM_FIXED_COLUMN_SIZE_SMALL"
+         }
+        }
+       ],
+       "playlistItemData": {
+        "playlistSetVideoId": "A77DC64DD3A127E7",
+        "videoId": "qxZInIyOBXk",
+        "voteSortValue": 1529558660
+       },
+       "multiSelectCheckbox": {
+        "checkboxRenderer": {
+         "onSelectionChangeCommand": {
+          "updateMultiSelectStateCommand": {
+           "multiSelectParams": "CAISIlBMd052OUhoZDhnWmpOb1FkcGQya0JhM2Z3WE5lSmp6RFg=",
+           "multiSelectItem": "Ch8KC3F4WkluSXlPQlhrEhBBNzdEQzY0REQzQTEyN0U3"
+          }
+         },
+         "checkedState": "CHECKBOX_CHECKED_STATE_UNCHECKED"
+        }
+       }
+      }
+     },
+     {
+      "musicResponsiveListItemRenderer": {
+       "thumbnail": {
+        "musicThumbnailRenderer": {
+         "thumbnail": {
+          "thumbnails": [
+           {
+            "url": "https://i.ytimg.com/vi/ZwAERaRUsp0/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3kVQnDLx5bsUQ8rkymLlAVU1S4jMg",
+            "width": 400,
+            "height": 225
+           }
+          ]
+         },
+         "thumbnailCrop": "MUSIC_THUMBNAIL_CROP_UNSPECIFIED",
+         "thumbnailScale": "MUSIC_THUMBNAIL_SCALE_ASPECT_FIT"
+        }
+       },
+       "flexColumns": [
+        {
+         "musicResponsiveListItemFlexColumnRenderer": {
+          "text": {
+           "runs": [
+            {
+             "text": "Strangers In The Night",
+             "navigationEndpoint": {
+              "watchEndpoint": {
+               "videoId": "ZwAERaRUsp0",
+               "playlistId": "PLwNv9Hhd8gZjNoQdpd2kBa3fwXNeJjzDX",
+               "watchEndpointMusicSupportedConfigs": {
+                "watchEndpointMusicConfig": {
+                 "musicVideoType": "MUSIC_VIDEO_TYPE_OMV"
+                }
+               }
+              }
+             }
+            }
+           ]
+          },
+          "displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_HIGH"
+         }
+        },
+        {
+         "musicResponsiveListItemFlexColumnRenderer": {
+          "text": {
+           "runs": [
+            {
+             "text": "Frank Sinatra",
+             "navigationEndpoint": {
+              "browseEndpoint": {
+               "browseId": "UC1zsfp3OD8qWQ0HfLbz2TXg",
+               "browseEndpointContextSupportedConfigs": {
+                "browseEndpointContextMusicConfig": {
+                 "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                }
+               }
+              }
+             }
+            }
+           ]
+          },
+          "displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_HIGH"
+         }
+        },
+        {
+         "musicResponsiveListItemFlexColumnRenderer": {
+          "text": {},
+          "displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_MEDIUM"
+         }
+        }
+       ],
+       "fixedColumns": [
+        {
+         "musicResponsiveListItemFixedColumnRenderer": {
+          "text": {
+           "runs": [
+            {
+             "text": "2:09"
+            }
+           ]
+          },
+          "displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_HIGH",
+          "size": "MUSIC_RESPONSIVE_LIST_ITEM_FIXED_COLUMN_SIZE_SMALL"
+         }
+        }
+       ],
+       "playlistItemData": {
+        "playlistSetVideoId": "7D8732C14E16E900",
+        "videoId": "ZwAERaRUsp0",
+        "voteSortValue": 1529558671
+       },
+       "multiSelectCheckbox": {
+        "checkboxRenderer": {
+         "onSelectionChangeCommand": {
+          "updateMultiSelectStateCommand": {
+           "multiSelectParams": "CAISIlBMd052OUhoZDhnWmpOb1FkcGQya0JhM2Z3WE5lSmp6RFg=",
+           "multiSelectItem": "Ch8KC1p3QUVSYVJVc3AwEhA3RDg3MzJDMTRFMTZFOTAw"
+          }
+         },
+         "checkedState": "CHECKBOX_CHECKED_STATE_UNCHECKED"
+        }
+       }
+      }
+     },
+     {
+      "musicResponsiveListItemRenderer": {
+       "thumbnail": {
+        "musicThumbnailRenderer": {
+         "thumbnail": {
+          "thumbnails": [
+           {
+            "url": "https://i.ytimg.com/vi/2sAHiR0rkJg/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3khwGKQ2JCfCaEfMR0aTVmt4V8Juw",
+            "width": 400,
+            "height": 225
+           }
+          ]
+         },
+         "thumbnailCrop": "MUSIC_THUMBNAIL_CROP_UNSPECIFIED",
+         "thumbnailScale": "MUSIC_THUMBNAIL_SCALE_ASPECT_FIT"
+        }
+       },
+       "flexColumns": [
+        {
+         "musicResponsiveListItemFlexColumnRenderer": {
+          "text": {
+           "runs": [
+            {
+             "text": "Why Do Fools Fall In Love-Frankie Lymon+The Teenagers-1956",
+             "navigationEndpoint": {
+              "watchEndpoint": {
+               "videoId": "2sAHiR0rkJg",
+               "playlistId": "PLwNv9Hhd8gZjNoQdpd2kBa3fwXNeJjzDX",
+               "watchEndpointMusicSupportedConfigs": {
+                "watchEndpointMusicConfig": {
+                 "musicVideoType": "MUSIC_VIDEO_TYPE_UGC"
+                }
+               }
+              }
+             }
+            }
+           ]
+          },
+          "displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_HIGH"
+         }
+        },
+        {
+         "musicResponsiveListItemFlexColumnRenderer": {
+          "text": {
+           "runs": [
+            {
+             "text": "AK47bandit",
+             "navigationEndpoint": {
+              "browseEndpoint": {
+               "browseId": "UCPvtIAnAekrNoe6WBqzs-rg",
+               "browseEndpointContextSupportedConfigs": {
+                "browseEndpointContextMusicConfig": {
+                 "pageType": "MUSIC_PAGE_TYPE_USER_CHANNEL"
+                }
+               }
+              }
+             }
+            }
+           ]
+          },
+          "displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_HIGH"
+         }
+        },
+        {
+         "musicResponsiveListItemFlexColumnRenderer": {
+          "text": {},
+          "displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_MEDIUM"
+         }
+        }
+       ],
+       "fixedColumns": [
+        {
+         "musicResponsiveListItemFixedColumnRenderer": {
+          "text": {
+           "runs": [
+            {
+             "text": "2:31"
+            }
+           ]
+          },
+          "displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_HIGH",
+          "size": "MUSIC_RESPONSIVE_LIST_ITEM_FIXED_COLUMN_SIZE_SMALL"
+         }
+        }
+       ],
+       "playlistItemData": {
+        "playlistSetVideoId": "86216799D0BBA849",
+        "videoId": "2sAHiR0rkJg",
+        "voteSortValue": 1529558677
+       },
+       "multiSelectCheckbox": {
+        "checkboxRenderer": {
+         "onSelectionChangeCommand": {
+          "updateMultiSelectStateCommand": {
+           "multiSelectParams": "CAISIlBMd052OUhoZDhnWmpOb1FkcGQya0JhM2Z3WE5lSmp6RFg=",
+           "multiSelectItem": "Ch8KCzJzQUhpUjBya0pnEhA4NjIxNjc5OUQwQkJBODQ5"
+          }
+         },
+         "checkedState": "CHECKBOX_CHECKED_STATE_UNCHECKED"
+        }
+       }
+      }
+     },
+     {
+      "continuationItemRenderer": {
+       "trigger": "CONTINUATION_TRIGGER_ON_ITEM_PRESCAN_VISIBLE",
+       "continuationEndpoint": {
+        "continuationCommand": {
+         "token": "TEST_CONTINUATION_1",
+         "request": "CONTINUATION_REQUEST_TYPE_BROWSE"
+        }
+       }
+      }
+     }
+    ],
+    "targetId": "PLwNv9Hhd8gZjNoQdpd2kBa3fwXNeJjzDX"
+   }
+  }
+ ]
+}
