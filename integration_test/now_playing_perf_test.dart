@@ -2,6 +2,7 @@
 //
 //   flutter test integration_test/now_playing_perf_test.dart -d windows \
 //     --profile [--dart-define=NOIR_TRACE_DIR=<folder for timeline JSON>]
+//     [--dart-define=NOIR_SHOT_DIR=<folder for screenshots>]
 //
 // Opens and closes Now Playing several times (lyrics off, then on) and
 // prints worst / 90th percentile build and raster times per phase. Debug
@@ -12,6 +13,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -37,6 +39,9 @@ import '../test/helpers/fake_innertube_client.dart';
 import '../test/helpers/test_database.dart';
 
 const _traceDir = String.fromEnvironment('NOIR_TRACE_DIR');
+const _shotDir = String.fromEnvironment('NOIR_SHOT_DIR');
+
+final GlobalKey<State<StatefulWidget>> _shotKey = GlobalKey();
 
 /// A 1200 px cover with enough detail to cost a real decode.
 Future<File> _cover(String path, ui.Color a, ui.Color b) async {
@@ -126,6 +131,7 @@ void main() {
     ];
 
     final db = inMemoryDatabase();
+    final engine = FakeEngine();
     addTearDown(db.close);
     final http = FakeHttp(
       (_) => ok({
@@ -144,7 +150,7 @@ void main() {
     final container = ProviderContainer(
       overrides: [
         databaseProvider.overrideWithValue(db),
-        playbackEngineProvider.overrideWithValue(FakeEngine()),
+        playbackEngineProvider.overrideWithValue(engine),
         initialSettingsProvider.overrideWithValue(const AppSettings()),
         httpClientProvider.overrideWithValue(http.dio()),
         innerTubeClientProvider.overrideWithValue(FakeInnerTubeClient()),
@@ -173,7 +179,13 @@ void main() {
     ]);
 
     await tester.pumpWidget(
-      UncontrolledProviderScope(container: container, child: const NoirApp()),
+      RepaintBoundary(
+        key: _shotKey,
+        child: UncontrolledProviderScope(
+          container: container,
+          child: const NoirApp(),
+        ),
+      ),
     );
     Future<void> wait(int ms) =>
         Future<void>.delayed(Duration(milliseconds: ms));
@@ -239,6 +251,37 @@ void main() {
     container.read(lyricsVisibleProvider.notifier).set(visible: true);
     for (var i = 1; i <= 3; i++) {
       await cycle('lyrics #$i', trace: 'lyrics_open_$i');
+    }
+
+    if (_shotDir.isNotEmpty) {
+      Future<void> shot(String name) async {
+        await wait(900);
+        final boundary =
+            _shotKey.currentContext!.findRenderObject()!
+                as RenderRepaintBoundary;
+        final image = await boundary.toImage();
+        final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+        final file = File(p.join(_shotDir, '$name.png'));
+        await file.create(recursive: true);
+        await file.writeAsBytes(bytes!.buffer.asUint8List());
+      }
+
+      await tester.tap(openButton);
+      // Part way through the third line.
+      engine.tick(const Duration(milliseconds: 9600));
+      await shot('now_playing_lyrics');
+      container
+          .read(settingsProvider.notifier)
+          .update((s) => s.copyWith(lyricsMode: LyricsMode.karaoke));
+      await shot('now_playing_karaoke');
+      container
+          .read(settingsProvider.notifier)
+          .update((s) => s.copyWith(lyricsMode: LyricsMode.lines));
+      container.read(lyricsVisibleProvider.notifier).set(visible: false);
+      await shot('now_playing');
+      router.pop();
+      await wait(800);
+      container.read(lyricsVisibleProvider.notifier).set(visible: true);
     }
 
     // The summarizer the integration_test report uses, over every phase.
