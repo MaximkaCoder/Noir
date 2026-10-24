@@ -121,6 +121,11 @@ class YtPlaylistItems extends Table {
   IntColumn get position => integer()();
   TextColumn get videoId => text()();
 
+  /// `playlistItems` resource id, needed to remove the entry on YouTube.
+  /// Null for rows cached before schema v4 until the playlist changes and
+  /// is downloaded again (NOIR then looks the id up when removing).
+  TextColumn get itemId => text().nullable()();
+
   @override
   Set<Column<Object>> get primaryKey => {playlistId, position};
 }

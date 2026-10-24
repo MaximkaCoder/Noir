@@ -184,19 +184,20 @@ class YouTubeRepository {
   Future<void> savePlaylistItems(
     String playlistId,
     String etag,
-    List<String> videoIds,
+    List<YtPlaylistEntry> items,
   ) => _db.transaction(() async {
     await (_db.delete(
       _db.ytPlaylistItems,
     )..where((i) => i.playlistId.equals(playlistId))).go();
     await _db.batch((b) {
-      for (final (index, id) in videoIds.indexed) {
+      for (final (index, item) in items.indexed) {
         b.insert(
           _db.ytPlaylistItems,
           YtPlaylistItemsCompanion.insert(
             playlistId: playlistId,
             position: index,
-            videoId: id,
+            videoId: item.videoId,
+            itemId: Value(item.id),
           ),
         );
       }
@@ -204,6 +205,98 @@ class YouTubeRepository {
     await (_db.update(_db.ytPlaylists)..where((p) => p.id.equals(playlistId)))
         .write(YtPlaylistsCompanion(itemsEtag: Value(etag)));
   });
+
+  /// Video ids in [playlistId], updated as the cache changes.
+  Stream<Set<String>> watchPlaylistVideoIds(String playlistId) =>
+      (_db.select(_db.ytPlaylistItems)
+            ..where((i) => i.playlistId.equals(playlistId)))
+          .watch()
+          .map((rows) => {for (final r in rows) r.videoId});
+
+  Future<bool> playlistContains(String playlistId, String videoId) async =>
+      (await _itemsOf(playlistId, videoId).get()).isNotEmpty;
+
+  /// Known YouTube item ids of [videoId] in [playlistId] (rows cached before
+  /// schema v4 have none).
+  Future<List<String>> playlistItemIds(
+    String playlistId,
+    String videoId,
+  ) async => [
+    for (final r in await _itemsOf(playlistId, videoId).get()) ?r.itemId,
+  ];
+
+  /// Appends a video NOIR just added on YouTube. [track] supplies the video
+  /// details when they are not cached yet (the next sync completes them).
+  Future<void> addPlaylistItem(String playlistId, String itemId, Track track) =>
+      _db.transaction(() async {
+        final max = _db.ytPlaylistItems.position.max();
+        final last =
+            await (_db.selectOnly(_db.ytPlaylistItems)
+                  ..addColumns([max])
+                  ..where(_db.ytPlaylistItems.playlistId.equals(playlistId)))
+                .map((r) => r.read(max))
+                .getSingle();
+        await _db
+            .into(_db.ytVideos)
+            .insert(
+              YtVideosCompanion.insert(
+                id: track.uri,
+                title: track.title,
+                channelTitle: track.artist ?? '',
+                durationMs: Value(track.duration?.inMilliseconds),
+                syncedAt: DateTime.now(),
+              ),
+              mode: InsertMode.insertOrIgnore,
+            );
+        await _db
+            .into(_db.ytPlaylistItems)
+            .insert(
+              YtPlaylistItemsCompanion.insert(
+                playlistId: playlistId,
+                position: (last ?? -1) + 1,
+                videoId: track.uri,
+                itemId: Value(itemId),
+              ),
+            );
+      });
+
+  /// Drops every cached entry of [videoId] in [playlistId].
+  Future<void> removePlaylistItems(String playlistId, String videoId) =>
+      (_db.delete(_db.ytPlaylistItems)..where(
+            (i) => i.playlistId.equals(playlistId) & i.videoId.equals(videoId),
+          ))
+          .go();
+
+  /// Adds a playlist NOIR just created on YouTube, after the known ones
+  /// (the next sync puts it where YouTube lists it).
+  Future<void> addPlaylist(YtPlaylist p) => _db.transaction(() async {
+    final max = _db.ytPlaylists.position.max();
+    final last = await (_db.selectOnly(
+      _db.ytPlaylists,
+    )..addColumns([max])).map((r) => r.read(max)).getSingle();
+    await _db
+        .into(_db.ytPlaylists)
+        .insertOnConflictUpdate(
+          YtPlaylistsCompanion.insert(
+            id: p.id,
+            title: p.title,
+            itemCount: p.itemCount,
+            etag: p.etag,
+            thumbnailUrl: Value(p.thumbnailUrl),
+            privacy: Value(p.privacy),
+            position: (last ?? -1) + 1,
+            syncedAt: DateTime.now(),
+            // Empty and known: nothing to download.
+            itemsEtag: Value(p.etag),
+          ),
+        );
+  });
+
+  SimpleSelectStatement<$YtPlaylistItemsTable, YtPlaylistItem> _itemsOf(
+    String playlistId,
+    String videoId,
+  ) => _db.select(_db.ytPlaylistItems)
+    ..where((i) => i.playlistId.equals(playlistId) & i.videoId.equals(videoId));
 
   Future<void> saveVideos(List<YtVideo> videos) {
     final now = DateTime.now();
