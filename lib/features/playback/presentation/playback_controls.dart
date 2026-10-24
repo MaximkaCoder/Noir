@@ -1,0 +1,241 @@
+import 'dart:async';
+
+import 'package:flutter/material.dart' hide RepeatMode;
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:noir/app/theme/app_theme.dart';
+import 'package:noir/app/theme/design_tokens.dart';
+import 'package:noir/core/formatters.dart';
+import 'package:noir/core/widgets/buttons.dart';
+import 'package:noir/features/playback/application/playback_controller.dart';
+import 'package:noir/shared/models/playback.dart';
+
+/// Shuffle · previous · play/pause · next · repeat. Controls the active
+/// engine cannot honor are not rendered at all.
+class PlaybackControls extends ConsumerWidget {
+  const PlaybackControls({
+    this.large = false,
+    this.showModes = true,
+    super.key,
+  });
+
+  final bool large;
+
+  /// Shuffle and repeat.
+  final bool showModes;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final s = ref.watch(playbackProvider);
+    final ctrl = ref.read(playbackProvider.notifier);
+    final caps = s.capabilities;
+    final hasItem = s.current != null;
+    final icon = large ? 28.0 : 22.0;
+    final gap = SizedBox(width: large ? NoirSpacing.xl : NoirSpacing.sm);
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (showModes && caps.canShuffle) ...[
+          NoirIconButton(
+            icon: Icons.shuffle_rounded,
+            tooltip: s.shuffle ? 'Shuffle on' : 'Shuffle off',
+            active: s.shuffle,
+            size: icon - 4,
+            onPressed: hasItem ? ctrl.toggleShuffle : null,
+          ),
+          gap,
+        ],
+        if (caps.canSkip) ...[
+          NoirIconButton(
+            icon: Icons.skip_previous_rounded,
+            tooltip: 'Previous',
+            size: icon,
+            color: context.noir.textPrimary,
+            onPressed: hasItem ? () => unawaited(ctrl.previous()) : null,
+          ),
+          gap,
+        ],
+        PrimaryPlayButton(
+          playing: s.isPlaying,
+          size: large ? 64 : 40,
+          onPressed: hasItem ? () => unawaited(ctrl.togglePlayPause()) : null,
+        ),
+        if (caps.canSkip) ...[
+          gap,
+          NoirIconButton(
+            icon: Icons.skip_next_rounded,
+            tooltip: 'Next',
+            size: icon,
+            color: context.noir.textPrimary,
+            onPressed: s.hasNext ? () => unawaited(ctrl.next()) : null,
+          ),
+        ],
+        if (showModes && caps.canRepeat) ...[
+          gap,
+          NoirIconButton(
+            icon: s.repeat == RepeatMode.one
+                ? Icons.repeat_one_rounded
+                : Icons.repeat_rounded,
+            tooltip: switch (s.repeat) {
+              RepeatMode.off => 'Repeat off',
+              RepeatMode.all => 'Repeat all',
+              RepeatMode.one => 'Repeat one',
+            },
+            active: s.repeat != RepeatMode.off,
+            size: icon - 4,
+            onPressed: hasItem ? ctrl.cycleRepeat : null,
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+/// Seekable progress with elapsed / remaining time. Only this widget
+/// rebuilds on position ticks.
+class ProgressSlider extends ConsumerStatefulWidget {
+  const ProgressSlider({this.showLabels = true, super.key});
+
+  final bool showLabels;
+
+  @override
+  ConsumerState<ProgressSlider> createState() => _ProgressSliderState();
+}
+
+class _ProgressSliderState extends ConsumerState<ProgressSlider> {
+  double? _dragMs;
+
+  @override
+  Widget build(BuildContext context) {
+    final engine = ref.watch(playbackEngineProvider);
+    final track = ref.watch(playbackProvider.select((s) => s.current?.track));
+    final canSeek = ref.watch(
+      playbackProvider.select((s) => s.capabilities.canSeek),
+    );
+    final position =
+        ref.watch(positionProvider).value ?? engine.currentPosition;
+    final duration =
+        ref.watch(durationProvider).value ??
+        engine.currentDuration ??
+        track?.duration ??
+        Duration.zero;
+
+    final maxMs = duration.inMilliseconds.toDouble();
+    final valueMs = (_dragMs ?? position.inMilliseconds.toDouble()).clamp(
+      0.0,
+      maxMs > 0 ? maxMs : 0.0,
+    );
+    final t = Theme.of(context).textTheme.labelSmall?.copyWith(
+      fontFeatures: tabularFigures,
+      color: context.noir.textSecondary,
+    );
+    final shown = Duration(milliseconds: valueMs.round());
+
+    final slider = Semantics(
+      label: 'Playback position',
+      value: '${formatClock(shown)} of ${formatClock(duration)}',
+      child: SliderTheme(
+        data: SliderTheme.of(context).copyWith(
+          thumbShape: RoundSliderThumbShape(
+            enabledThumbRadius: _dragMs == null ? 5 : 7,
+          ),
+        ),
+        child: Slider(
+          value: valueMs,
+          max: maxMs > 0 ? maxMs : 1,
+          onChanged: canSeek && maxMs > 0
+              ? (v) => setState(() => _dragMs = v)
+              : null,
+          onChangeEnd: canSeek && maxMs > 0
+              ? (v) {
+                  unawaited(
+                    ref
+                        .read(playbackProvider.notifier)
+                        .seek(Duration(milliseconds: v.round())),
+                  );
+                  setState(() => _dragMs = null);
+                }
+              : null,
+        ),
+      ),
+    );
+    if (!widget.showLabels) return slider;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        slider,
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: NoirSpacing.lg),
+          child: Row(
+            children: [
+              Text(formatClock(shown), style: t),
+              const Spacer(),
+              Text('-${formatClock(duration - shown)}', style: t),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Thin, non-interactive progress line for compact players.
+class ProgressLine extends ConsumerWidget {
+  const ProgressLine({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final engine = ref.watch(playbackEngineProvider);
+    final position =
+        ref.watch(positionProvider).value ?? engine.currentPosition;
+    final duration =
+        ref.watch(durationProvider).value ?? engine.currentDuration;
+    final value = duration == null || duration == Duration.zero
+        ? 0.0
+        : (position.inMilliseconds / duration.inMilliseconds).clamp(0.0, 1.0);
+    return ExcludeSemantics(
+      child: LinearProgressIndicator(
+        value: value,
+        minHeight: 2,
+        borderRadius: NoirRadii.pillAll,
+      ),
+    );
+  }
+}
+
+class VolumeControl extends ConsumerWidget {
+  const VolumeControl({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final caps = ref.watch(playbackProvider.select((s) => s.capabilities));
+    if (!caps.canControlVolume) return const SizedBox.shrink();
+    final volume = ref.watch(playbackProvider.select((s) => s.volume));
+    final ctrl = ref.read(playbackProvider.notifier);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        NoirIconButton(
+          icon: volume == 0
+              ? Icons.volume_off_rounded
+              : volume < 0.5
+              ? Icons.volume_down_rounded
+              : Icons.volume_up_rounded,
+          tooltip: volume == 0 ? 'Unmute' : 'Mute',
+          size: 18,
+          onPressed: () => unawaited(ctrl.setVolume(volume == 0 ? 0.8 : 0)),
+        ),
+        SizedBox(
+          width: 96,
+          child: Semantics(
+            label: 'Volume',
+            child: Slider(
+              value: volume,
+              onChanged: (v) => unawaited(ctrl.setVolume(v)),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
