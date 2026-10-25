@@ -12,6 +12,7 @@ import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
@@ -247,15 +248,30 @@ void main() {
       await wait(600);
     }
 
+    /// Now Playing open and idle: only the backdrop flows.
+    Future<void> steady(String label) async {
+      await tester.tap(openButton);
+      await wait(1200);
+      final phase = _Phase('steady $label');
+      phases.add(phase);
+      recording = phase;
+      await wait(3000);
+      recording = null;
+      router.pop();
+      await wait(800);
+    }
+
     await cycle('#1', trace: 'first_open');
     for (var i = 2; i <= 4; i++) {
       await cycle('#$i', trace: 'reopen_$i');
     }
+    await steady('(flowing)');
 
     container.read(lyricsVisibleProvider.notifier).set(visible: true);
     for (var i = 1; i <= 3; i++) {
       await cycle('lyrics #$i', trace: 'lyrics_open_$i');
     }
+    await steady('lyrics');
 
     // Karaoke moving on from line to line while playing: each change
     // grows one line, shrinks another and glides the list.
@@ -309,6 +325,13 @@ void main() {
           .update((s) => s.copyWith(lyricsMode: LyricsMode.lines));
       container.read(lyricsVisibleProvider.notifier).set(visible: false);
       await shot('now_playing');
+      // The volume's slider out, the capsule wide.
+      final hover = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      await hover.addPointer(location: Offset.zero);
+      await hover.moveTo(tester.getCenter(find.byTooltip('Mute').last));
+      await shot('now_playing_volume');
+      await hover.moveTo(Offset.zero);
+      await hover.removePointer();
       // Part way through closing: the shell shows through the shape, then
       // the shape hands over to the island.
       router.pop();
