@@ -1,3 +1,4 @@
+import 'package:noir/features/playback/domain/transition_plan.dart';
 import 'package:noir/shared/models/media.dart';
 import 'package:noir/shared/models/playback.dart';
 
@@ -54,4 +55,27 @@ abstract interface class PlaybackEngine {
   Future<void> crossfadeTo(Track next, Duration fade);
 
   Future<void> dispose();
+}
+
+/// An engine that can perform a planned transition itself (beat-matched
+/// blends, tempo ramps, scheduled gapless starts).
+abstract interface class MixingEngine {
+  /// Whether [next] would be mixed on this engine (same player as the
+  /// current item).
+  Future<bool> canMixInto(Track next);
+
+  /// Hands over from the current item to [next] as [plan] says. [onStart]
+  /// fires when [next] becomes audible — from then on it is the current
+  /// item (position, duration and events are its own). [onProgress] reports
+  /// the blend's progress, 0–1.
+  ///
+  /// Completes with true once the transition is over, or false when it
+  /// was abandoned before [next] started (a user action, or [next] cannot
+  /// be played); the current item then simply keeps playing.
+  Future<bool> transitionTo(
+    Track next,
+    TransitionPlan plan, {
+    void Function()? onStart,
+    void Function(double progress)? onProgress,
+  });
 }

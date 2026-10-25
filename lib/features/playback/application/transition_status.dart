@@ -1,0 +1,96 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:noir/features/analysis/application/analysis_providers.dart';
+import 'package:noir/features/lyrics/application/lyrics_providers.dart';
+import 'package:noir/features/lyrics/domain/lyrics.dart';
+import 'package:noir/features/playback/domain/transition_plan.dart';
+import 'package:noir/features/playback/domain/transition_planner.dart';
+import 'package:noir/shared/models/media.dart';
+
+enum TransitionPhase {
+  /// Planned; waiting for the outgoing track to reach the start point.
+  planned,
+
+  /// Both tracks are audible.
+  mixing,
+}
+
+/// What the smart transition between the current and the next track is
+/// doing, for a "Mixing…" indicator.
+@immutable
+class TransitionStatus {
+  const TransitionStatus({
+    required this.plan,
+    required this.phase,
+    this.progress = 0,
+  });
+
+  final TransitionPlan plan;
+  final TransitionPhase phase;
+
+  /// 0–1 through the blend (0 while planned).
+  final double progress;
+
+  TransitionType get type => plan.type;
+
+  bool get isMixing => phase == TransitionPhase.mixing;
+}
+
+/// The smart transition in flight, or null. Written by the playback
+/// controller.
+final transitionStatusProvider =
+    NotifierProvider<TransitionStatusNotifier, TransitionStatus?>(
+      TransitionStatusNotifier.new,
+    );
+
+class TransitionStatusNotifier extends Notifier<TransitionStatus?> {
+  @override
+  TransitionStatus? build() => null;
+
+  // A method reads better than a setter at call sites.
+  // ignore: use_setters_to_change_properties
+  void set(TransitionStatus? status) => state = status;
+}
+
+/// Loads what the transition planner needs about a track: its stored
+/// analysis and, from time-synced lyrics, when its vocals start and end.
+/// Never throws; missing pieces are null.
+final transitionSideLoaderProvider =
+    Provider<Future<TransitionSide> Function(Track track)>((ref) {
+      return (track) async {
+        final analysis = await _orNull(
+          ref.read(trackAnalysisProvider(track.id).future),
+        );
+        final lyrics = await _orNull(
+          ref
+              .read(lyricsRepositoryProvider)
+              .find(LyricsRequest.fromTrack(track))
+              .timeout(const Duration(seconds: 20)),
+        );
+        return TransitionSide(
+          analysis: analysis,
+          duration: track.duration == null
+              ? null
+              : track.duration!.inMicroseconds / 1e6,
+          album: track.album,
+          artist: track.artist,
+          trackNumber: track.trackNumber,
+          lyrics: switch (lyrics) {
+            SyncedLyrics(:final lines) => VocalTiming.fromLines(lines),
+            InstrumentalLyrics() => const VocalTiming(),
+            _ => null,
+          },
+        );
+      };
+    });
+
+Future<T?> _orNull<T>(Future<T?> future) async {
+  try {
+    return await future;
+  } on Object catch (e) {
+    debugPrint('Transition input unavailable: ${e.runtimeType}');
+    return null;
+  }
+}

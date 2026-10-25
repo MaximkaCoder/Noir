@@ -27,6 +27,19 @@ enum LyricsMode {
   karaoke,
 }
 
+/// How one track hands over to the next on NOIR's own player.
+enum TransitionMode {
+  /// Each track plays to its end, then the next starts.
+  off,
+
+  /// A plain crossfade of [AppSettings.crossfadeSeconds].
+  crossfade,
+
+  /// Planned from the tracks' analyses: beat-matched blends, gapless album
+  /// tracks, vocal-aware timing.
+  smart,
+}
+
 @freezed
 abstract class AppSettings with _$AppSettings {
   const factory AppSettings({
@@ -40,8 +53,14 @@ abstract class AppSettings with _$AppSettings {
     @Default(Density.comfortable) Density density,
     @Default(PerformanceMode.balanced) PerformanceMode performanceMode,
 
-    /// 0 disables crossfade. Applies to local playback only.
-    @Default(0) int crossfadeSeconds,
+    /// Transitions apply to tracks played through NOIR's own player
+    /// (local files and cached audio).
+    @JsonKey(unknownEnumValue: TransitionMode.off)
+    @Default(TransitionMode.off)
+    TransitionMode transitionMode,
+
+    /// Length of a plain crossfade, 1–12 s.
+    @Default(6) int crossfadeSeconds,
     @Default(0.8) double defaultVolume,
     @Default(true) bool resumeSession,
     @Default(PlayBehavior.playContext) PlayBehavior playBehavior,

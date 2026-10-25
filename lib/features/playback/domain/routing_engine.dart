@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:noir/features/playback/domain/audio_source_provider.dart';
 import 'package:noir/features/playback/domain/playback_engine.dart';
+import 'package:noir/features/playback/domain/transition_plan.dart';
 import 'package:noir/shared/models/media.dart';
 import 'package:noir/shared/models/playback.dart';
 
@@ -12,7 +13,7 @@ import 'package:noir/shared/models/playback.dart';
 ///
 /// A non-local track for which [AudioFileProvider] has a local file plays
 /// on the local engine; otherwise on the engine for its source.
-class RoutingEngine implements PlaybackEngine {
+class RoutingEngine implements PlaybackEngine, MixingEngine {
   RoutingEngine(this._engines, {this._files = const NoAudioFiles()})
     : _active = _engines.values.first {
     for (final MapEntry(key: source, value: engine) in _engines.entries) {
@@ -90,6 +91,39 @@ class RoutingEngine implements PlaybackEngine {
     return route != null &&
         identical(route.$1, _active) &&
         _active.capabilities.canCrossfade;
+  }
+
+  /// Whether [next] would play on the active engine and that engine can
+  /// mix (beat-match) into it.
+  @override
+  Future<bool> canMixInto(Track next) async {
+    final route = await _route(next);
+    return route != null &&
+        identical(route.$1, _active) &&
+        _active is MixingEngine &&
+        await (_active as MixingEngine).canMixInto(route.$2);
+  }
+
+  @override
+  Future<bool> transitionTo(
+    Track next,
+    TransitionPlan plan, {
+    void Function()? onStart,
+    void Function(double progress)? onProgress,
+  }) async {
+    final route = await _route(next);
+    final active = _active;
+    if (route == null ||
+        !identical(route.$1, active) ||
+        active is! MixingEngine) {
+      return false;
+    }
+    return await (active as MixingEngine).transitionTo(
+      route.$2,
+      plan,
+      onStart: onStart,
+      onProgress: onProgress,
+    );
   }
 
   @override

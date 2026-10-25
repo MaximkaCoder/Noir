@@ -1,11 +1,12 @@
 import 'dart:async';
 
 import 'package:noir/features/playback/domain/playback_engine.dart';
+import 'package:noir/features/playback/domain/transition_plan.dart';
 import 'package:noir/shared/models/media.dart';
 import 'package:noir/shared/models/playback.dart';
 
 /// Scriptable engine: records calls and lets tests emit events.
-class FakeEngine implements PlaybackEngine {
+class FakeEngine implements PlaybackEngine, MixingEngine {
   final calls = <String>[];
   final _events = StreamController<EngineEvent>.broadcast();
   final _position = StreamController<Duration>.broadcast(sync: true);
@@ -93,6 +94,36 @@ class FakeEngine implements PlaybackEngine {
     calls.add('crossfade ${next.title} ${fade.inSeconds}s');
     loaded = next;
     return (this.fade = Completer<void>()).future;
+  }
+
+  /// Whether [canMixInto] says yes.
+  bool mixable = true;
+
+  /// The last planned transition; tests complete [mix] to end it and call
+  /// [mixStart] when the next track becomes audible.
+  TransitionPlan? mixPlan;
+  Completer<bool>? mix;
+  void Function()? mixStart;
+  void Function(double)? mixProgress;
+
+  @override
+  Future<bool> canMixInto(Track next) async => mixable;
+
+  @override
+  Future<bool> transitionTo(
+    Track next,
+    TransitionPlan plan, {
+    void Function()? onStart,
+    void Function(double progress)? onProgress,
+  }) {
+    calls.add('mix ${next.title} ${plan.type.name}');
+    mixPlan = plan;
+    mixProgress = onProgress;
+    mixStart = () {
+      loaded = next;
+      onStart?.call();
+    };
+    return (mix = Completer<bool>()).future;
   }
 
   @override

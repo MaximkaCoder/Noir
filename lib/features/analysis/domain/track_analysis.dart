@@ -82,6 +82,20 @@ class EnergySection {
   };
 }
 
+/// A stretch where someone is probably singing (bar-aligned).
+class VocalSpan {
+  const VocalSpan(this.start, this.end);
+
+  factory VocalSpan.fromJson(List<Object?> json) =>
+      VocalSpan(_d(json[0]), _d(json[1]));
+
+  /// Seconds from the start of the file.
+  final double start;
+  final double end;
+
+  List<Object?> toJson() => [_r3(start), _r3(end)];
+}
+
 /// Everything the mixing planner needs to know about one track.
 ///
 /// All times are seconds from the start of the decoded file. Loudness is
@@ -111,6 +125,7 @@ class TrackAnalysis {
     required this.mixInPoints,
     required this.mixOutPoints,
     required this.sections,
+    this.vocals = const [],
     this.analyzedAt,
     this.elapsedMs,
     this.source,
@@ -141,6 +156,10 @@ class TrackAnalysis {
       for (final s in (json['sections'] as List<Object?>? ?? const []))
         EnergySection.fromJson((s! as Map).cast<String, Object?>()),
     ],
+    vocals: [
+      for (final v in (json['vocals'] as List<Object?>? ?? const []))
+        VocalSpan.fromJson(v! as List<Object?>),
+    ],
     analyzedAt: json['analyzedAt'] == null
         ? null
         : DateTime.parse(json['analyzedAt']! as String),
@@ -150,7 +169,7 @@ class TrackAnalysis {
 
   /// Bump whenever an algorithm change makes stored results stale; the
   /// queue re-analyses anything older.
-  static const currentVersion = 1;
+  static const currentVersion = 2;
 
   final int analysisVersion;
 
@@ -217,6 +236,15 @@ class TrackAnalysis {
 
   final List<EnergySection> sections;
 
+  /// Where singing was detected from the audio alone (a rough estimate;
+  /// empty when the track is instrumental or the detector is unsure).
+  /// Time-synced lyrics, when available, are the better source.
+  final List<VocalSpan> vocals;
+
+  /// Start of the first / end of the last detected vocal, null when none.
+  double? get firstVocal => vocals.isEmpty ? null : vocals.first.start;
+  double? get lastVocal => vocals.isEmpty ? null : vocals.last.end;
+
   final DateTime? analyzedAt;
 
   /// Decode + analysis wall time.
@@ -260,6 +288,7 @@ class TrackAnalysis {
     mixInPoints: mixInPoints,
     mixOutPoints: mixOutPoints,
     sections: sections,
+    vocals: vocals,
     analyzedAt: analyzedAt ?? this.analyzedAt,
     elapsedMs: elapsedMs ?? this.elapsedMs,
     source: source ?? this.source,
@@ -288,6 +317,7 @@ class TrackAnalysis {
     'mixIn': [for (final t in mixInPoints) _r3(t)],
     'mixOut': [for (final t in mixOutPoints) _r3(t)],
     'sections': [for (final s in sections) s.toJson()],
+    'vocals': [for (final v in vocals) v.toJson()],
     'analyzedAt': analyzedAt?.toUtc().toIso8601String(),
     'elapsedMs': elapsedMs,
     'source': source,
