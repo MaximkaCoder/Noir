@@ -33,6 +33,7 @@ import 'package:noir/features/playback/presentation/mini_players.dart';
 import 'package:noir/features/playback/presentation/now_playing_route.dart';
 import 'package:noir/features/playback/presentation/now_playing_screen.dart';
 import 'package:noir/features/playback/presentation/playback_controls.dart';
+import 'package:noir/features/playback/presentation/playback_shortcuts.dart';
 import 'package:noir/features/settings/data/settings_repository.dart';
 import 'package:noir/features/settings/domain/app_settings.dart';
 import 'package:noir/features/settings/presentation/settings_controller.dart';
@@ -299,9 +300,77 @@ void main() {
           .style
           .fontSize!;
       expect(size, inInclusiveRange(32, 40));
-      // The lyrics column takes over half the window.
+      // The lyrics run to a right margin as wide as the player's left one.
       final column = tester.getRect(find.byKey(NowPlayingScreen.lyricsKey));
-      expect(column.width, greaterThan(1360 * 0.5));
+      expect(column.right, moreOrLessEquals(1360 - 1360 * 0.06, epsilon: 1));
+      expect(column.width, greaterThan(1360 * 0.4));
+    });
+
+    // Player column, cover and lyrics as laid out beside each other.
+    Future<({Rect cover, Rect lyrics, Rect column, double font})> besideLyrics(
+      WidgetTester tester,
+      Size size,
+    ) async {
+      await pumpNowPlaying(tester, size: size);
+      await tester.tap(find.byTooltip('Show lyrics'));
+      await tester.pumpAndSettle();
+      final font = tester
+          .widget<AnimatedDefaultTextStyle>(
+            find
+                .ancestor(
+                  of: find.text('First line'),
+                  matching: find.byType(AnimatedDefaultTextStyle),
+                )
+                .first,
+          )
+          .style
+          .fontSize!;
+      return (
+        cover: tester.getRect(find.byKey(NowPlayingScreen.coverKey)),
+        lyrics: tester.getRect(find.byKey(NowPlayingScreen.lyricsKey)),
+        // The column ends with the secondary row, the Lyrics pill in it.
+        column: tester.getRect(_inPlayer(find.byTooltip('Hide lyrics'))),
+        font: font,
+      );
+    }
+
+    void proportional(
+      Size size,
+      ({Rect cover, Rect lyrics, Rect column, double font}) at,
+    ) {
+      final margin = size.width * 0.06;
+      // The player hugs the left edge with a proportional margin...
+      expect(at.cover.left, moreOrLessEquals(margin, epsilon: 1));
+      // ...and the lyrics reach a matching right margin.
+      expect(
+        at.lyrics.right,
+        moreOrLessEquals(size.width - margin, epsilon: 1),
+      );
+      expect(at.lyrics.left, greaterThan(at.cover.right + 32));
+      // The player column is centered vertically below the title bar.
+      final above = at.cover.top - TitleBarMetrics.height;
+      final below = size.height - at.column.bottom;
+      expect(above, moreOrLessEquals(below, epsilon: 12));
+    }
+
+    testWidgets('beside lyrics on a small window', (tester) async {
+      const size = Size(1100, 700);
+      final at = await besideLyrics(tester, size);
+      proportional(size, at);
+      expect(at.cover.width, inInclusiveRange(260, 320));
+      expect(at.font, inInclusiveRange(28, 30));
+    });
+
+    testWidgets('beside lyrics nothing is capped on a large screen', (
+      tester,
+    ) async {
+      const size = Size(2560, 1440);
+      final at = await besideLyrics(tester, size);
+      proportional(size, at);
+      // Cover and type grow with the window, up to their own limits.
+      expect(at.cover.width, moreOrLessEquals(560, epsilon: 1));
+      expect(at.font, moreOrLessEquals(52, epsilon: 0.5));
+      expect(at.lyrics.right - at.cover.left, greaterThan(2560 * 0.8));
     });
 
     testWidgets('YouTube songs get YouTube Music lyrics first', (tester) async {
@@ -772,6 +841,75 @@ void main() {
         tester.getCenter(_inPlayer(find.byTooltip('More'))).dy,
         moreOrLessEquals(shell.first.center.dy, epsilon: 0.5),
       );
+    });
+  });
+
+  group('keyboard', () {
+    testWidgets('Space plays and pauses, even after a button was used', (
+      tester,
+    ) async {
+      final app = await pumpNowPlaying(tester);
+      bool playing() => app.container.read(playbackProvider).isPlaying;
+      expect(playing(), isTrue);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.space);
+      await tester.pump();
+      expect(playing(), isFalse);
+      await tester.sendKeyEvent(LogicalKeyboardKey.space);
+      await tester.pump();
+      expect(playing(), isTrue);
+
+      // Tapped and focused, the Lyrics pill must not take Space for itself.
+      await tester.tap(_inPlayer(find.byTooltip('Show lyrics')));
+      await tester.pumpAndSettle();
+      Focus.of(tester.element(_inPlayer(find.text('Lyrics')))).requestFocus();
+      await tester.pump();
+      expect(app.container.read(lyricsVisibleProvider), isTrue);
+      await tester.sendKeyEvent(LogicalKeyboardKey.space);
+      await tester.pumpAndSettle();
+      expect(playing(), isFalse);
+      expect(app.container.read(lyricsVisibleProvider), isTrue);
+      await tester.sendKeyEvent(LogicalKeyboardKey.space);
+      await tester.pump();
+      expect(playing(), isTrue);
+    });
+
+    testWidgets('Ctrl+→ skips to the next track', (tester) async {
+      final app = await pumpNowPlaying(tester);
+      expect(
+        app.container.read(playbackProvider).current?.track.title,
+        'Ash & Ember',
+      );
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pumpAndSettle();
+      expect(
+        app.container.read(playbackProvider).current?.track.title,
+        'Quiet Harbor',
+      );
+    });
+
+    testWidgets('Space still types into a focused text field', (tester) async {
+      final app = await pumpNowPlaying(tester);
+      final controller = TextEditingController();
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: app.container,
+          child: MaterialApp(
+            home: PlaybackShortcuts(
+              child: Material(
+                child: TextField(controller: controller, autofocus: true),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.sendKeyEvent(LogicalKeyboardKey.space);
+      await tester.pump();
+      expect(app.container.read(playbackProvider).isPlaying, isTrue);
     });
   });
 

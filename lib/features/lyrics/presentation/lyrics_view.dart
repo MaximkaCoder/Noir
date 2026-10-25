@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -23,12 +24,21 @@ import 'package:noir/shared/models/playback.dart';
 /// why there are none. Where they come from is credited after the last
 /// line.
 class LyricsView extends ConsumerWidget {
-  const LyricsView({required this.track, this.compact = false, super.key});
+  const LyricsView({
+    required this.track,
+    this.compact = false,
+    this.fontSize,
+    super.key,
+  });
 
   final Track track;
 
   /// Smaller type for narrow windows.
   final bool compact;
+
+  /// The synced lines' type size; by default it follows the lyrics' own
+  /// area ([lyricsFontSize]).
+  final double? fontSize;
 
   /// Shown above unsynced lyrics while Karaoke is chosen.
   static const noKaraokeNote = 'Not time-synced, so no karaoke';
@@ -78,6 +88,7 @@ class LyricsView extends ConsumerWidget {
           source: source,
           note: mode == LyricsMode.karaoke ? noKaraokeNote : null,
           compact: compact,
+          fontSize: fontSize,
         ),
         SyncedLyrics(:final lines, :final source) => SyncedLyricsList(
           key: ValueKey((request, mode)),
@@ -85,6 +96,7 @@ class LyricsView extends ConsumerWidget {
           source: source,
           compact: compact,
           karaoke: mode == LyricsMode.karaoke,
+          fontSize: fontSize,
         ),
       },
     );
@@ -145,12 +157,18 @@ double lyricsFontSize(BoxConstraints box, {required bool compact}) {
   return compact ? fit.clamp(20.0, 30.0) : fit.clamp(26.0, 40.0);
 }
 
+/// Lyric type size beside the player in a [width] × [height] player area:
+/// it grows with the window, from 28 px up to 52 px on large screens.
+double lyricsFontSizeFor(double width, double height) =>
+    min(width * 0.026, height * 0.045).clamp(28.0, 52.0);
+
 class _PlainLyrics extends StatelessWidget {
   const _PlainLyrics({
     required this.text,
     required this.source,
     required this.note,
     required this.compact,
+    required this.fontSize,
     super.key,
   });
 
@@ -161,9 +179,17 @@ class _PlainLyrics extends StatelessWidget {
   final String? note;
   final bool compact;
 
+  /// The synced lines' size, which plain text follows a size smaller.
+  final double? fontSize;
+
   @override
   Widget build(BuildContext context) {
-    final style = lyricLineStyle(context, compact ? 18 : 24).copyWith(
+    final size = compact
+        ? 18.0
+        : fontSize == null
+        ? 24.0
+        : fontSize! * 0.65;
+    final style = lyricLineStyle(context, size).copyWith(
       color: context.noir.textPrimary.withValues(alpha: 0.8),
       height: 1.5,
       fontWeight: FontWeight.w600,
@@ -213,6 +239,7 @@ class SyncedLyricsList extends ConsumerStatefulWidget {
     required this.source,
     this.compact = false,
     this.karaoke = false,
+    this.fontSize,
     super.key,
   });
 
@@ -222,6 +249,9 @@ class SyncedLyricsList extends ConsumerStatefulWidget {
   final String source;
   final bool compact;
   final bool karaoke;
+
+  /// See [LyricsView.fontSize].
+  final double? fontSize;
 
   /// Where the active line rests, as a fraction of the viewport height.
   static const anchor = 0.38;
@@ -520,7 +550,8 @@ class _SyncedLyricsListState extends ConsumerState<SyncedLyricsList>
 
     return LayoutBuilder(
       builder: (context, box) {
-        final size = lyricsFontSize(box, compact: widget.compact);
+        final size =
+            widget.fontSize ?? lyricsFontSize(box, compact: widget.compact);
         final base = lyricLineStyle(context, size);
         return Listener(
           // Wheel and trackpad scrolling don't send drag notifications.

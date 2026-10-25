@@ -29,6 +29,7 @@ import 'package:noir/features/lyrics/presentation/lyrics_view.dart';
 import 'package:noir/features/playback/application/playback_controller.dart';
 import 'package:noir/features/playback/presentation/now_playing_route.dart';
 import 'package:noir/features/playback/presentation/playback_controls.dart';
+import 'package:noir/features/playback/presentation/playback_shortcuts.dart';
 import 'package:noir/features/playback/presentation/youtube_video_layer.dart';
 import 'package:noir/features/playlists/presentation/add_to_playlist.dart';
 import 'package:noir/features/queue/presentation/queue_panel.dart';
@@ -154,82 +155,85 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
     final content = _content;
     final material = _material;
 
-    return CallbackShortcuts(
-      bindings: {const SingleActivator(LogicalKeyboardKey.escape): close},
-      child: Focus(
-        autofocus: true,
-        child: Scaffold(
-          backgroundColor: Colors.transparent,
-          body: Stack(
-            fit: StackFit.expand,
-            children: [
-              // The opaque backdrop and the content are skipped while the
-              // morph shows only the (possibly see-through) material.
-              _ContentGate(
-                content: content,
-                child: _ArtworkBackdrop(
-                  source: _backdropSource(ref, current?.track),
-                  baked: _backdrop,
+    // A route above the shell, so the shell's shortcuts don't reach here.
+    return PlaybackShortcuts(
+      child: CallbackShortcuts(
+        bindings: {const SingleActivator(LogicalKeyboardKey.escape): close},
+        child: Focus(
+          autofocus: true,
+          child: Scaffold(
+            backgroundColor: Colors.transparent,
+            body: Stack(
+              fit: StackFit.expand,
+              children: [
+                // The opaque backdrop and the content are skipped while the
+                // morph shows only the (possibly see-through) material.
+                _ContentGate(
+                  content: content,
+                  child: _ArtworkBackdrop(
+                    source: _backdropSource(ref, current?.track),
+                    baked: _backdrop,
+                  ),
                 ),
-              ),
-              _ContentGate(
-                content: content,
-                child: LiquidPressScope(
-                  child: RepaintBoundary(
-                    child: SafeArea(
-                      child: GestureDetector(
-                        onVerticalDragEnd: (d) {
-                          if ((d.primaryVelocity ?? 0) > 400) close();
-                        },
-                        child: Column(
-                          children: [
-                            _TopBar(onClose: close, state: s),
-                            Expanded(
-                              child: current == null
-                                  ? const EmptyState(
-                                      icon: Icons.music_off_rounded,
-                                      title: 'Nothing playing',
-                                      message:
-                                          'Pick a song from your library to '
-                                          'start.',
-                                    )
-                                  : LayoutBuilder(
-                                      builder: (context, box) => _Player(
-                                        state: s,
-                                        box: box,
-                                        lyrics: _lyricsCurve,
-                                        showLyrics: lyrics,
-                                        lyricsReady: _settled,
+                _ContentGate(
+                  content: content,
+                  child: LiquidPressScope(
+                    child: RepaintBoundary(
+                      child: SafeArea(
+                        child: GestureDetector(
+                          onVerticalDragEnd: (d) {
+                            if ((d.primaryVelocity ?? 0) > 400) close();
+                          },
+                          child: Column(
+                            children: [
+                              _TopBar(onClose: close, state: s),
+                              Expanded(
+                                child: current == null
+                                    ? const EmptyState(
+                                        icon: Icons.music_off_rounded,
+                                        title: 'Nothing playing',
+                                        message:
+                                            'Pick a song from your library to '
+                                            'start.',
+                                      )
+                                    : LayoutBuilder(
+                                        builder: (context, box) => _Player(
+                                          state: s,
+                                          box: box,
+                                          lyrics: _lyricsCurve,
+                                          showLyrics: lyrics,
+                                          lyricsReady: _settled,
+                                        ),
                                       ),
-                                    ),
-                            ),
-                          ],
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ),
                   ),
                 ),
-              ),
-              // While the page morphs open (or closed) its content fades
-              // in over a copy of the backdrop, and the backdrop itself is
-              // painted see-through by alpha — no offscreen layer.
-              if (content != null && material != null)
-                IgnorePointer(
-                  child: RepaintBoundary(
-                    child: CustomPaint(
-                      key: NowPlayingScreen.veilKey,
-                      size: Size.infinite,
-                      painter: NowPlayingVeilPainter(
-                        content: content,
-                        material: material,
-                        image: _backdrop,
-                        scrim: _scrimColors(context),
-                        fallback: context.noir.background,
+                // While the page morphs open (or closed) its content fades
+                // in over a copy of the backdrop, and the backdrop itself is
+                // painted see-through by alpha — no offscreen layer.
+                if (content != null && material != null)
+                  IgnorePointer(
+                    child: RepaintBoundary(
+                      child: CustomPaint(
+                        key: NowPlayingScreen.veilKey,
+                        size: Size.infinite,
+                        painter: NowPlayingVeilPainter(
+                          content: content,
+                          material: material,
+                          image: _backdrop,
+                          scrim: _scrimColors(context),
+                          fallback: context.noir.background,
+                        ),
                       ),
                     ),
                   ),
-                ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -770,6 +774,7 @@ class _Player extends ConsumerWidget {
     // Lyrics replace the cover on narrow windows: gone once they're in.
     final cover = wide || lyrics.value < 1 || lyrics.status.isAnimating;
     final art = _Stage.coverSize(box, wide: wide);
+    final lyricFont = lyricsFontSizeFor(box.maxWidth, box.maxHeight);
 
     Widget details(double large) =>
         _TrackDetails(state: state, large: large, centered: large);
@@ -781,6 +786,7 @@ class _Player extends ConsumerWidget {
           lyrics: lyrics,
           wide: wide,
           viewport: box.maxHeight,
+          lyricsFont: lyricFont,
           detailsExtent: _TrackDetails.extentUnderCover(context, state),
           children: [
             if (cover)
@@ -841,7 +847,11 @@ class _Player extends ConsumerWidget {
                       curve: const Interval(0.3, 1),
                     ),
                     child: wide
-                        ? _Lyrics(track: track, ready: lyricsReady)
+                        ? _Lyrics(
+                            track: track,
+                            ready: lyricsReady,
+                            fontSize: lyricFont,
+                          )
                         : ScaleTransition(
                             scale: Tween<double>(
                               begin: 0.96,
@@ -903,6 +913,7 @@ class _Stage extends MultiChildRenderObjectWidget {
     required this.lyrics,
     required this.wide,
     required this.viewport,
+    required this.lyricsFont,
     required this.detailsExtent,
     required super.children,
   });
@@ -910,6 +921,9 @@ class _Stage extends MultiChildRenderObjectWidget {
   final Animation<double> lyrics;
   final bool wide;
   final double viewport;
+
+  /// The lyrics' type size on wide windows, which places their column.
+  final double lyricsFont;
 
   /// The details' height under the cover (wide, without lyrics) at a
   /// width. The cover is sized from it rather than from the details as
@@ -921,7 +935,11 @@ class _Stage extends MultiChildRenderObjectWidget {
   /// to spare on wide windows: rounding must never make a YouTube cover's
   /// crop come out smaller than the cover drawn at its largest.
   static double coverSize(BoxConstraints box, {required bool wide}) => wide
-      ? max(wideCoverCap(box.maxWidth, box.maxHeight), 340) + 1
+      ? max(
+              wideCoverCap(box.maxWidth, box.maxHeight),
+              lyricsCoverCap(box.maxWidth, box.maxHeight),
+            ) +
+            1
       : max<double>(160, min(box.maxWidth - 48, box.maxHeight * 0.45));
 
   /// The largest the cover gets on a wide window without lyrics; the
@@ -929,16 +947,28 @@ class _Stage extends MultiChildRenderObjectWidget {
   static double wideCoverCap(double width, double height) =>
       min(min(460, width * 0.42), max(200, height * 0.62));
 
+  /// The largest the cover gets beside lyrics; it grows with the window.
+  static double lyricsCoverCap(double width, double height) =>
+      min(width * 0.28, height * 0.5).clamp(260.0, 560.0);
+
   @override
-  _RenderStage createRenderObject(BuildContext context) =>
-      _RenderStage(lyrics, detailsExtent, wide: wide, viewport: viewport);
+  _RenderStage createRenderObject(BuildContext context) => _RenderStage(
+    lyrics,
+    detailsExtent,
+    wide: wide,
+    viewport: viewport,
+    lyricsFont: lyricsFont,
+  );
 
   @override
   void updateRenderObject(BuildContext context, _RenderStage renderObject) {
-    if (renderObject.wide != wide || renderObject.viewport != viewport) {
+    if (renderObject.wide != wide ||
+        renderObject.viewport != viewport ||
+        renderObject.lyricsFont != lyricsFont) {
       renderObject
         ..wide = wide
         ..viewport = viewport
+        ..lyricsFont = lyricsFont
         ..markNeedsLayout();
     }
     renderObject
@@ -956,6 +986,7 @@ class _RenderStage extends RenderBox
     this._detailsExtent, {
     required this.wide,
     required this.viewport,
+    required this.lyricsFont,
   });
 
   Animation<double> get lyrics => _lyrics;
@@ -970,6 +1001,7 @@ class _RenderStage extends RenderBox
 
   bool wide;
   double viewport;
+  double lyricsFont;
 
   double Function(double width) get detailsExtent => _detailsExtent;
   double Function(double width) _detailsExtent;
@@ -1040,13 +1072,29 @@ class _RenderStage extends RenderBox
 
     double height;
     if (wide) {
-      // With lyrics: a player column beside them.
-      final cwB = min<double>(w - 96, 1280);
-      final xB = (w - cwB) / 2;
-      final colB = (cwB * 0.36).clamp(280.0, 400.0);
-      final gapB = (cwB * 0.06).clamp(32.0, 80.0);
-      final artB = min(colB, h * 0.4).clamp(160.0, 340.0);
+      // With lyrics: the player column hugs the left edge and grows with
+      // the window, its cover sizing everything in it; the lyrics take the
+      // rest up to a matching right margin. Nothing is capped, so large
+      // windows don't leave empty bands at the edges.
+      final marginB = max<double>(40, w * 0.06);
       final hasVideo = c[_Slot.video] != null;
+      // The cover shrinks only if the column wouldn't fit the height.
+      final restB =
+          24 +
+          _detailsExtent(_Stage.lyricsCoverCap(w, h)) +
+          16 +
+          measure(_Slot.progress, 300).height +
+          16 +
+          transport.height +
+          8 +
+          secondary.height +
+          (hasVideo ? 20 + YouTubeVideoLayer.miniSize.height : 0);
+      final artB = min(
+        _Stage.lyricsCoverCap(w, h),
+        max<double>(200, h - 32 - restB),
+      );
+      final colB = artB;
+      final xB = marginB;
 
       // Without lyrics: one centered column — cover, details, progress,
       // transport, secondary (and the video) — the cover sized so it all
@@ -1112,7 +1160,7 @@ class _RenderStage extends RenderBox
           secondary.height * sScale +
           (hasVideo ? 20 + video.height : 0);
       final yB = max<double>(8, (h - totalB) / 2);
-      final coverB = Rect.fromLTWH(xB + (colB - artB) / 2, yB, artB, artB);
+      final coverB = Rect.fromLTWH(xB, yB, artB, artB);
       final detailsB = Offset(xB, coverB.bottom + 24);
       final progressB = detailsB.translate(0, details.height + 16);
       final transportB = Offset(
@@ -1140,14 +1188,28 @@ class _RenderStage extends RenderBox
         Offset.lerp(secondaryA, secondaryB, t)!,
         scale: _lerp(1, sScale, t),
       );
+      // The lyrics' column runs from a gap after the player to the right
+      // margin. Lines are start-aligned and most are much shorter than
+      // the column, so the column starts further right by half of what a
+      // typical line leaves free: typical lines sit centered in the space
+      // right of the player, long ones still reach the right margin.
+      final lyricsFrom = xB + colB + max<double>(32, w * 0.07);
+      final lyricsTo = w - marginB;
+      final room = max<double>(0, lyricsTo - lyricsFrom);
+      final typicalLine = lyricsFont * 15;
+      // Never so far that a long line (~24 em) would have to wrap.
+      final indent = [
+        max<double>(0, room - typicalLine) / 2,
+        room * 0.25,
+        max<double>(0, room - lyricsFont * 24),
+      ].reduce(min);
       // Lyrics slide in from a little to the right as they fade in.
-      final lyricsLeft = xB + colB + gapB;
       placeTight(
         _Slot.lyrics,
         Rect.fromLTWH(
-          lyricsLeft + (1 - t) * 48,
+          lyricsFrom + indent + (1 - t) * 48,
           8,
-          max(0, cwB - colB - gapB),
+          room - indent,
           max(0, h - 32),
         ),
       );
@@ -1756,11 +1818,13 @@ class _Lyrics extends StatelessWidget {
     required this.track,
     required this.ready,
     this.compact = false,
+    this.fontSize,
   });
 
   final Track track;
   final bool ready;
   final bool compact;
+  final double? fontSize;
 
   @override
   Widget build(BuildContext context) {
@@ -1769,7 +1833,12 @@ class _Lyrics extends StatelessWidget {
       layoutBuilder: (current, previous) =>
           Stack(fit: StackFit.expand, children: [...previous, ?current]),
       child: ready
-          ? LyricsView(key: ValueKey(track.id), track: track, compact: compact)
+          ? LyricsView(
+              key: ValueKey(track.id),
+              track: track,
+              compact: compact,
+              fontSize: fontSize,
+            )
           : const SizedBox.expand(key: ValueKey('waiting')),
     );
   }
