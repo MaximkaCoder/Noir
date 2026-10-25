@@ -67,7 +67,7 @@ void main() {
   group('InnerTubeClient', () {
     late FakeInnerTube http;
     InnerTubeClient client() =>
-        InnerTubeClient(dio: http.dio(), gl: 'US', retryDelay: Duration.zero);
+        InnerTubeClient(dio: http.dio(), retryDelay: Duration.zero);
 
     test('asks the Lyrics tab with the web client', () async {
       http = FakeInnerTube(_lyricsServer);
@@ -83,11 +83,7 @@ void main() {
         http = FakeInnerTube(_lyricsServer);
         final dio = http.dio()
           ..options.headers.addAll({'Cookie': 'SAPISID=secret'});
-        final c = InnerTubeClient(
-          dio: dio,
-          gl: 'US',
-          retryDelay: Duration.zero,
-        );
+        final c = InnerTubeClient(dio: dio, retryDelay: Duration.zero);
 
         final lyrics = await c.lyrics(_browseId);
         expect(lyrics!.lines, hasLength(6));

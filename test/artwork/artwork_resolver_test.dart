@@ -204,7 +204,7 @@ void main() {
   group('persistence', () {
     test('answers survive a restart (JSON file round trip)', () async {
       final dir = Directory.systemTemp.createTempSync('noir_art_');
-      addTearDown(() => dir.deleteSync(recursive: true));
+      addTearDown(() => _deleteQuietly(dir));
       final file = File('${dir.path}/youtube_artwork.json');
       ArtworkCacheStore store() => JsonFileArtworkCacheStore(() async => file);
 
@@ -232,7 +232,10 @@ void main() {
       // Saving again replaces the file.
       lookup.known['b'] = atv('b');
       second.request('b');
-      await wait();
+      // Slow CI machines may need more than one batch window.
+      for (var i = 0; i < 50 && second.peek('b') == null; i++) {
+        await wait(50);
+      }
       await second.dispose();
       final third = await store().load();
       expect(third.keys, containsAll(['a', 'v', 'gone', 'b']));
@@ -307,4 +310,14 @@ void main() {
       expect(store.saves, 1);
     });
   });
+}
+
+/// Windows runners can hold a just-written file open for a moment
+/// (indexing, antivirus); a leftover temp folder is harmless.
+void _deleteQuietly(Directory dir) {
+  try {
+    dir.deleteSync(recursive: true);
+  } on FileSystemException {
+    // Ignored.
+  }
 }

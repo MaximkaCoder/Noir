@@ -14,7 +14,7 @@ void main() {
     container = ProviderContainer(
       overrides: [
         innerTubeClientProvider.overrideWithValue(
-          InnerTubeClient(dio: http.dio(), gl: 'US', retryDelay: Duration.zero),
+          InnerTubeClient(dio: http.dio(), retryDelay: Duration.zero),
         ),
       ],
     );

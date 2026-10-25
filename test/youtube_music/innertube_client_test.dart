@@ -45,7 +45,7 @@ void main() {
           'Authorization': 'Bearer token',
           'X-Goog-AuthUser': '0',
         });
-      final c = InnerTubeClient(dio: dio, gl: 'US', retryDelay: Duration.zero);
+      final c = InnerTubeClient(dio: dio, retryDelay: Duration.zero);
 
       await c.home();
       await c.search('daft punk');
@@ -251,7 +251,6 @@ void main() {
       http.delay = const Duration(milliseconds: 200);
       final c = InnerTubeClient(
         dio: http.dio(),
-        gl: 'US',
         retryDelay: Duration.zero,
         timeout: const Duration(milliseconds: 20),
       );
@@ -267,13 +266,5 @@ void main() {
         ),
       );
     });
-  });
-
-  test('systemCountryCode', () {
-    expect(systemCountryCode('en_US'), 'US');
-    expect(systemCountryCode('uk-UA'), 'UA');
-    expect(systemCountryCode('de_DE.UTF-8'), 'DE');
-    expect(systemCountryCode('C'), 'US');
-    expect(systemCountryCode('en'), 'US');
   });
 }

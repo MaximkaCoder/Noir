@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io' show Platform;
 
 import 'package:dio/dio.dart';
 import 'package:freezed_annotation/freezed_annotation.dart'
@@ -58,11 +57,11 @@ enum YtmSearchFilter {
 class InnerTubeClient {
   InnerTubeClient({
     required this._dio,
-    String? gl,
+    this.gl = 'US',
     this.hl = 'en',
     this.retryDelay = const Duration(milliseconds: 500),
     this.timeout = const Duration(seconds: 20),
-  }) : gl = gl ?? systemCountryCode() {
+  }) {
     _dio.interceptors.add(const AnonymousGuard());
   }
 
@@ -485,18 +484,6 @@ InnerTubeSession parseSwJsData(String text) {
     clientVersion: clientVersion ?? InnerTubeClient.fallbackClientVersion,
     visitorData: visitor is String && visitor.length > 16 ? visitor : null,
   );
-}
-
-/// Two-letter country of the system locale (`en_US` → `US`), or `US`.
-String systemCountryCode([String? localeName]) {
-  String name;
-  try {
-    name = localeName ?? Platform.localeName;
-  } on Object {
-    return 'US';
-  }
-  final m = RegExp('[_-]([A-Za-z]{2})(?![A-Za-z])').firstMatch(name);
-  return m?.group(1)?.toUpperCase() ?? 'US';
 }
 
 /// Removes anything that could tie a request to a Google account. Installed

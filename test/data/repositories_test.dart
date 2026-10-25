@@ -7,6 +7,7 @@ import 'package:noir/features/playlists/data/playlist_repository.dart';
 import 'package:noir/features/search/data/search_history_repository.dart';
 import 'package:noir/features/settings/data/settings_repository.dart';
 import 'package:noir/features/settings/domain/app_settings.dart';
+import 'package:path/path.dart' as p;
 
 import '../helpers/test_database.dart';
 
@@ -34,16 +35,19 @@ void main() {
     });
 
     test('removing a folder does not touch sibling folders', () async {
-      await library.addFolder(r'D:\Music');
+      // Platform paths: the prefix check uses this system's separator.
+      final music = p.join(p.separator, 'Music');
+      final sibling = p.join(p.separator, 'Music2', 'b.mp3');
+      await library.addFolder(music);
       await library.upsertScanned([
-        trackRow(r'D:\Music\a.mp3'),
-        trackRow(r'D:\Music2\b.mp3'),
+        trackRow(p.join(music, 'a.mp3')),
+        trackRow(sibling),
       ]);
 
-      await library.removeFolder(r'D:\Music');
+      await library.removeFolder(music);
 
       final paths = (await library.watchTracks().first).map((t) => t.uri);
-      expect(paths, [r'D:\Music2\b.mp3']);
+      expect(paths, [sibling]);
       expect(await library.folders(), isEmpty);
     });
 

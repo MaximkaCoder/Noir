@@ -176,7 +176,7 @@ void main() {
     setUp(() => http = FakeInnerTube(recordedYouTubeMusic));
 
     InnerTubeClient client() =>
-        InnerTubeClient(dio: http.dio(), gl: 'US', retryDelay: Duration.zero);
+        InnerTubeClient(dio: http.dio(), retryDelay: Duration.zero);
 
     test('posts the ids to music/get_queue', () async {
       final queue = await client().queue(['Z85lxckrtzg', 'dQw4w9WgXcQ']);

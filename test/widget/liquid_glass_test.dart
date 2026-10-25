@@ -217,7 +217,7 @@ void main() {
     testWidgets('drives the glass live and persists', (tester) async {
       final app = await _playing(tester);
       final before = _islandStyle(tester);
-      expect(app.container.read(settingsProvider).glassLevel, 60);
+      expect(app.container.read(settingsProvider).glassLevel, 70);
 
       await _openSettings(tester);
       final slider = _glassSlider();

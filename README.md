@@ -1,14 +1,17 @@
 # NOIR
 
-**YouTube Music, as a real desktop app.**
+**Less interface. More music.**
 
 YouTube Music has no desktop app. What Google offers on Windows is the
 website in a window: it takes a while to start, stutters when you scroll a
 long playlist, and eats memory like a browser tab, because that's what it is.
 
-NOIR is a native player built for the same job. Your playlists, likes, radio,
-search and lyrics are all there, behind an interface that answers the moment
-you click. It's written in Flutter and also plays your own audio files.
+NOIR is a desktop client for YouTube Music. It isn't a separate music
+service and has no catalog of its own: under the hood it talks to YouTube
+Music's API, the same one music.youtube.com uses, and to the official
+YouTube Data API for your account. What changes is the app around it: a
+native interface that answers the moment you click, built for a computer
+rather than a browser tab. It also plays your own audio files.
 
 ![NOIR on Windows: Home, Now Playing with lyrics, search, an album, settings](docs/screenshots/noir.jpg)
 
@@ -21,9 +24,9 @@ purpose.</sub>
   your playlists and likes are cached on disk, so they show up instantly.
 - The interface is quiet: black and white, big artwork, nothing in the way
   of the music.
-- It does what the YouTube Music site does with the music you already have
-  there, and adds things the site doesn't: Apple Music style lyrics, smart
-  transitions between songs, local files in the same library.
+- The music is the YouTube Music you already have: same catalog, your
+  playlists and likes, radio and search. NOIR adds what the site lacks, such
+  as smooth transitions between songs and local files in the same library.
 
 ## What it does
 
@@ -63,18 +66,46 @@ The rest:
   in the background.
 - Dark, light and system themes; comfortable and compact density.
 
-## Privacy
+## How NOIR talks to YouTube Music
 
-Browsing YouTube Music (home feed, search, radio, lyrics) is anonymous. NOIR
-sends no cookies and no account tokens there, so nothing it does touches
-your Google account.
+```mermaid
+flowchart LR
+  subgraph pc [Your computer]
+    noir[NOIR]
+    cache[("Local cache<br/>playlists, likes, play log")]
+  end
+  ytm["YouTube Music API<br/>home, search, radio, lyrics"]
+  data["YouTube Data API v3<br/>your playlists and likes"]
+  noir -- "anonymous: no cookies, no account" --> ytm
+  noir -- "your Google sign-in (OAuth)" --> data
+  noir <--> cache
+```
 
-The Google sign-in is used only for the official YouTube Data API, to read
-and edit your playlists and likes. The refresh token sits in the Windows
-Credential Manager. Recommendations in **For you** are computed on your
-machine from a local play log; Settings has a button that clears it.
+YouTube Music has no public API for its catalog, home feed or radio. NOIR
+uses the API that the music.youtube.com website itself calls, and it calls it
+**without your account**: no cookies, no login, no tokens. A guard in the
+network layer strips any of them before a request leaves the app.
 
-Details: [docs/privacy.md](docs/privacy.md).
+That is deliberate, and it is about your account's safety. Signing in to
+that API from a third-party app means handing the app your browser session,
+which YouTube's Terms of Service don't allow. Google also watches for
+logged-in sessions driven by software that isn't a browser, and an account
+caught that way can be asked to verify itself, restricted or suspended. With
+anonymous requests the worst case is that YouTube slows down or blocks NOIR
+itself; your Google account is never part of it. The price is that the home
+feed is the same for everyone, which is why NOIR builds **For you** on your
+own computer from what you play, like and save.
+
+Your account goes through one door only: the official YouTube Data API, with
+a normal Google sign-in in your browser (OAuth). That is the route Google
+offers to apps. It covers your playlists and likes, asks for those
+permissions by name, and you can revoke it any time at
+[myaccount.google.com/permissions](https://myaccount.google.com/permissions).
+The refresh token is kept in the Windows Credential Manager.
+
+Recommendations, the play log and the cache stay on your computer. Settings
+has a button that clears the listening history. Details:
+[docs/privacy.md](docs/privacy.md).
 
 ## How the code is organized
 
@@ -128,30 +159,6 @@ playlists cost almost nothing. Edits made in NOIR show up locally right
 away, go out to the Data API, and are kept on top of YouTube's answers for a
 couple of minutes, because YouTube keeps returning the old list for a while
 after a write.
-
-## Building
-
-You need Flutter 3.47 (Dart 3.13) and Visual Studio with the C++ desktop
-workload and ATL. Full notes are in [docs/setup.md](docs/setup.md).
-
-```powershell
-flutter pub get
-dart run build_runner build
-./tool/run.ps1             # debug run
-./tool/run.ps1 -Release    # build\windows\x64\runner\Release\noir.exe
-```
-
-Google sign-in needs your own OAuth desktop client. Put its id in
-`config/oauth.local.json` (git ignores it; see `config.example/`). Without
-it NOIR runs fine, just without the account features.
-
-## Tests
-
-```powershell
-flutter analyze
-flutter test                               # about 620 unit and widget tests
-flutter test integration_test -d windows   # real audio engine on Windows
-```
 
 ## Platforms
 

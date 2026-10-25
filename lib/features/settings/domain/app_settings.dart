@@ -48,7 +48,7 @@ abstract class AppSettings with _$AppSettings {
 
     /// How much Liquid Glass the floating surfaces show, 0–100: higher is
     /// clearer (less tint and frost) with more saturation and refraction.
-    @Default(60) int glassLevel,
+    @Default(70) int glassLevel,
     @Default(true) bool animations,
     @Default(Density.comfortable) Density density,
     @Default(PerformanceMode.balanced) PerformanceMode performanceMode,
@@ -69,11 +69,13 @@ abstract class AppSettings with _$AppSettings {
     @Default(LyricsMode.lines)
     LyricsMode lyricsMode,
 
-    /// Experimental, off by default: plays YouTube without a visible player
-    /// and keeps playing when the window is hidden. This breaks YouTube API
-    /// Services policies (III.I.7, III.I.9) and can get NOIR's API access
-    /// revoked; it exists for personal testing only.
-    @Default(false) bool hideYouTubePlayer,
+    /// Plays YouTube without a visible player and keeps playing when the
+    /// window is hidden (owner decision; YouTube API Services policies
+    /// III.I.7 and III.I.9 ask for a visible player). Always on: not stored
+    /// and not offered in Settings; tests may turn it off.
+    @JsonKey(includeFromJson: false, includeToJson: false)
+    @Default(true)
+    bool hideYouTubePlayer,
   }) = _AppSettings;
 
   factory AppSettings.fromJson(Map<String, Object?> json) =>
