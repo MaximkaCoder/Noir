@@ -927,7 +927,6 @@ class _Player extends ConsumerWidget {
           lyrics: lyrics,
           wide: wide,
           viewport: box.maxHeight,
-          lyricsFont: lyricFont,
           detailsExtent: _TrackDetails.extentUnderCover(context, state),
           children: [
             if (cover)
@@ -1047,7 +1046,6 @@ class _Stage extends MultiChildRenderObjectWidget {
     required this.lyrics,
     required this.wide,
     required this.viewport,
-    required this.lyricsFont,
     required this.detailsExtent,
     required super.children,
   });
@@ -1055,9 +1053,6 @@ class _Stage extends MultiChildRenderObjectWidget {
   final Animation<double> lyrics;
   final bool wide;
   final double viewport;
-
-  /// The lyrics' type size on wide windows, which places their column.
-  final double lyricsFont;
 
   /// The details' height under the cover (wide, without lyrics) at a
   /// width. The cover is sized from it rather than from the details as
@@ -1086,23 +1081,15 @@ class _Stage extends MultiChildRenderObjectWidget {
       min(width * 0.28, height * 0.5).clamp(260.0, 560.0);
 
   @override
-  _RenderStage createRenderObject(BuildContext context) => _RenderStage(
-    lyrics,
-    detailsExtent,
-    wide: wide,
-    viewport: viewport,
-    lyricsFont: lyricsFont,
-  );
+  _RenderStage createRenderObject(BuildContext context) =>
+      _RenderStage(lyrics, detailsExtent, wide: wide, viewport: viewport);
 
   @override
   void updateRenderObject(BuildContext context, _RenderStage renderObject) {
-    if (renderObject.wide != wide ||
-        renderObject.viewport != viewport ||
-        renderObject.lyricsFont != lyricsFont) {
+    if (renderObject.wide != wide || renderObject.viewport != viewport) {
       renderObject
         ..wide = wide
         ..viewport = viewport
-        ..lyricsFont = lyricsFont
         ..markNeedsLayout();
     }
     renderObject
@@ -1120,7 +1107,6 @@ class _RenderStage extends RenderBox
     this._detailsExtent, {
     required this.wide,
     required this.viewport,
-    required this.lyricsFont,
   });
 
   Animation<double> get lyrics => _lyrics;
@@ -1135,7 +1121,6 @@ class _RenderStage extends RenderBox
 
   bool wide;
   double viewport;
-  double lyricsFont;
 
   double Function(double width) get detailsExtent => _detailsExtent;
   double Function(double width) _detailsExtent;
@@ -1301,28 +1286,18 @@ class _RenderStage extends RenderBox
         Offset.lerp(controlsA, controlsB, t)!,
         scale: _lerp(1, cScale, t),
       );
-      // The lyrics' column runs from a gap after the player to the right
-      // margin. Lines are start-aligned and most are much shorter than
-      // the column, so the column starts further right by half of what a
-      // typical line leaves free: typical lines sit centered in the space
-      // right of the player, long ones still reach the right margin.
-      final lyricsFrom = xB + colB + max<double>(32, w * 0.07);
+      // The lyrics run from a gap after the player as wide as the left
+      // margin (a little more on small windows, to keep them apart) to a
+      // matching right margin: equal spacing balances the page.
+      final lyricsFrom = xB + colB + max<double>(56, marginB);
       final lyricsTo = w - marginB;
-      final room = max<double>(0, lyricsTo - lyricsFrom);
-      final typicalLine = lyricsFont * 15;
-      // Never so far that a long line (~24 em) would have to wrap.
-      final indent = [
-        max<double>(0, room - typicalLine) / 2,
-        room * 0.25,
-        max<double>(0, room - lyricsFont * 24),
-      ].reduce(min);
       // Lyrics slide in from a little to the right as they fade in.
       placeTight(
         _Slot.lyrics,
         Rect.fromLTWH(
-          lyricsFrom + indent + (1 - t) * 48,
+          lyricsFrom + (1 - t) * 48,
           8,
-          room - indent,
+          max(0, lyricsTo - lyricsFrom),
           max(0, h - 32),
         ),
       );
@@ -1485,10 +1460,8 @@ class ControlCapsule extends ConsumerWidget {
             margin: const EdgeInsets.symmetric(horizontal: NoirSpacing.sm),
             color: c.textTertiary.withValues(alpha: 0.35),
           ),
-          const _RevealingVolume(),
-          gap,
           NoirIconButton(
-            icon: Icons.lyrics_rounded,
+            icon: Icons.format_quote_rounded,
             tooltip: lyrics ? 'Hide lyrics' : 'Show lyrics',
             active: lyrics,
             onPressed: ref.read(lyricsVisibleProvider.notifier).toggle,
@@ -1500,6 +1473,9 @@ class ControlCapsule extends ConsumerWidget {
             active: queueOpen,
             onPressed: () => unawaited(showQueueSheet(context, ref)),
           ),
+          gap,
+          // Last, so its slider slides out at the capsule's end.
+          const _RevealingVolume(),
         ],
       ),
     );

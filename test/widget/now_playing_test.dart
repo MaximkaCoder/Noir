@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math';
 import 'dart:ui' as ui;
 
 import 'package:flutter/gestures.dart';
@@ -356,7 +357,10 @@ void main() {
         at.lyrics.right,
         moreOrLessEquals(size.width - margin, epsilon: 1),
       );
-      expect(at.lyrics.left, greaterThan(at.cover.right + 32));
+      // The gap to the lyrics matches the margin: balanced, not pushed.
+      final gap = at.lyrics.left - at.cover.right;
+      expect(gap, greaterThanOrEqualTo(margin - 1));
+      expect(gap, lessThanOrEqualTo(max(56, margin * 1.3)));
       // The player column is centered vertically below the title bar.
       final above = at.cover.top - TitleBarMetrics.height;
       final below = size.height - at.column.bottom;
@@ -879,6 +883,12 @@ void main() {
           reason: tooltip,
         );
       }
+      // Transport, then lyrics, queue and, last, the volume.
+      double x(String tooltip) =>
+          tester.getCenter(inCapsule(find.byTooltip(tooltip))).dx;
+      expect(x('Repeat off'), lessThan(x('Show lyrics')));
+      expect(x('Show lyrics'), lessThan(x('Queue')));
+      expect(x('Queue'), lessThan(x('Mute')));
       // No separate Lyrics pill any more.
       expect(_inPlayer(find.text('Lyrics')), findsNothing);
 
@@ -1012,8 +1022,9 @@ void main() {
       // Tapped and focused, the lyrics button must not take Space itself.
       await tester.tap(_inPlayer(find.byTooltip('Show lyrics')));
       await tester.pumpAndSettle();
-      Focus.of(tester.element(_inPlayer(find.byIcon(Icons.lyrics_rounded))))
-          .requestFocus();
+      Focus.of(
+        tester.element(_inPlayer(find.byIcon(Icons.format_quote_rounded))),
+      ).requestFocus();
       await tester.pump();
       expect(app.container.read(lyricsVisibleProvider), isTrue);
       await tester.sendKeyEvent(LogicalKeyboardKey.space);
