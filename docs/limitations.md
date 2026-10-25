@@ -69,6 +69,6 @@ API anonymously (see [privacy.md](privacy.md)). It is undocumented:
 | Platform | Status |
 |---|---|
 | Windows | Debug and release builds verified; unit, widget and integration tests pass on Windows |
-| Android | Paused; release APK build currently fails (see above) |
-| macOS | Paused; not built |
-| iOS | Paused; not built |
+| Android | Planned |
+| macOS | Planned |
+| iOS | Planned |

@@ -1,14 +1,29 @@
 # NOIR
 
-**Less interface. More music.**
+**YouTube Music, as a real desktop app.**
 
-A desktop player for YouTube Music and your own audio files, written in
-Flutter. Windows is the main target and the only platform tested so far.
+YouTube Music has no desktop app. What Google offers on Windows is the
+website in a window: it takes a while to start, stutters when you scroll a
+long playlist, and eats memory like a browser tab, because that's what it is.
+
+NOIR is a native player built for the same job. Your playlists, likes, radio,
+search and lyrics are all there, behind an interface that answers the moment
+you click. It's written in Flutter and also plays your own audio files.
 
 ![NOIR on Windows: Home, Now Playing with lyrics, search, an album, settings](docs/screenshots/noir.jpg)
 
 <sub>Screenshots from the Windows build. Lyrics are blurred in the image on
 purpose.</sub>
+
+## Why NOIR
+
+- It's a native app, not a browser tab. Long playlists scroll smoothly, and
+  your playlists and likes are cached on disk, so they show up instantly.
+- The interface is quiet: black and white, big artwork, nothing in the way
+  of the music.
+- It does what the YouTube Music site does with the music you already have
+  there, and adds things the site doesn't: Apple Music style lyrics, smart
+  transitions between songs, local files in the same library.
 
 ## What it does
 
@@ -142,9 +157,10 @@ flutter test integration_test -d windows   # real audio engine on Windows
 
 | Platform | State |
 |---|---|
-| Windows | Daily driver. Debug and release builds tested |
-| Android | Paused. The project is set up, the release APK doesn't build yet |
-| macOS, iOS | Paused. Never built |
+| Windows | Available. Debug and release builds tested |
+| Android | Planned |
+| macOS | Planned |
+| iOS | Planned |
 
 What is missing on purpose, and why: [docs/limitations.md](docs/limitations.md).
 How YouTube fits in: [docs/youtube-capability-matrix.md](docs/youtube-capability-matrix.md).

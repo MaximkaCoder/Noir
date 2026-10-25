@@ -33,6 +33,7 @@ dependencies:
   package_info_plus: ^10.2.2
   path: ^1.9.1
   path_provider: ^2.1.6
+  path_provider_platform_interface: ^2.1.2
   permission_handler: ^13.0.2
   url_launcher: ^6.3.3
   webview_windows: ^0.4.0

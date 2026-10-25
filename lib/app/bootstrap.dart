@@ -10,6 +10,7 @@ import 'package:just_audio_media_kit/just_audio_media_kit.dart';
 import 'package:noir/app/app.dart';
 import 'package:noir/core/database/app_database.dart';
 import 'package:noir/core/database/database_provider.dart';
+import 'package:noir/core/platform/profile_paths.dart';
 import 'package:noir/features/analysis/application/analysis_providers.dart';
 import 'package:noir/features/library/application/library_scan_controller.dart';
 import 'package:noir/features/playback/application/playback_controller.dart';
@@ -18,6 +19,7 @@ import 'package:noir/features/playback/presentation/windows_media_controls.dart'
 import 'package:noir/features/settings/data/settings_repository.dart';
 import 'package:noir/features/settings/presentation/settings_controller.dart';
 import 'package:noir/features/youtube/application/youtube_sync.dart';
+import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:window_manager/window_manager.dart';
 
 /// Everything that must happen before the first frame: native audio init,
@@ -28,6 +30,11 @@ import 'package:window_manager/window_manager.dart';
 Future<void> bootstrap({List<Override> overrides = const []}) async {
   WidgetsFlutterBinding.ensureInitialized();
   _registerLicenses();
+
+  const profile = String.fromEnvironment('NOIR_PROFILE_DIR');
+  if (profile.isNotEmpty) {
+    PathProviderPlatform.instance = ProfilePathProvider(profile);
+  }
 
   // just_audio has no Windows/Linux backend of its own; media_kit fills in.
   JustAudioMediaKit.ensureInitialized();
