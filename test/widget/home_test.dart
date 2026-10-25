@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noir/app/router.dart';
 import 'package:noir/core/widgets/shelf_row.dart';
+import 'package:noir/features/discover/application/for_you.dart';
 import 'package:noir/features/home/application/pinned_playlists.dart';
 import 'package:noir/features/home/presentation/home_screen.dart';
 import 'package:noir/features/library/data/library_repository.dart';
@@ -181,6 +182,29 @@ void main() {
       expect(_row('Relax'), findsOneWidget);
       expect(_row('Quick picks'), findsOneWidget);
       expect(find.byType(SingleChildScrollView), findsNothing);
+    });
+
+    testWidgets('a Listen again song starts its radio', (tester) async {
+      final ytm = FakeInnerTubeClient()
+        ..radioPages['y1'] = YtmTrackPage(
+          tracks: [ytTrack('y1'), ytTrack('r1'), ytTrack('r2')],
+        );
+      final app = await TestApp.pump(tester, innerTube: ytm);
+      final log = app.container.read(youTubePlayLogProvider);
+      await log.record(ytTrack('y2'));
+      await log.record(ytTrack('y1'));
+      app.container.invalidate(listenAgainProvider);
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.descendant(
+          of: _row('Listen again'),
+          matching: find.text('Song y1'),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final queue = app.container.read(playbackProvider).queue;
+      expect([for (final q in queue) q.track.uri], ['y1', 'r1', 'r2']);
     });
 
     for (final size in const [

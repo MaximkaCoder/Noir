@@ -43,7 +43,8 @@ Widget ytmArtwork(YtmItem item, double size) => switch (item) {
 };
 
 /// Opens [item]: songs and videos play together with the other songs in
-/// [siblings] (a shelf or result list); albums and playlists open under
+/// [siblings] (a shelf or result list), or with [radio] as the start of
+/// their own radio; albums and playlists open under
 /// [base] (`/discover` on Home, `/search` on Search); artists open a
 /// YouTube Music search for their songs.
 void openYtmItem(
@@ -52,8 +53,11 @@ void openYtmItem(
   YtmItem item, {
   required List<YtmItem> siblings,
   required String base,
+  bool radio = false,
 }) {
   switch (item) {
+    case YtmTrackItem() when radio:
+      unawaited(ref.read(playbackProvider.notifier).startRadio(item.track));
     case YtmTrackItem():
       final tracks = [
         for (final s in siblings)
@@ -120,6 +124,7 @@ class YtmTile extends ConsumerWidget {
     required this.siblings,
     required this.width,
     this.base = '/discover',
+    this.radio = false,
     super.key,
   });
 
@@ -127,6 +132,9 @@ class YtmTile extends ConsumerWidget {
   final List<YtmItem> siblings;
   final double width;
   final String base;
+
+  /// Songs start their own radio instead of playing [siblings].
+  final bool radio;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -136,8 +144,14 @@ class YtmTile extends ConsumerWidget {
       title: item.title,
       subtitle: ytmSubtitle(item),
       artwork: (s) => ytmArtwork(item, s),
-      onTap: () =>
-          openYtmItem(context, ref, item, siblings: siblings, base: base),
+      onTap: () => openYtmItem(
+        context,
+        ref,
+        item,
+        siblings: siblings,
+        base: base,
+        radio: radio,
+      ),
       onContextMenu: item is YtmTrackItem
           ? (position) =>
                 unawaited(showYtmTrackMenu(context, ref, item, position))

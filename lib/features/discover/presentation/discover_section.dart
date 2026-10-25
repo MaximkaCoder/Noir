@@ -215,6 +215,8 @@ class ListenAgainSection extends ConsumerWidget {
         items: [for (final t in tracks) YtmTrackItem(t)],
       ),
       tile: tileWidth,
+      // As on YouTube Music: a song played again goes on with its radio.
+      radio: true,
     );
   }
 }
@@ -385,10 +387,16 @@ class _ChipRow extends StatelessWidget {
 }
 
 class _ShelfRow extends StatelessWidget {
-  const _ShelfRow({required this.shelf, required this.tile, super.key});
+  const _ShelfRow({
+    required this.shelf,
+    required this.tile,
+    this.radio = false,
+    super.key,
+  });
 
   final YtmShelf shelf;
   final double tile;
+  final bool radio;
 
   @override
   Widget build(BuildContext context) {
@@ -405,6 +413,7 @@ class _ShelfRow extends StatelessWidget {
               item: item,
               siblings: shelf.items,
               width: tile,
+              radio: radio,
             ),
         ],
       ),

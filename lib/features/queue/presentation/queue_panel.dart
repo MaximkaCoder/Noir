@@ -139,9 +139,12 @@ class _QueueSheet extends ConsumerWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    // The title bar's geometry, so these window dots sit
+                    // exactly over the ones of the screen underneath.
                     WindowDragArea(
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(20, 8, 12, 4),
+                      child: Container(
+                        height: TitleBarMetrics.height,
+                        padding: TitleBarMetrics.padding.copyWith(left: 20),
                         child: Row(
                           children: [
                             Expanded(
