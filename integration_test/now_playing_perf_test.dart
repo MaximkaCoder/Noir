@@ -22,6 +22,8 @@ import 'package:noir/app/app.dart';
 import 'package:noir/app/router.dart';
 import 'package:noir/core/database/database_provider.dart';
 import 'package:noir/features/accounts/domain/account_connection.dart';
+import 'package:noir/features/artwork/application/artwork_providers.dart';
+import 'package:noir/features/artwork/application/artwork_resolver.dart';
 import 'package:noir/features/discover/application/discover_providers.dart';
 import 'package:noir/features/library/application/library_scan_controller.dart';
 import 'package:noir/features/library/data/library_repository.dart';
@@ -154,6 +156,8 @@ void main() {
         initialSettingsProvider.overrideWithValue(const AppSettings()),
         httpClientProvider.overrideWithValue(http.dio()),
         innerTubeClientProvider.overrideWithValue(FakeInnerTubeClient()),
+        // Nothing written to the real app's data folder.
+        artworkResolverProvider.overrideWithValue(ArtworkResolver.offline()),
         appDirectoriesProvider.overrideWithValue(
           AppDirectories(
             artwork: Directory(p.join(tmp.path, 'artwork')),
@@ -276,8 +280,7 @@ void main() {
         .update((s) => s.copyWith(lyricsMode: LyricsMode.lines));
 
     if (_shotDir.isNotEmpty) {
-      Future<void> shot(String name) async {
-        await wait(900);
+      Future<void> capture(String name) async {
         final boundary =
             _shotKey.currentContext!.findRenderObject()!
                 as RenderRepaintBoundary;
@@ -286,6 +289,11 @@ void main() {
         final file = File(p.join(_shotDir, '$name.png'));
         await file.create(recursive: true);
         await file.writeAsBytes(bytes!.buffer.asUint8List());
+      }
+
+      Future<void> shot(String name) async {
+        await wait(900);
+        await capture(name);
       }
 
       await tester.tap(openButton);
@@ -301,7 +309,13 @@ void main() {
           .update((s) => s.copyWith(lyricsMode: LyricsMode.lines));
       container.read(lyricsVisibleProvider.notifier).set(visible: false);
       await shot('now_playing');
+      // Part way through closing: the shell shows through the shape, then
+      // the shape hands over to the island.
       router.pop();
+      await wait(140);
+      await capture('now_playing_closing_mid');
+      await wait(120);
+      await capture('now_playing_closing_end');
       await wait(800);
       container.read(lyricsVisibleProvider.notifier).set(visible: true);
     }

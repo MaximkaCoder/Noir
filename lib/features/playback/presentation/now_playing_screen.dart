@@ -63,6 +63,9 @@ class NowPlayingScreen extends ConsumerStatefulWidget {
   /// The lyrics' place in the layout, for tests.
   static const lyricsKey = ValueKey('now-playing-lyrics');
 
+  /// The [NowPlayingVeilPainter]'s paint, for tests.
+  static const veilKey = ValueKey('now-playing-veil');
+
   @override
   ConsumerState<NowPlayingScreen> createState() => _NowPlayingScreenState();
 }
@@ -80,9 +83,11 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
     reverseCurve: NoirMotion.emphasized.flipped,
   );
 
-  /// The route's own animation, eased like the morph.
+  /// The route's own animation, and how visible the content and how opaque
+  /// the backdrop are along it.
   Animation<double>? _route;
-  CurvedAnimation? _routeCurve;
+  CurvedAnimation? _content;
+  CurvedAnimation? _material;
 
   /// Whether the opening transition is over. Lyrics (and their lookup) wait
   /// for it, so nothing heavy competes with the morph.
@@ -112,9 +117,13 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
     final route = ModalRoute.of(context)?.animation;
     if (route == _route) return;
     _route?.removeStatusListener(_routeStatus);
-    _routeCurve?.dispose();
+    _content?.dispose();
+    _material?.dispose();
     _route = route;
-    _routeCurve = route == null ? null : NowPlayingTransition.curve(route);
+    _content = route == null ? null : NowPlayingTransition.contentCurve(route);
+    _material = route == null
+        ? null
+        : NowPlayingTransition.backdropCurve(route);
     route?.addStatusListener(_routeStatus);
     _settled = route == null || route.isCompleted;
   }
@@ -126,7 +135,8 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
   @override
   void dispose() {
     _route?.removeStatusListener(_routeStatus);
-    _routeCurve?.dispose();
+    _content?.dispose();
+    _material?.dispose();
     _lyricsCurve.dispose();
     _lyrics.dispose();
     _backdrop.dispose();
@@ -141,7 +151,8 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
 
     // Present while shown or on the way in or out.
     final lyrics = !_lyrics.isDismissed;
-    final routeCurve = _routeCurve;
+    final content = _content;
+    final material = _material;
 
     return CallbackShortcuts(
       bindings: {const SingleActivator(LogicalKeyboardKey.escape): close},
@@ -152,54 +163,65 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
           body: Stack(
             fit: StackFit.expand,
             children: [
-              _ArtworkBackdrop(
-                source: _backdropSource(ref, current?.track),
-                baked: _backdrop,
+              // The opaque backdrop and the content are skipped while the
+              // morph shows only the (possibly see-through) material.
+              _ContentGate(
+                content: content,
+                child: _ArtworkBackdrop(
+                  source: _backdropSource(ref, current?.track),
+                  baked: _backdrop,
+                ),
               ),
-              LiquidPressScope(
-                child: RepaintBoundary(
-                  child: SafeArea(
-                    child: GestureDetector(
-                      onVerticalDragEnd: (d) {
-                        if ((d.primaryVelocity ?? 0) > 400) close();
-                      },
-                      child: Column(
-                        children: [
-                          _TopBar(onClose: close, state: s),
-                          Expanded(
-                            child: current == null
-                                ? const EmptyState(
-                                    icon: Icons.music_off_rounded,
-                                    title: 'Nothing playing',
-                                    message:
-                                        'Pick a song from your library to '
-                                        'start.',
-                                  )
-                                : LayoutBuilder(
-                                    builder: (context, box) => _Player(
-                                      state: s,
-                                      box: box,
-                                      lyrics: _lyricsCurve,
-                                      showLyrics: lyrics,
-                                      lyricsReady: _settled,
+              _ContentGate(
+                content: content,
+                child: LiquidPressScope(
+                  child: RepaintBoundary(
+                    child: SafeArea(
+                      child: GestureDetector(
+                        onVerticalDragEnd: (d) {
+                          if ((d.primaryVelocity ?? 0) > 400) close();
+                        },
+                        child: Column(
+                          children: [
+                            _TopBar(onClose: close, state: s),
+                            Expanded(
+                              child: current == null
+                                  ? const EmptyState(
+                                      icon: Icons.music_off_rounded,
+                                      title: 'Nothing playing',
+                                      message:
+                                          'Pick a song from your library to '
+                                          'start.',
+                                    )
+                                  : LayoutBuilder(
+                                      builder: (context, box) => _Player(
+                                        state: s,
+                                        box: box,
+                                        lyrics: _lyricsCurve,
+                                        showLyrics: lyrics,
+                                        lyricsReady: _settled,
+                                      ),
                                     ),
-                                  ),
-                          ),
-                        ],
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
                 ),
               ),
               // While the page morphs open (or closed) its content fades
-              // in over a copy of the backdrop — no offscreen layer.
-              if (routeCurve != null)
+              // in over a copy of the backdrop, and the backdrop itself is
+              // painted see-through by alpha — no offscreen layer.
+              if (content != null && material != null)
                 IgnorePointer(
                   child: RepaintBoundary(
                     child: CustomPaint(
+                      key: NowPlayingScreen.veilKey,
                       size: Size.infinite,
-                      painter: _VeilPainter(
-                        progress: routeCurve,
+                      painter: NowPlayingVeilPainter(
+                        content: content,
+                        material: material,
                         image: _backdrop,
                         scrim: _scrimColors(context),
                         fallback: context.noir.background,
@@ -238,26 +260,44 @@ List<Color> _scrimColors(BuildContext context) {
   ];
 }
 
-/// Paints the page's backdrop over its content at 1 − content opacity, so
-/// the content appears to fade in without a layer of its own.
-class _VeilPainter extends CustomPainter {
-  _VeilPainter({
-    required this.progress,
+/// The page's material while it morphs. While the content shows, it paints
+/// the page's backdrop over the content at 1 − content opacity, so the
+/// content appears to fade without a layer of its own. Once the content is
+/// gone (and [_ContentGate] skips it and the opaque backdrop), it is the
+/// backdrop, painted at [backdropOpacity] so the shell shows through.
+class NowPlayingVeilPainter extends CustomPainter {
+  NowPlayingVeilPainter({
+    required this.content,
+    required this.material,
     required this.image,
     required this.scrim,
     required this.fallback,
-  }) : super(repaint: Listenable.merge([progress, image]));
+  }) : super(repaint: Listenable.merge([content, material, image]));
 
-  final Animation<double> progress;
+  /// See [NowPlayingTransition.contentCurve].
+  final Animation<double> content;
+
+  /// See [NowPlayingTransition.backdropCurve].
+  final Animation<double> material;
   final ValueListenable<ui.Image?> image;
   final List<Color> scrim;
 
   /// Painted when there is no artwork.
   final Color fallback;
 
+  /// How visible the content is now.
+  double get contentOpacity =>
+      NowPlayingTransition.morphs ? content.value.clamp(0.0, 1.0) : 1;
+
+  /// How opaque the page's backdrop is now: below 1 the shell shows
+  /// through the morphing shape. Opaque while any content shows.
+  double get backdropOpacity =>
+      contentOpacity > 0 ? 1 : material.value.clamp(0.0, 1.0);
+
   @override
   void paint(Canvas canvas, Size size) {
-    final veil = 1 - NowPlayingTransition.contentOpacity(progress.value);
+    final shown = contentOpacity;
+    final veil = shown > 0 ? 1 - shown : backdropOpacity;
     if (veil <= 0) return;
     final rect = Offset.zero & size;
     final art = image.value;
@@ -288,11 +328,80 @@ class _VeilPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_VeilPainter old) =>
-      old.progress != progress ||
+  bool shouldRepaint(NowPlayingVeilPainter old) =>
+      old.content != content ||
+      old.material != material ||
       old.image != image ||
       !listEquals(old.scrim, scrim) ||
       old.fallback != fallback;
+}
+
+/// Paints [child] only while some of Now Playing's content shows (always
+/// once the page is open). Repaints only when that flips, so the morph
+/// never re-records the content or the opaque backdrop.
+class _ContentGate extends SingleChildRenderObjectWidget {
+  const _ContentGate({required this.content, required super.child});
+
+  /// See [NowPlayingTransition.contentCurve]; null outside a route.
+  final Animation<double>? content;
+
+  @override
+  _RenderContentGate createRenderObject(BuildContext context) =>
+      _RenderContentGate(content);
+
+  @override
+  void updateRenderObject(BuildContext context, _RenderContentGate gate) =>
+      gate.content = content;
+}
+
+class _RenderContentGate extends RenderProxyBox {
+  _RenderContentGate(this._content);
+
+  Animation<double>? get content => _content;
+  Animation<double>? _content;
+  set content(Animation<double>? value) {
+    if (value == _content) return;
+    if (attached) _content?.removeListener(_check);
+    _content = value;
+    if (attached) _content?.addListener(_check);
+    _check();
+  }
+
+  bool _shown = true;
+
+  bool get _visible {
+    final content = _content;
+    return content == null || content.value > 0 || !NowPlayingTransition.morphs;
+  }
+
+  void _check() {
+    final visible = _visible;
+    if (visible == _shown) return;
+    _shown = visible;
+    markNeedsPaint();
+  }
+
+  @override
+  void attach(PipelineOwner owner) {
+    super.attach(owner);
+    _content?.addListener(_check);
+    _shown = _visible;
+  }
+
+  @override
+  void detach() {
+    _content?.removeListener(_check);
+    super.detach();
+  }
+
+  @override
+  void paint(PaintingContext context, Offset offset) {
+    if (_shown) super.paint(context, offset);
+  }
+
+  @override
+  bool hitTestChildren(BoxHitTestResult result, {required Offset position}) =>
+      _shown && super.hitTestChildren(result, position: position);
 }
 
 /// Full-bleed, heavily blurred artwork under a scrim, cross-fading between
@@ -520,103 +629,108 @@ class _TopBar extends ConsumerWidget {
         : _artistsOf(track, links);
     final album = track == null ? null : _albumOf(track, links);
     final lyricsMode = ref.watch(settingsProvider.select((s) => s.lyricsMode));
+    // The shell's title bar geometry, so the window dots don't move when
+    // the page opens; the More button shares their line.
     return WindowDragArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-        child: Row(
-          children: [
-            if (reservesWindowControlsSpace) const SizedBox(width: 72),
-            NoirIconButton(
-              icon: Icons.keyboard_arrow_down_rounded,
-              tooltip: 'Close player (Esc)',
-              size: 26,
-              onPressed: onClose,
-            ),
-            const Spacer(),
-            if (track != null)
-              LiquidPress(
-                child: PopupMenuButton<String>(
-                  tooltip: 'More',
-                  icon: Icon(
-                    Icons.more_horiz_rounded,
-                    color: context.noir.textSecondary,
-                  ),
-                  onSelected: (v) async {
-                    for (final mode in LyricsMode.values) {
-                      if (v == 'lyrics ${mode.name}') {
-                        ref
-                            .read(settingsProvider.notifier)
-                            .update((s) => s.copyWith(lyricsMode: mode));
-                      }
-                    }
-                    if (v == 'playlist') {
-                      await addToPlaylist(context, ref, [track]);
-                    }
-                    if (v == 'queue' && context.mounted) {
-                      await showQueueSheet(context, ref);
-                    }
-                    if (v == 'album' && context.mounted) {
-                      await album?.open(context, ref);
-                    }
-                    if (v.startsWith('artist ') && context.mounted) {
-                      await artists[int.parse(v.substring(7))].open(
-                        context,
-                        ref,
-                      );
-                    }
-                  },
-                  itemBuilder: (_) => [
-                    if (track.localId != null)
-                      const PopupMenuItem(
-                        value: 'playlist',
-                        child: Text('Add to playlist…'),
-                      ),
-                    const PopupMenuItem(
-                      value: 'queue',
-                      child: Text('Show queue'),
+      child: SizedBox(
+        height: TitleBarMetrics.height,
+        child: Padding(
+          padding: TitleBarMetrics.padding.copyWith(left: 12),
+          child: Row(
+            children: [
+              if (reservesWindowControlsSpace) const SizedBox(width: 72),
+              NoirIconButton(
+                icon: Icons.keyboard_arrow_down_rounded,
+                tooltip: 'Close player (Esc)',
+                size: 26,
+                onPressed: onClose,
+              ),
+              const Spacer(),
+              if (track != null)
+                LiquidPress(
+                  child: PopupMenuButton<String>(
+                    tooltip: 'More',
+                    icon: Icon(
+                      Icons.more_horiz_rounded,
+                      color: context.noir.textSecondary,
                     ),
-                    for (final (i, a) in artists.indexed)
+                    onSelected: (v) async {
+                      for (final mode in LyricsMode.values) {
+                        if (v == 'lyrics ${mode.name}') {
+                          ref
+                              .read(settingsProvider.notifier)
+                              .update((s) => s.copyWith(lyricsMode: mode));
+                        }
+                      }
+                      if (v == 'playlist') {
+                        await addToPlaylist(context, ref, [track]);
+                      }
+                      if (v == 'queue' && context.mounted) {
+                        await showQueueSheet(context, ref);
+                      }
+                      if (v == 'album' && context.mounted) {
+                        await album?.open(context, ref);
+                      }
+                      if (v.startsWith('artist ') && context.mounted) {
+                        await artists[int.parse(v.substring(7))].open(
+                          context,
+                          ref,
+                        );
+                      }
+                    },
+                    itemBuilder: (_) => [
+                      if (track.localId != null)
+                        const PopupMenuItem(
+                          value: 'playlist',
+                          child: Text('Add to playlist…'),
+                        ),
+                      const PopupMenuItem(
+                        value: 'queue',
+                        child: Text('Show queue'),
+                      ),
+                      for (final (i, a) in artists.indexed)
+                        PopupMenuItem(
+                          value: 'artist $i',
+                          child: Text(
+                            artists.length == 1
+                                ? 'Go to artist'
+                                : 'Go to ${a.label}',
+                          ),
+                        ),
+                      if (album != null)
+                        const PopupMenuItem(
+                          value: 'album',
+                          child: Text('Go to album'),
+                        ),
+                      const PopupMenuDivider(),
                       PopupMenuItem(
-                        value: 'artist $i',
+                        enabled: false,
+                        height: 32,
                         child: Text(
-                          artists.length == 1
-                              ? 'Go to artist'
-                              : 'Go to ${a.label}',
+                          'Lyrics style',
+                          style: Theme.of(context).textTheme.labelSmall
+                              ?.copyWith(color: context.noir.textTertiary),
                         ),
                       ),
-                    if (album != null)
-                      const PopupMenuItem(
-                        value: 'album',
-                        child: Text('Go to album'),
-                      ),
-                    const PopupMenuDivider(),
-                    PopupMenuItem(
-                      enabled: false,
-                      height: 32,
-                      child: Text(
-                        'Lyrics style',
-                        style: Theme.of(context).textTheme.labelSmall
-                            ?.copyWith(color: context.noir.textTertiary),
-                      ),
-                    ),
-                    for (final (mode, label) in const [
-                      (LyricsMode.lines, 'Lines'),
-                      (LyricsMode.karaoke, 'Karaoke'),
-                    ])
-                      CheckedPopupMenuItem(
-                        value: 'lyrics ${mode.name}',
-                        checked: lyricsMode == mode,
-                        child: Text(label),
-                      ),
-                  ],
+                      for (final (mode, label) in const [
+                        (LyricsMode.lines, 'Lines'),
+                        (LyricsMode.karaoke, 'Karaoke'),
+                      ])
+                        CheckedPopupMenuItem(
+                          value: 'lyrics ${mode.name}',
+                          checked: lyricsMode == mode,
+                          child: Text(label),
+                        ),
+                    ],
+                  ),
                 ),
-              ),
-            if (usesCustomWindowChrome) ...[
-              const SizedBox(width: NoirSpacing.sm),
-              // Over the artwork wash, not the shell's plain background.
-              const WindowControls(onImage: true),
+              if (usesCustomWindowChrome) ...[
+                const SizedBox(width: NoirSpacing.sm),
+                // Over the artwork wash, not the shell's plain background.
+                const WindowControls(onImage: true),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );
@@ -657,7 +771,8 @@ class _Player extends ConsumerWidget {
     final cover = wide || lyrics.value < 1 || lyrics.status.isAnimating;
     final art = _Stage.coverSize(box, wide: wide);
 
-    Widget details(double large) => _TrackDetails(state: state, large: large);
+    Widget details(double large) =>
+        _TrackDetails(state: state, large: large, centered: large);
 
     return SmoothScroll(
       builder: (context, scroll) => SingleChildScrollView(
@@ -666,6 +781,7 @@ class _Player extends ConsumerWidget {
           lyrics: lyrics,
           wide: wide,
           viewport: box.maxHeight,
+          detailsExtent: _TrackDetails.extentUnderCover(context, state),
           children: [
             if (cover)
               _StageSlot(
@@ -787,6 +903,7 @@ class _Stage extends MultiChildRenderObjectWidget {
     required this.lyrics,
     required this.wide,
     required this.viewport,
+    required this.detailsExtent,
     required super.children,
   });
 
@@ -794,15 +911,27 @@ class _Stage extends MultiChildRenderObjectWidget {
   final bool wide;
   final double viewport;
 
-  /// The cover's size without lyrics (the larger of its two sizes), which
-  /// its image is decoded for.
+  /// The details' height under the cover (wide, without lyrics) at a
+  /// width. The cover is sized from it rather than from the details as
+  /// laid out, which glide with the lyrics and animate between tracks:
+  /// so the cover never swells mid-glide.
+  final double Function(double width) detailsExtent;
+
+  /// The largest the cover gets, which its image is decoded for. A pixel
+  /// to spare on wide windows: rounding must never make a YouTube cover's
+  /// crop come out smaller than the cover drawn at its largest.
   static double coverSize(BoxConstraints box, {required bool wide}) => wide
-      ? (box.maxWidth * 0.32).clamp(240.0, 420.0)
+      ? max(wideCoverCap(box.maxWidth, box.maxHeight), 340) + 1
       : max<double>(160, min(box.maxWidth - 48, box.maxHeight * 0.45));
+
+  /// The largest the cover gets on a wide window without lyrics; the
+  /// height may make it smaller.
+  static double wideCoverCap(double width, double height) =>
+      min(min(460, width * 0.42), max(200, height * 0.62));
 
   @override
   _RenderStage createRenderObject(BuildContext context) =>
-      _RenderStage(lyrics, wide: wide, viewport: viewport);
+      _RenderStage(lyrics, detailsExtent, wide: wide, viewport: viewport);
 
   @override
   void updateRenderObject(BuildContext context, _RenderStage renderObject) {
@@ -812,7 +941,9 @@ class _Stage extends MultiChildRenderObjectWidget {
         ..viewport = viewport
         ..markNeedsLayout();
     }
-    renderObject.lyrics = lyrics;
+    renderObject
+      ..lyrics = lyrics
+      ..detailsExtent = detailsExtent;
   }
 }
 
@@ -820,7 +951,12 @@ class _RenderStage extends RenderBox
     with
         ContainerRenderObjectMixin<RenderBox, _StageParentData>,
         RenderBoxContainerDefaultsMixin<RenderBox, _StageParentData> {
-  _RenderStage(this._lyrics, {required this.wide, required this.viewport});
+  _RenderStage(
+    this._lyrics,
+    this._detailsExtent, {
+    required this.wide,
+    required this.viewport,
+  });
 
   Animation<double> get lyrics => _lyrics;
   Animation<double> _lyrics;
@@ -834,6 +970,14 @@ class _RenderStage extends RenderBox
 
   bool wide;
   double viewport;
+
+  double Function(double width) get detailsExtent => _detailsExtent;
+  double Function(double width) _detailsExtent;
+  set detailsExtent(double Function(double width) value) {
+    _detailsExtent = value;
+    // Only the cover without lyrics depends on it.
+    if (wide) markNeedsLayout();
+  }
 
   @override
   void setupParentData(RenderBox child) {
@@ -896,45 +1040,60 @@ class _RenderStage extends RenderBox
 
     double height;
     if (wide) {
-      // Without lyrics: cover beside the details, controls centered below.
-      final cwA = min<double>(w - 96, 1040);
-      final xA = (w - cwA) / 2;
-      final artA = (w * 0.32).clamp(240.0, 420.0);
-      final dwA = max<double>(0, cwA - artA - 48);
-
       // With lyrics: a player column beside them.
       final cwB = min<double>(w - 96, 1280);
       final xB = (w - cwB) / 2;
       final colB = (cwB * 0.36).clamp(280.0, 400.0);
       final gapB = (cwB * 0.06).clamp(32.0, 80.0);
       final artB = min(colB, h * 0.4).clamp(160.0, 340.0);
-
-      final dw = _lerp(dwA, colB, t);
-      final details = measure(_Slot.details, dw);
-      final progress = measure(_Slot.progress, dw);
-      final video = measure(_Slot.video, dw);
       final hasVideo = c[_Slot.video] != null;
 
-      // Without lyrics.
-      final rightA =
-          details.height +
+      // Without lyrics: one centered column — cover, details, progress,
+      // transport, secondary (and the video) — the cover sized so it all
+      // fits the height, the progress bar as wide as the cover (within
+      // readable bounds). The details are laid out at a width that depends
+      // on the window only (laying them out twice would restart their
+      // AnimatedSize); centered, that width doesn't show.
+      final capA = _Stage.wideCoverCap(w, h);
+      double columnFor(double art) =>
+          min(max(art, 360), max<double>(0, w - 96));
+      final textA = columnFor(capA);
+      final details = measure(_Slot.details, _lerp(textA, colB, t));
+      final video = measure(_Slot.video, _lerp(textA, colB, t));
+      final detailsA = _detailsExtent(textA);
+      final rest =
           28 +
-          progress.height +
+          detailsA +
+          16 +
+          measure(_Slot.progress, textA).height +
+          20 +
+          transport.height +
+          8 +
+          secondary.height +
           (hasVideo ? 20 + video.height : 0);
-      final rowA = max(artA, rightA);
-      final totalA = rowA + 36 + transport.height + 8 + secondary.height;
+      final artA = min(capA, max(min<double>(160, capA), h - 48 - rest));
+      final colA = columnFor(artA);
+      final progress = measure(_Slot.progress, _lerp(colA, colB, t));
+
+      final totalA = artA + rest - detailsA + details.height;
       final yA = max<double>(16, (h - totalA) / 2);
-      final coverA = Rect.fromLTWH(xA, yA + (rowA - artA) / 2, artA, artA);
-      final detailsA = Offset(xA + artA + 48, yA + (rowA - rightA) / 2);
-      final progressA = detailsA.translate(0, details.height + 28);
-      final videoA = progressA.translate(0, progress.height + 20);
+      final coverA = Rect.fromLTWH((w - artA) / 2, yA, artA, artA);
+      final detailsAt = Offset((w - textA) / 2, coverA.bottom + 28);
+      final progressA = Offset(
+        (w - colA) / 2,
+        detailsAt.dy + details.height + 16,
+      );
       final transportA = Offset(
-        xA + (cwA - transport.width) / 2,
-        yA + rowA + 36,
+        (w - transport.width) / 2,
+        progressA.dy + progress.height + 20,
       );
       final secondaryA = Offset(
-        xA + (cwA - secondary.width) / 2,
+        (w - secondary.width) / 2,
         transportA.dy + transport.height + 8,
+      );
+      final videoA = Offset(
+        (w - video.width) / 2,
+        secondaryA.dy + secondary.height + 20,
       );
       final heightA = yA + totalA + 16;
 
@@ -968,7 +1127,7 @@ class _RenderStage extends RenderBox
       final heightB = max(h, yB + totalB + 24);
 
       placeTight(_Slot.cover, Rect.lerp(coverA, coverB, t)!);
-      place(_Slot.details, Offset.lerp(detailsA, detailsB, t)!);
+      place(_Slot.details, Offset.lerp(detailsAt, detailsB, t)!);
       place(_Slot.progress, Offset.lerp(progressA, progressB, t)!);
       place(_Slot.video, Offset.lerp(videoA, videoB, t)!);
       place(
@@ -1164,13 +1323,56 @@ class _LargeArtwork extends StatelessWidget {
 }
 
 /// Title (with the save heart), artist and album. [large] runs from 0
-/// (beside lyrics, narrow windows) to 1 (wide, beside the cover) and sizes
-/// the title between the two.
+/// (beside lyrics, narrow windows) to 1 (wide, under the cover) and sizes
+/// the title between the two; [centered] runs from 0 (start-aligned) to 1
+/// (centered under the cover), gliding each line between the two.
 class _TrackDetails extends ConsumerWidget {
-  const _TrackDetails({required this.state, required this.large});
+  const _TrackDetails({
+    required this.state,
+    required this.large,
+    required this.centered,
+  });
 
   final PlaybackState state;
   final double large;
+  final double centered;
+
+  /// About how tall the details are under the cover (large, centered) at
+  /// a width, from text metrics alone.
+  static double Function(double width) extentUnderCover(
+    BuildContext context,
+    PlaybackState state,
+  ) {
+    final track = state.current?.track;
+    if (track == null) return (_) => 0;
+    final t = Theme.of(context).textTheme;
+    final scaler = MediaQuery.textScalerOf(context);
+    double heightOf(
+      String text,
+      TextStyle? style,
+      double maxWidth, {
+      int? lines,
+    }) {
+      final painter = TextPainter(
+        text: TextSpan(text: text, style: style),
+        textDirection: TextDirection.ltr,
+        textScaler: scaler,
+        maxLines: lines,
+        ellipsis: lines == null ? null : '…',
+      )..layout(maxWidth: max(0, maxWidth));
+      final height = painter.height;
+      painter.dispose();
+      return height;
+    }
+
+    final album = track.album;
+    return (width) =>
+        // Room for a save button on either side of the title.
+        heightOf(track.title, t.displaySmall, width - 2 * 48, lines: 2) +
+        6 +
+        heightOf(track.artistOrUnknown, t.titleMedium, width) +
+        (album == null ? 0 : 4 + heightOf(album, t.bodyLarge, width));
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -1180,48 +1382,64 @@ class _TrackDetails extends ConsumerWidget {
     final failed =
         state.status == PlaybackStatus.error ||
         state.status == PlaybackStatus.unavailable;
+    final align = Alignment.lerp(
+      Alignment.centerLeft,
+      Alignment.center,
+      centered,
+    )!;
+    final textAlign = centered >= 0.5 ? TextAlign.center : TextAlign.start;
+    final buttons = [
+      if (track.localId != null)
+        NoirIconButton(
+          icon: track.isFavorite
+              ? Icons.favorite_rounded
+              : Icons.favorite_border_rounded,
+          tooltip: track.isFavorite
+              ? 'Remove from favorites (this device)'
+              : 'Add to favorites (this device)',
+          active: track.isFavorite,
+          onPressed: () => unawaited(
+            ref.read(playbackProvider.notifier).toggleFavorite(track),
+          ),
+        ),
+      if (track.source == MediaSource.youtube)
+        YouTubeSaveButton(track, size: 22),
+    ];
+    Widget line(Widget child) => Align(alignment: align, child: child);
     final details = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
       children: [
-        Row(
+        _TitleRow(
+          centered: centered,
           children: [
-            Expanded(
-              child: Text(
-                track.title,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle.lerp(t.headlineSmall, t.displaySmall, large),
-              ),
+            Text(
+              track.title,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              textAlign: textAlign,
+              style: TextStyle.lerp(t.headlineSmall, t.displaySmall, large),
             ),
-            if (track.localId != null)
-              NoirIconButton(
-                icon: track.isFavorite
-                    ? Icons.favorite_rounded
-                    : Icons.favorite_border_rounded,
-                tooltip: track.isFavorite
-                    ? 'Remove from favorites (this device)'
-                    : 'Add to favorites (this device)',
-                active: track.isFavorite,
-                onPressed: () => unawaited(
-                  ref.read(playbackProvider.notifier).toggleFavorite(track),
-                ),
-              ),
-            if (track.source == MediaSource.youtube)
-              YouTubeSaveButton(track, size: 22),
+            Row(mainAxisSize: MainAxisSize.min, children: buttons),
           ],
         ),
         const SizedBox(height: 6),
-        _ArtistLine(
-          track: track,
-          style: t.titleMedium?.copyWith(
-            color: c.textSecondary,
-            fontWeight: FontWeight.w400,
+        line(
+          _ArtistLine(
+            track: track,
+            textAlign: textAlign,
+            style: t.titleMedium?.copyWith(
+              color: c.textSecondary,
+              fontWeight: FontWeight.w400,
+            ),
           ),
         ),
-        _AlbumLine(
-          track: track,
-          style: t.bodyLarge?.copyWith(color: c.textTertiary),
+        line(
+          _AlbumLine(
+            track: track,
+            textAlign: textAlign,
+            style: t.bodyLarge?.copyWith(color: c.textTertiary),
+          ),
         ),
       ],
     );
@@ -1240,6 +1458,79 @@ class _TrackDetails extends ConsumerWidget {
       ],
     );
   }
+}
+
+/// The title and, after it, the save buttons. Start-aligned ([centered]
+/// 0) the title starts the row and the buttons end it; centered (1) the
+/// title is centered and the buttons follow it, as much space kept before
+/// the title as they take after it.
+class _TitleRow extends MultiChildRenderObjectWidget {
+  const _TitleRow({required this.centered, required super.children});
+
+  final double centered;
+
+  @override
+  _RenderTitleRow createRenderObject(BuildContext context) =>
+      _RenderTitleRow(centered);
+
+  @override
+  void updateRenderObject(BuildContext context, _RenderTitleRow row) =>
+      row.centered = centered;
+}
+
+class _RenderTitleRow extends RenderBox
+    with
+        ContainerRenderObjectMixin<RenderBox, MultiChildLayoutParentData>,
+        RenderBoxContainerDefaultsMixin<RenderBox, MultiChildLayoutParentData> {
+  _RenderTitleRow(this._centered);
+
+  double get centered => _centered;
+  double _centered;
+  set centered(double value) {
+    if (value == _centered) return;
+    _centered = value;
+    markNeedsLayout();
+  }
+
+  @override
+  void setupParentData(RenderBox child) {
+    if (child.parentData is! MultiChildLayoutParentData) {
+      child.parentData = MultiChildLayoutParentData();
+    }
+  }
+
+  @override
+  void performLayout() {
+    final title = firstChild!;
+    final buttons = childAfter(title)!;
+    final w = constraints.maxWidth;
+    buttons.layout(BoxConstraints(maxWidth: w), parentUsesSize: true);
+    final b = buttons.size.width;
+    final c = _centered.clamp(0.0, 1.0);
+    title.layout(
+      BoxConstraints(maxWidth: max(0, w - b - b * c)),
+      parentUsesSize: true,
+    );
+    final tw = title.size.width;
+    final h = max(title.size.height, buttons.size.height);
+    (title.parentData! as MultiChildLayoutParentData).offset = Offset(
+      c * (w - tw) / 2,
+      (h - title.size.height) / 2,
+    );
+    (buttons.parentData! as MultiChildLayoutParentData).offset = Offset(
+      w - b + c * ((w + tw) / 2 - (w - b)),
+      (h - buttons.size.height) / 2,
+    );
+    size = constraints.constrain(Size(w, h));
+  }
+
+  @override
+  void paint(PaintingContext context, Offset offset) =>
+      defaultPaint(context, offset);
+
+  @override
+  bool hitTestChildren(BoxHitTestResult result, {required Offset position}) =>
+      defaultHitTestChildren(result, position: position);
 }
 
 /// YouTube requires its player to stay visible (≥ 200×200, nothing on top)
@@ -1568,10 +1859,15 @@ _Destination? _albumOf(Track track, YtmTrackLinks? links) {
 
 /// The artist name(s); each one opens its artist page once known.
 class _ArtistLine extends ConsumerWidget {
-  const _ArtistLine({required this.track, required this.style});
+  const _ArtistLine({
+    required this.track,
+    required this.style,
+    required this.textAlign,
+  });
 
   final Track track;
   final TextStyle? style;
+  final TextAlign textAlign;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -1579,7 +1875,9 @@ class _ArtistLine extends ConsumerWidget {
         ? ref.watch(ytmTrackLinksProvider(track.uri))
         : null;
     final artists = _artistsOf(track, links);
-    if (artists.isEmpty) return Text(track.artistOrUnknown, style: style);
+    if (artists.isEmpty) {
+      return Text(track.artistOrUnknown, style: style, textAlign: textAlign);
+    }
     VoidCallback go(_Destination d) =>
         () => unawaited(d.open(context, ref));
 
@@ -1611,17 +1909,22 @@ class _ArtistLine extends ConsumerWidget {
     } else if (at < text.length) {
       pieces.add((text: text.substring(at), onTap: null));
     }
-    return _LinkedText(pieces, style: style);
+    return _LinkedText(pieces, style: style, textAlign: textAlign);
   }
 }
 
 /// The album name, opening the album page once known; nothing when the
 /// track names no album.
 class _AlbumLine extends ConsumerWidget {
-  const _AlbumLine({required this.track, required this.style});
+  const _AlbumLine({
+    required this.track,
+    required this.style,
+    required this.textAlign,
+  });
 
   final Track track;
   final TextStyle? style;
+  final TextAlign textAlign;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -1633,14 +1936,18 @@ class _AlbumLine extends ConsumerWidget {
     if (text == null) return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.only(top: 4),
-      child: _LinkedText([
-        (
-          text: text,
-          onTap: album == null
-              ? null
-              : () => unawaited(album.open(context, ref)),
-        ),
-      ], style: style),
+      child: _LinkedText(
+        [
+          (
+            text: text,
+            onTap: album == null
+                ? null
+                : () => unawaited(album.open(context, ref)),
+          ),
+        ],
+        style: style,
+        textAlign: textAlign,
+      ),
     );
   }
 }
@@ -1649,10 +1956,11 @@ typedef _Piece = ({String text, VoidCallback? onTap});
 
 /// Text whose tappable pieces show a pointer and an underline on hover.
 class _LinkedText extends StatefulWidget {
-  const _LinkedText(this.pieces, {required this.style});
+  const _LinkedText(this.pieces, {required this.style, this.textAlign});
 
   final List<_Piece> pieces;
   final TextStyle? style;
+  final TextAlign? textAlign;
 
   @override
   State<_LinkedText> createState() => _LinkedTextState();
@@ -1706,6 +2014,7 @@ class _LinkedTextState extends State<_LinkedText> {
         ],
       ),
       style: widget.style,
+      textAlign: widget.textAlign,
     );
   }
 }

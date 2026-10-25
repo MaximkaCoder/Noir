@@ -1,4 +1,3 @@
-
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -275,8 +274,22 @@ class KaraokeLine extends StatelessWidget {
   /// Playback position; the fill repaints as it changes.
   final ValueListenable<Duration> position;
   final TextStyle style;
+
+  /// How sung words look.
   final Color lit;
   final Color unlit;
+
+  /// The fill's colour: it is painted over the [unlit] text, so on its own
+  /// it is only as opaque as it takes for the two to show as [lit].
+  /// Painting [lit] as is would add the two up — a line fading from lit
+  /// to its resting colour would stay brighter than that colour and then
+  /// snap to it once the fill is gone.
+  static Color fillOver(Color lit, Color unlit) {
+    // Only shades of one colour (as the lyrics use) can be undone like this.
+    if (lit.withValues(alpha: 1) != unlit.withValues(alpha: 1)) return lit;
+    if (lit.a <= unlit.a) return lit.withValues(alpha: 0);
+    return lit.withValues(alpha: (lit.a - unlit.a) / (1 - unlit.a));
+  }
 
   /// How much of the line (by characters) is lit at [at], 0–1.
   double litFractionAt(Duration at) {
@@ -301,7 +314,7 @@ class KaraokeLine extends StatelessWidget {
           text: text,
           words: words,
           position: position,
-          style: style.copyWith(color: lit),
+          style: style.copyWith(color: fillOver(lit, unlit)),
           textScaler: MediaQuery.textScalerOf(context),
           textDirection: Directionality.of(context),
           textHeightBehavior: defaults.textHeightBehavior,
