@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:noir/features/accounts/domain/account_connection.dart';
+import 'package:noir/features/youtube/application/youtube_pending_edits.dart';
 import 'package:noir/features/youtube/application/youtube_sync.dart';
 import 'package:noir/features/youtube/data/youtube_repository.dart';
 import 'package:noir/integrations/youtube_data/youtube_api.dart';
@@ -25,16 +26,21 @@ final youTubeRefreshProvider =
       YouTubeRefreshController.new,
     );
 
-/// Brings one playlist (or the likes) up to date when its page is opened,
-/// so changes made on YouTube show up without waiting for the next full
-/// sync.
+/// Brings one playlist (or the likes) up to date when its page is opened
+/// (or NOIR comes back to the foreground with it open), so changes made on
+/// YouTube show up without waiting for the next full sync — which a page
+/// never waits for.
 ///
-/// Each page is checked at most once per [YouTubeSyncController.refreshGap]
-/// (and not at all right after a full sync). Checks are conditional
-/// requests: while nothing changed YouTube answers 304 and the database is
-/// not touched. Failures keep the cached list and are reported in [state].
+/// Each page is checked at most once per [pageGap]. A playlist check reads
+/// its items directly (1 unit per 50 songs): the playlist's own etag can lag
+/// behind its items. The database is only written when something changed.
+/// Likes use a conditional request. Failures keep the cached list and are
+/// reported in [state].
 class YouTubeRefreshController extends Notifier<YouTubeRefreshState> {
   static const likesKey = ':likes';
+
+  /// Re-opening the same page sooner than this does not ask YouTube again.
+  static const pageGap = Duration(seconds: 5);
 
   final _checkedAt = <String, DateTime>{};
   final _etags = <String, String>{};
@@ -57,14 +63,9 @@ class YouTubeRefreshController extends Notifier<YouTubeRefreshState> {
       _checkedAt.clear();
       return Future.value();
     }
-    final sync = ref.read(youTubeSyncProvider.notifier);
-    if (sync.isFresh) return sync.whenIdle();
     final now = ref.read(youTubeClockProvider)();
     final last = _checkedAt[key];
-    if (last != null &&
-        now.difference(last) < YouTubeSyncController.refreshGap) {
-      return Future.value();
-    }
+    if (last != null && now.difference(last) < pageGap) return Future.value();
     _checkedAt[key] = now;
     // A block body: returning the removed future would make this one wait
     // for itself.
@@ -95,29 +96,34 @@ class YouTubeRefreshController extends Notifier<YouTubeRefreshState> {
   Future<void> _playlist(String id) async {
     final api = ref.read(youTubeApiProvider);
     final repo = ref.read(youTubeRepositoryProvider);
-    var fetched = await api.playlist(id, ifNoneMatch: _etags[id]);
-    if (fetched == null) {
-      // Not modified — as long as NOIR still has the items it saw then.
-      if ((await repo.playlistRow(id))?.itemsEtag != null) return;
-      fetched = await api.playlist(id);
-      if (fetched == null) return;
-    }
-    final playlist = fetched.value;
     final row = await repo.playlistRow(id);
-    // Deleted or no longer visible: the next full sync drops it. Unknown
-    // playlists are left to the full sync too (it keeps the order).
-    if (playlist == null || row == null) return;
-
-    if (row.etag != playlist.etag) await repo.updatePlaylist(playlist);
-    if (row.itemsEtag != playlist.etag) {
-      final items = await api.playlistItems(id);
-      final missing = await repo.videosNeedingDetails(
-        items.map((i) => i.videoId),
-      );
-      if (missing.isNotEmpty) await repo.saveVideos(await api.videos(missing));
-      await repo.savePlaylistItems(id, playlist.etag, items);
+    // Unknown playlists are left to the full sync (it keeps the order).
+    if (row == null) return;
+    final List<YtPlaylistEntry> fetched;
+    try {
+      fetched = await api.playlistItems(id);
+    } on YouTubeApiException catch (e) {
+      // Deleted or no longer visible: the next full sync drops it.
+      if (e.kind == YouTubeErrorKind.notFound) return;
+      rethrow;
     }
-    if (fetched.etag case final etag?) _etags[id] = etag;
+    final items = ref.read(youTubePendingEditsProvider).apply(id, fetched);
+    if (_same(await repo.playlistEntries(id), items)) return;
+    final missing = await repo.videosNeedingDetails(
+      items.map((i) => i.videoId),
+    );
+    if (missing.isNotEmpty) await repo.saveVideos(await api.videos(missing));
+    // The items etag stays: it tells the full sync which playlist version
+    // these items were last fully compared with.
+    await repo.savePlaylistItems(id, row.itemsEtag ?? '', items);
+  }
+
+  static bool _same(List<YtPlaylistEntry> a, List<YtPlaylistEntry> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i].videoId != b[i].videoId || a[i].id != b[i].id) return false;
+    }
+    return true;
   }
 
   Future<void> _likes() async {

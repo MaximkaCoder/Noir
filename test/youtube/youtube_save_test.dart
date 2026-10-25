@@ -9,6 +9,7 @@ import 'package:noir/core/database/app_database.dart';
 import 'package:noir/core/database/database_provider.dart';
 import 'package:noir/features/accounts/domain/account_connection.dart';
 import 'package:noir/features/settings/data/settings_repository.dart';
+import 'package:noir/features/youtube/application/youtube_refresh.dart';
 import 'package:noir/features/youtube/application/youtube_save.dart';
 import 'package:noir/features/youtube/application/youtube_sync.dart';
 import 'package:noir/features/youtube/data/youtube_repository.dart';
@@ -353,6 +354,75 @@ void main() {
       await ctrl().createTarget('NOIR Likes');
       expect(container.read(saveTargetProvider)?.id, 'PLnew');
       expect((await repo.playlistRow('PLnew'))?.title, 'NOIR Likes');
+    });
+  });
+
+  group('add to / remove from any playlist', () {
+    Future<List<String>> cached(String playlistId) async => [
+      for (final e in await repo.playlistEntries(playlistId)) e.videoId,
+    ];
+
+    test('adding inserts on YouTube and shows up at once', () async {
+      http.handler = (_) => ok({'id': 'item-v2'});
+      final outcome = await ctrl().addTo('PLt', ytTrack('v2'));
+      expect(outcome.result, SaveResult.saved);
+      expect(http.requests.single.method, 'POST');
+      expect(await cached('PLt'), ['v1', 'v3', 'v2']);
+      container.listen(youTubePlaylistsWithVideoProvider('v2'), (_, _) {});
+      await until(
+        () =>
+            container
+                .read(youTubePlaylistsWithVideoProvider('v2'))
+                .value
+                ?.contains('PLt') ??
+            false,
+      );
+    });
+
+    test('removing drops the row before YouTube answers', () async {
+      http
+        ..gate = Completer<void>()
+        ..handler = ((_) => (status: 204, json: null));
+      final done = ctrl().removeFrom('PLt', ytTrack('v1'));
+      await until(() async => !(await cached('PLt')).contains('v1'));
+      http.gate!.complete();
+      expect((await done).result, SaveResult.removed);
+      expect(http.requests.single.method, 'DELETE');
+      expect(http.requests.single.uri.queryParameters['id'], 'item-v1');
+    });
+
+    test('a refused removal puts the song back', () async {
+      http.handler = (_) => error(500, {});
+      final outcome = await ctrl().removeFrom('PLt', ytTrack('v1'));
+      expect(outcome.result, SaveResult.failed);
+      expect(await cached('PLt'), ['v1', 'v3']);
+    });
+
+    test('without the write permission nothing is sent', () async {
+      account.set(AccountStatus.connected);
+      final outcome = await ctrl().addTo('PLt', ytTrack('v2'));
+      expect(outcome.result, SaveResult.needsPermission);
+      expect(http.requests, isEmpty);
+    });
+
+    test('a lagging YouTube answer does not undo a fresh change', () async {
+      http.handler = (_) => ok({'id': 'item-v2'});
+      await ctrl().addTo('PLt', ytTrack('v2'));
+      http.handler = (_) => (status: 204, json: null);
+      await ctrl().removeFrom('PLt', ytTrack('v1'));
+
+      // YouTube still lists the playlist as it was before both changes.
+      http.handler = (r) => r.uri.pathSegments.last == 'playlistItems'
+          ? ok({
+              'items': [item('v1'), item('v3')],
+            })
+          : ok({
+              'items': [video('v3', category: '10')],
+            });
+      await container
+          .read(youTubeRefreshProvider.notifier)
+          .refreshPlaylist('PLt');
+      expect(await cached('PLt'), ['v3', 'v2']);
     });
   });
 

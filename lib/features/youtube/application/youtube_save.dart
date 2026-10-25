@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:noir/features/accounts/domain/account_connection.dart';
 import 'package:noir/features/settings/data/settings_repository.dart';
+import 'package:noir/features/youtube/application/youtube_pending_edits.dart';
 import 'package:noir/features/youtube/application/youtube_providers.dart';
 import 'package:noir/features/youtube/application/youtube_sync.dart';
 import 'package:noir/features/youtube/data/youtube_repository.dart';
@@ -100,6 +101,13 @@ final saveTargetTitleProvider = Provider<String?>((ref) {
   return playlists.where((p) => p.id == target.id).firstOrNull?.title ??
       target.title;
 });
+
+/// Ids of the user's playlists that contain a video id, from the cache.
+final youTubePlaylistsWithVideoProvider = StreamProvider.autoDispose
+    .family<Set<String>, String>(
+      (ref, videoId) =>
+          ref.watch(youTubeRepositoryProvider).watchPlaylistsWithVideo(videoId),
+    );
 
 /// Whether the heart for a video id is filled: the optimistic value while a
 /// change is pending, else whether the cached target playlist contains it.
@@ -215,7 +223,6 @@ class YouTubeSaveController extends Notifier<YouTubeSaveState> {
     }
 
     final repo = ref.read(youTubeRepositoryProvider);
-    final api = ref.read(youTubeApiProvider);
     // Reserve the video before the first await so a second tap is ignored.
     state = state.copyWith(inFlight: {...state.inFlight, videoId});
     final save =
@@ -225,21 +232,10 @@ class YouTubeSaveController extends Notifier<YouTubeSaveState> {
     final title = ref.read(saveTargetTitleProvider) ?? target.title;
     try {
       if (save) {
-        final itemId = await api.insertPlaylistItem(target.id, videoId);
-        await repo.addPlaylistItem(target.id, itemId, track);
+        await _insert(target.id, track);
       } else {
-        var ids = await repo.playlistItemIds(target.id, videoId);
-        if (ids.isEmpty) {
-          ids = await api.playlistItemIdsFor(target.id, videoId);
-        }
-        for (final id in ids) {
-          try {
-            await api.deletePlaylistItem(id);
-          } on YouTubeApiException catch (e) {
-            // Already removed on YouTube: that is the goal anyway.
-            if (e.kind != YouTubeErrorKind.notFound) rethrow;
-          }
-        }
+        final ids = await repo.playlistItemIds(target.id, videoId);
+        await _delete(target.id, videoId, ids);
         await repo.removePlaylistItems(target.id, videoId);
       }
       _finish(videoId, keepOverride: true);
@@ -269,6 +265,121 @@ class YouTubeSaveController extends Notifier<YouTubeSaveState> {
     }
   }
 
+  /// Adds [track] to the user's playlist [playlistId] ("Add to playlist…").
+  /// Reports [SaveResult.saved], or why not.
+  Future<SaveOutcome> addTo(String playlistId, Track track) => _edit(
+    playlistId,
+    track,
+    add: true,
+    run: () => _insert(playlistId, track),
+  );
+
+  /// Removes every copy of [track] from [playlistId]. The cached list drops
+  /// it at once and gets it back if YouTube refuses.
+  Future<SaveOutcome> removeFrom(String playlistId, Track track) {
+    final repo = ref.read(youTubeRepositoryProvider);
+    return _edit(
+      playlistId,
+      track,
+      add: false,
+      run: () async {
+        final rows = await repo.removePlaylistItems(playlistId, track.uri);
+        try {
+          await _delete(playlistId, track.uri, [
+            for (final r in rows) ?r.itemId,
+          ]);
+        } on Object {
+          await repo.restorePlaylistItems(rows);
+          rethrow;
+        }
+      },
+    );
+  }
+
+  Future<SaveOutcome> _edit(
+    String playlistId,
+    Track track, {
+    required bool add,
+    required Future<void> Function() run,
+  }) async {
+    final key = '$playlistId/${track.uri}';
+    if (track.source != MediaSource.youtube || track.uri.isEmpty) {
+      return const SaveOutcome(SaveResult.ignored);
+    }
+    if (state.inFlight.contains(key)) {
+      return const SaveOutcome(SaveResult.ignored);
+    }
+    if (!ref.read(accountServiceProvider).current.canSaveToPlaylists) {
+      return const SaveOutcome(SaveResult.needsPermission);
+    }
+    final title =
+        (ref.read(youTubePlaylistsProvider).value ?? const [])
+            .where((p) => p.id == playlistId)
+            .firstOrNull
+            ?.title ??
+        'the playlist';
+    state = state.copyWith(inFlight: {...state.inFlight, key});
+    try {
+      await run();
+      return SaveOutcome(
+        add ? SaveResult.saved : SaveResult.removed,
+        add ? 'Added to $title' : 'Removed from $title',
+      );
+    } on YouTubeApiException catch (e) {
+      debugPrint('YouTube playlist edit failed: ${e.kind.name}');
+      return switch (e.kind) {
+        YouTubeErrorKind.permission => const SaveOutcome(
+          SaveResult.needsPermission,
+        ),
+        _ => SaveOutcome(
+          SaveResult.failed,
+          add
+              ? "Couldn't add to $title. ${e.message}"
+              : "Couldn't remove from $title. ${e.message}",
+        ),
+      };
+    } finally {
+      if (ref.mounted) {
+        state = state.copyWith(inFlight: {...state.inFlight}..remove(key));
+      }
+    }
+  }
+
+  /// Appends [track] on YouTube, then to the cache.
+  Future<void> _insert(String playlistId, Track track) async {
+    final itemId = await ref
+        .read(youTubeApiProvider)
+        .insertPlaylistItem(playlistId, track.uri);
+    ref
+        .read(youTubePendingEditsProvider)
+        .added(playlistId, YtPlaylistEntry(id: itemId, videoId: track.uri));
+    await ref
+        .read(youTubeRepositoryProvider)
+        .addPlaylistItem(playlistId, itemId, track);
+  }
+
+  /// Deletes the items [itemIds] (looked up on YouTube when unknown) of
+  /// [videoId] on YouTube. The cache is the caller's.
+  Future<void> _delete(
+    String playlistId,
+    String videoId,
+    List<String> itemIds,
+  ) async {
+    final api = ref.read(youTubeApiProvider);
+    final ids = itemIds.isNotEmpty
+        ? itemIds
+        : await api.playlistItemIdsFor(playlistId, videoId);
+    for (final id in ids) {
+      try {
+        await api.deletePlaylistItem(id);
+      } on YouTubeApiException catch (e) {
+        // Already removed on YouTube: that is the goal anyway.
+        if (e.kind != YouTubeErrorKind.notFound) rethrow;
+      }
+    }
+    ref.read(youTubePendingEditsProvider).removed(playlistId, videoId);
+  }
+
   /// Asks Google for the playlist permission (browser). When not granted,
   /// `message` says why (null when the user cancelled).
   Future<({bool granted, String? message})> requestWriteAccess() async {
@@ -292,11 +403,18 @@ class YouTubeSaveController extends Notifier<YouTubeSaveState> {
   /// Creates a private playlist on YouTube (50 units), caches it and makes
   /// it the target. Throws [YouTubeApiException].
   Future<SaveTarget> createTarget(String title) async {
-    final playlist = await ref.read(youTubeApiProvider).createPlaylist(title);
-    await ref.read(youTubeRepositoryProvider).addPlaylist(playlist);
+    final playlist = await createPlaylist(title);
     final target = SaveTarget(playlist.id, playlist.title);
     ref.read(saveTargetProvider.notifier).set(target);
     return target;
+  }
+
+  /// Creates a private playlist on YouTube (50 units) and caches it.
+  /// Throws [YouTubeApiException].
+  Future<YtPlaylist> createPlaylist(String title) async {
+    final playlist = await ref.read(youTubeApiProvider).createPlaylist(title);
+    await ref.read(youTubeRepositoryProvider).addPlaylist(playlist);
+    return playlist;
   }
 
   void _finish(String videoId, {required bool keepOverride}) {

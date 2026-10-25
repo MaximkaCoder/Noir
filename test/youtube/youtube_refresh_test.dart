@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noir/core/database/app_database.dart';
@@ -136,27 +138,40 @@ void main() {
     return tables;
   }
 
-  test('opening right after a full sync does not call the API', () async {
-    wait(10);
+  test('opening right after a full sync still reads the items', () async {
+    wait(1);
     await refresher().refreshPlaylist('PLa');
-    await refresher().refreshLikes();
-    expect(http.requests, isEmpty);
+    expect(http.requests.single.uri.pathSegments.last, 'playlistItems');
+    expect(http.requests.single.uri.queryParameters['playlistId'], 'PLa');
   });
 
-  test('a page is checked at most once per 30 seconds', () async {
-    wait(31);
+  test('a page refresh does not wait for a running full sync', () async {
+    final sync = container.read(youTubeSyncProvider.notifier);
+    final blocker = Completer<void>();
+    unawaited(sync.sync(force: true));
+    // The full sync is still running while the page refreshes.
+    unawaited(sync.whenIdle().then((_) => blocker.complete()));
     await refresher().refreshPlaylist('PLa');
-    expect(http.requests.single.uri.queryParameters['id'], 'PLa');
+    expect(blocker.isCompleted, isFalse);
     expect(
-      http.requests.single.options.headers['If-None-Match'],
-      isNull,
-      reason: 'nothing to compare with yet',
+      http.requests.where(
+        (r) =>
+            r.uri.pathSegments.last == 'playlistItems' &&
+            r.uri.queryParameters['playlistId'] == 'PLa',
+      ),
+      isNotEmpty,
     );
+    await blocker.future;
+  });
+
+  test('a page is checked at most once per 5 seconds', () async {
+    await refresher().refreshPlaylist('PLa');
+    expect(http.requests, hasLength(1));
 
     http.requests.clear();
-    wait(29);
+    wait(4);
     await refresher().refreshPlaylist('PLa');
-    expect(http.requests, isEmpty, reason: 'checked 29 s ago');
+    expect(http.requests, isEmpty, reason: 'checked 4 s ago');
 
     // Other pages have their own throttle.
     await refresher().refreshPlaylist('PLb');
@@ -169,25 +184,17 @@ void main() {
   });
 
   test('rapid repeated opens share one request', () async {
-    wait(31);
+    wait(6);
     await Future.wait([
       for (var i = 0; i < 5; i++) refresher().refreshPlaylist('PLa'),
     ]);
     expect(http.requests, hasLength(1));
   });
 
-  test('an unchanged playlist answers 304 and nothing is written', () async {
-    wait(31);
-    await refresher().refreshPlaylist('PLa');
-    wait(31);
-    http.requests.clear();
-
+  test('an unchanged playlist writes nothing', () async {
+    wait(6);
     final writes = await writesDuring(() => refresher().refreshPlaylist('PLa'));
-
-    expect(
-      http.requests.single.options.headers['If-None-Match'],
-      '"one-PLa-eA1"',
-    );
+    expect(http.requests, hasLength(1));
     expect(writes, isEmpty);
   });
 
@@ -204,20 +211,16 @@ void main() {
     await pumpEventQueue();
     expect(emitted.last, ['v1', 'v2']);
 
-    wait(31);
-    await refresher().refreshPlaylist('PLa'); // Remembers the etag.
-    yt
-      ..etagA = 'eA2'
-      ..itemsA = ['v3', 'v1', 'v2'];
-    wait(31);
-    http.requests.clear();
+    // The playlist's own etag lags behind: only the items changed.
+    yt.itemsA = ['v3', 'v1', 'v2'];
+    wait(6);
     await refresher().refreshPlaylist('PLa');
     await pumpEventQueue();
 
     expect(emitted.last, ['v3', 'v1', 'v2']);
     expect(
       [for (final r in http.requests) r.uri.pathSegments.last],
-      ['playlists', 'playlistItems', 'videos'],
+      ['playlistItems', 'videos'],
     );
     expect(
       http.requests.last.uri.queryParameters['id'],
@@ -232,7 +235,7 @@ void main() {
   test('a failed refresh keeps the list and reports the reason', () async {
     final before = await repo.watchPlaylistTracks('PLa').first;
     yt.failing = true;
-    wait(31);
+    wait(6);
     await refresher().refreshPlaylist('PLa');
 
     final state = container.read(youTubeRefreshProvider);
@@ -245,17 +248,17 @@ void main() {
 
     // The next attempt (after the throttle) clears the error.
     yt.failing = false;
-    wait(31);
+    wait(6);
     await refresher().refreshPlaylist('PLa');
     expect(container.read(youTubeRefreshProvider).errors, isEmpty);
   });
 
   test('likes refresh is conditional too', () async {
-    wait(31);
+    wait(6);
     await refresher().refreshLikes();
     expect(http.requests.single.uri.queryParameters['myRating'], 'like');
 
-    wait(31);
+    wait(6);
     http.requests.clear();
     final writes = await writesDuring(refresher().refreshLikes);
     expect(http.requests.single.options.headers['If-None-Match'], '"likes-1"');
@@ -264,7 +267,7 @@ void main() {
     yt
       ..likesVersion = 2
       ..likes = ['v8', 'v9'];
-    wait(31);
+    wait(6);
     await refresher().refreshLikes();
     final likes = await repo.watchLikes().first;
     expect([for (final t in likes) t.uri], ['v8', 'v9']);
@@ -273,13 +276,13 @@ void main() {
   test('after disconnecting nothing is requested', () async {
     account.set(AccountStatus.disconnected);
     await Future<void>.delayed(const Duration(milliseconds: 100));
-    wait(31);
+    wait(6);
     await refresher().refreshPlaylist('PLa');
     expect(http.requests, isEmpty);
   });
 
   test('the syncing indicator follows the refresh', () async {
-    wait(31);
+    wait(6);
     final seen = <bool>[];
     container.listen(
       youTubeRefreshProvider.select((s) => s.running.contains('PLa')),
@@ -289,24 +292,17 @@ void main() {
     expect(seen, [true, false]);
   });
 
-  test(
-    'a changed response with the same playlist etag writes nothing',
-    () async {
-      // The full sync stored the same etag the single-playlist check returns.
-      final row = await repo.playlistRow('PLa');
-      expect(row!.itemsEtag, 'eA1');
-      wait(31);
-      final writes = await writesDuring(
-        () => refresher().refreshPlaylist('PLa'),
-      );
-      expect(writes, isEmpty);
-      expect(http.requests, hasLength(1));
-      expect(
-        await (db.select(
-          db.ytPlaylistItems,
-        )..where((i) => i.playlistId.equals('PLa'))).get(),
-        hasLength(2),
-      );
-    },
-  );
+  test('a deleted playlist is left to the full sync', () async {
+    yt.failing = false;
+    http.handler = (r) => error(404, {
+      'error': {
+        'errors': [
+          {'reason': 'playlistNotFound'},
+        ],
+      },
+    });
+    await refresher().refreshPlaylist('PLa');
+    expect(container.read(youTubeRefreshProvider).errors, isEmpty);
+    expect(await repo.watchPlaylistTracks('PLa').first, hasLength(2));
+  });
 }

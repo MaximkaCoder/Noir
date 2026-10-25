@@ -4,6 +4,7 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:noir/features/accounts/domain/account_connection.dart';
 import 'package:noir/features/settings/data/settings_repository.dart';
+import 'package:noir/features/youtube/application/youtube_pending_edits.dart';
 import 'package:noir/features/youtube/application/youtube_save.dart';
 import 'package:noir/features/youtube/data/youtube_repository.dart';
 import 'package:noir/integrations/youtube_data/youtube_api.dart';
@@ -64,12 +65,16 @@ class YouTubeSyncController extends Notifier<YouTubeSyncState>
   static const interval = Duration(minutes: 15);
   static const foregroundGap = Duration(minutes: 5);
 
-  /// Opening a YouTube page refreshes it at most this often.
+  /// Opening the Library's YouTube section re-reads the playlist list at
+  /// most this often.
   static const refreshGap = Duration(seconds: 30);
   static const _metaKey = 'youtube_sync';
 
   Timer? _timer;
   Future<void>? _running;
+
+  /// Etag of the likes NOIR has, so an unchanged list costs one request.
+  String? _likesEtag;
 
   @override
   YouTubeSyncState build() {
@@ -153,17 +158,30 @@ class YouTubeSyncController extends Notifier<YouTubeSyncState>
         for (final p in playlists)
           if (force || known[p.id] != p.etag) p,
       ];
+      final edits = ref.read(youTubePendingEditsProvider);
       // A few playlists at a time: fast, without bursting the API.
       for (var i = 0; i < changed.length; i += 3) {
         await Future.wait([
           for (final p in changed.skip(i).take(3))
             api
                 .playlistItems(p.id)
-                .then((items) => repo.savePlaylistItems(p.id, p.etag, items)),
+                .then(
+                  (items) => repo.savePlaylistItems(
+                    p.id,
+                    p.etag,
+                    edits.apply(p.id, items),
+                  ),
+                ),
         ]);
       }
 
-      await repo.saveLikes(await api.likedVideos());
+      final likes = await api.likedVideosIfChanged(
+        ifNoneMatch: force ? null : _likesEtag,
+      );
+      if (likes != null) {
+        await repo.saveLikes(likes.value);
+        _likesEtag = likes.etag;
+      }
 
       final missing = await repo.videosNeedingDetails(
         await repo.referencedVideoIds(),
@@ -182,6 +200,8 @@ class YouTubeSyncController extends Notifier<YouTubeSyncState>
   }
 
   Future<void> _forget() async {
+    _likesEtag = null;
+    ref.read(youTubePendingEditsProvider).clear();
     await ref.read(youTubeRepositoryProvider).clearAll();
     await ref.read(settingsRepositoryProvider).delete(_metaKey);
     // The chosen save playlist belongs to the account that just left.

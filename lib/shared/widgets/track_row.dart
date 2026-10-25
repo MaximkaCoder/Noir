@@ -9,12 +9,14 @@ import 'package:noir/core/formatters.dart';
 import 'package:noir/core/widgets/artwork.dart';
 import 'package:noir/core/widgets/dialogs.dart';
 import 'package:noir/core/widgets/menus.dart';
+import 'package:noir/features/accounts/domain/account_connection.dart';
 import 'package:noir/features/analysis/presentation/track_analysis_dialog.dart';
 import 'package:noir/features/playback/application/playback_controller.dart';
 import 'package:noir/features/playlists/presentation/add_to_playlist.dart';
 import 'package:noir/features/settings/domain/app_settings.dart';
 import 'package:noir/features/settings/presentation/settings_controller.dart';
 import 'package:noir/features/youtube/application/youtube_providers.dart';
+import 'package:noir/features/youtube/presentation/add_to_youtube_playlist.dart';
 import 'package:noir/features/youtube/presentation/save_button.dart';
 import 'package:noir/shared/models/media.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -189,6 +191,9 @@ class _TrackRowState extends ConsumerState<TrackRow> {
   Future<void> _showMenu(Offset position) async {
     final track = widget.track;
     final playback = ref.read(playbackProvider.notifier);
+    final youTube =
+        track.source == MediaSource.youtube &&
+        ref.read(accountServiceProvider).current.isConnected;
     final action = await showNoirMenu<String>(
       context,
       anchor: position & Size.zero,
@@ -205,12 +210,13 @@ class _TrackRowState extends ConsumerState<TrackRow> {
           icon: Icons.queue_music_rounded,
         ),
         const NoirMenuItem('radio', 'Start radio', icon: Icons.radio_rounded),
-        if (track.localId != null) ...[
+        if (track.localId != null || youTube)
           const NoirMenuItem(
             'playlist',
             'Add to playlist…',
             icon: Icons.playlist_add_rounded,
           ),
+        if (track.localId != null)
           NoirMenuItem(
             'favorite',
             track.isFavorite ? 'Remove from favorites' : 'Add to favorites',
@@ -218,7 +224,6 @@ class _TrackRowState extends ConsumerState<TrackRow> {
                 ? Icons.favorite_rounded
                 : Icons.favorite_border_rounded,
           ),
-        ],
         if (track.source == MediaSource.youtube)
           const NoirMenuItem(
             'open',
@@ -250,6 +255,8 @@ class _TrackRowState extends ConsumerState<TrackRow> {
         showToast(context, 'Added to queue');
       case 'radio':
         unawaited(playback.startRadio(track));
+      case 'playlist' when youTube:
+        await addToYouTubePlaylist(context, ref, track);
       case 'playlist':
         await addToPlaylist(context, ref, [track]);
       case 'favorite':

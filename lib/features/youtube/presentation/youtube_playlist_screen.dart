@@ -13,15 +13,18 @@ import 'package:noir/features/home/presentation/pin_button.dart';
 import 'package:noir/features/playback/application/playback_controller.dart';
 import 'package:noir/features/youtube/application/youtube_providers.dart';
 import 'package:noir/features/youtube/application/youtube_refresh.dart';
+import 'package:noir/features/youtube/application/youtube_save.dart';
 import 'package:noir/features/youtube/application/youtube_sync.dart';
+import 'package:noir/features/youtube/presentation/save_button.dart';
 import 'package:noir/shared/models/media.dart';
 import 'package:noir/shared/widgets/collection_header.dart';
 import 'package:noir/shared/widgets/page_scaffold.dart';
 import 'package:noir/shared/widgets/track_row.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-/// A playlist from the connected YouTube account (read-only in NOIR).
-/// Opening it fetches changes made on YouTube in the background.
+/// A playlist from the connected YouTube account. Opening it — or coming
+/// back to NOIR while it is open — fetches changes made on YouTube in the
+/// background; removing a song removes it on YouTube.
 class YouTubePlaylistScreen extends ConsumerStatefulWidget {
   const YouTubePlaylistScreen({required this.id, super.key});
 
@@ -33,10 +36,21 @@ class YouTubePlaylistScreen extends ConsumerStatefulWidget {
 }
 
 class _YouTubePlaylistScreenState extends ConsumerState<YouTubePlaylistScreen> {
+  late final AppLifecycleListener _lifecycle;
+
   @override
   void initState() {
     super.initState();
+    // Windows reports "resumed" when the window gets focus back, e.g. after
+    // editing the playlist in a browser.
+    _lifecycle = AppLifecycleListener(onResume: _refresh);
     _refresh();
+  }
+
+  @override
+  void dispose() {
+    _lifecycle.dispose();
+    super.dispose();
   }
 
   @override
@@ -76,7 +90,20 @@ class _YouTubePlaylistScreenState extends ConsumerState<YouTubePlaylistScreen> {
       openUrl: youTubeMusicUrl(playlistId: id),
       emptyMessage:
           'Nothing playable here yet. Deleted and private videos are skipped.',
+      onRemove: (track) => unawaited(_remove(track)),
     );
+  }
+
+  Future<void> _remove(Track track) async {
+    final ctrl = ref.read(youTubeSaveProvider.notifier);
+    var outcome = await ctrl.removeFrom(widget.id, track);
+    if (outcome.result == SaveResult.needsPermission && mounted) {
+      if (!await askForWriteAccess(context, ref) || !mounted) return;
+      outcome = await ctrl.removeFrom(widget.id, track);
+    }
+    if (outcome.result == SaveResult.failed && mounted) {
+      showToast(context, outcome.message!);
+    }
   }
 }
 
@@ -145,6 +172,7 @@ class _YouTubeTrackList extends ConsumerWidget {
     required this.openUrl,
     required this.emptyMessage,
     this.filters = const [],
+    this.onRemove,
   });
 
   final AsyncValue<List<Track>> tracks;
@@ -160,6 +188,9 @@ class _YouTubeTrackList extends ConsumerWidget {
 
   /// Chips shown under the header.
   final List<Widget> filters;
+
+  /// Adds "Remove from playlist" to each song's menu.
+  final void Function(Track track)? onRemove;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -238,6 +269,7 @@ class _YouTubeTrackList extends ConsumerWidget {
             track: list[i],
             number: i + 1,
             onPlay: () => unawaited(playback.playTracks(list, startIndex: i)),
+            onRemove: onRemove == null ? null : () => onRemove!(list[i]),
           ),
         ),
       ],

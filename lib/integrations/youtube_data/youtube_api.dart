@@ -123,25 +123,6 @@ class YouTubeApi {
     return page!.items.map(_playlist).toList();
   }
 
-  /// One playlist's details, or null (HTTP 304) when nothing changed since
-  /// the response tagged [ifNoneMatch]. The value is null when the playlist
-  /// no longer exists or is no longer visible to the user.
-  Future<YtFetch<YtPlaylist?>?> playlist(
-    String id, {
-    String? ifNoneMatch,
-  }) async {
-    final page = await _request('playlists', {
-      'part': 'snippet,contentDetails,status',
-      'id': id,
-      'maxResults': '1',
-    }, ifNoneMatch: ifNoneMatch);
-    if (page == null) return null;
-    return YtFetch(
-      _items(page).map(_playlist).firstOrNull,
-      page['etag'] as String?,
-    );
-  }
-
   /// Items of a playlist in order. Deleted and private videos are skipped —
   /// they cannot be played.
   Future<List<YtPlaylistEntry>> playlistItems(String playlistId) async {

@@ -213,6 +213,12 @@ class YouTubeRepository {
           .watch()
           .map((rows) => {for (final r in rows) r.videoId});
 
+  /// Ids of cached playlists containing [videoId].
+  Stream<Set<String>> watchPlaylistsWithVideo(String videoId) =>
+      (_db.select(_db.ytPlaylistItems)..where((i) => i.videoId.equals(videoId)))
+          .watch()
+          .map((rows) => {for (final r in rows) r.playlistId});
+
   Future<bool> playlistContains(String playlistId, String videoId) async =>
       (await _itemsOf(playlistId, videoId).get()).isNotEmpty;
 
@@ -260,12 +266,38 @@ class YouTubeRepository {
             );
       });
 
-  /// Drops every cached entry of [videoId] in [playlistId].
-  Future<void> removePlaylistItems(String playlistId, String videoId) =>
-      (_db.delete(_db.ytPlaylistItems)..where(
-            (i) => i.playlistId.equals(playlistId) & i.videoId.equals(videoId),
-          ))
-          .go();
+  /// Cached items of [playlistId] in order.
+  Future<List<YtPlaylistEntry>> playlistEntries(String playlistId) async {
+    final rows =
+        await (_db.select(_db.ytPlaylistItems)
+              ..where((i) => i.playlistId.equals(playlistId))
+              ..orderBy([(i) => OrderingTerm.asc(i.position)]))
+            .get();
+    return [
+      for (final r in rows) YtPlaylistEntry(id: r.itemId, videoId: r.videoId),
+    ];
+  }
+
+  /// Drops every cached entry of [videoId] in [playlistId] and returns them
+  /// (for [restorePlaylistItems] if YouTube refuses the removal).
+  Future<List<YtPlaylistItem>> removePlaylistItems(
+    String playlistId,
+    String videoId,
+  ) => _db.transaction(() async {
+    final rows = await _itemsOf(playlistId, videoId).get();
+    await (_db.delete(_db.ytPlaylistItems)..where(
+          (i) => i.playlistId.equals(playlistId) & i.videoId.equals(videoId),
+        ))
+        .go();
+    return rows;
+  });
+
+  /// Puts back rows [removePlaylistItems] dropped, unless a sync has filled
+  /// their places since.
+  Future<void> restorePlaylistItems(List<YtPlaylistItem> rows) => _db.batch(
+    (b) =>
+        b.insertAll(_db.ytPlaylistItems, rows, mode: InsertMode.insertOrIgnore),
+  );
 
   /// Adds a playlist NOIR just created on YouTube, after the known ones
   /// (the next sync puts it where YouTube lists it).
