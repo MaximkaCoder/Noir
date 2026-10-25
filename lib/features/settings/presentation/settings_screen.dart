@@ -111,17 +111,21 @@ class SettingsScreen extends ConsumerWidget {
                   ),
                 ),
                 const _Section('Sound'),
-                _ToggleTile(
+                _ChoiceTile<TransitionMode>(
                   icon: Icons.graphic_eq_rounded,
-                  title: 'Crossfade',
+                  title: 'Transitions',
                   subtitle:
-                      'Smooth transition between tracks. Local music only.',
-                  value: s.crossfadeSeconds > 0,
-                  onChanged: (v) =>
-                      set((s) => s.copyWith(crossfadeSeconds: v ? 6 : 0)),
+                      "Tracks played through NOIR's player (local and cached).",
+                  value: s.transitionMode,
+                  options: const {
+                    TransitionMode.off: 'Off',
+                    TransitionMode.crossfade: 'Crossfade',
+                    TransitionMode.smart: 'Smart',
+                  },
+                  onChanged: (m) => set((s) => s.copyWith(transitionMode: m)),
                 ),
                 Reveal(
-                  visible: s.crossfadeSeconds > 0,
+                  visible: s.transitionMode == TransitionMode.crossfade,
                   child: _SliderTile(
                     label: 'Crossfade length',
                     value: s.crossfadeSeconds.toDouble(),
@@ -364,10 +368,12 @@ class _ChoiceTile<T> extends StatelessWidget {
     required this.value,
     required this.options,
     required this.onChanged,
+    this.subtitle,
   });
 
   final IconData icon;
   final String title;
+  final String? subtitle;
   final T value;
   final Map<T, String> options;
   final ValueChanged<T> onChanged;
@@ -390,7 +396,18 @@ class _ChoiceTile<T> extends StatelessWidget {
             children: [
               _IconBadge(icon),
               const SizedBox(width: NoirSpacing.md),
-              Text(title, style: t.bodyMedium),
+              Flexible(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title, style: t.bodyMedium),
+                    if (subtitle != null) ...[
+                      const SizedBox(height: 2),
+                      Text(subtitle!, style: t.bodySmall),
+                    ],
+                  ],
+                ),
+              ),
             ],
           ),
           Wrap(

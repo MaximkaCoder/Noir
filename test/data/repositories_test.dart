@@ -152,10 +152,34 @@ void main() {
       const settings = AppSettings(
         liquidGlass: false,
         performanceMode: PerformanceMode.performance,
-        crossfadeSeconds: 6,
+        transitionMode: TransitionMode.smart,
+        crossfadeSeconds: 8,
       );
       await repo.saveSettings(settings);
       expect(await repo.loadSettings(), settings);
+    });
+
+    test('migrates the old crossfade setting to a transition mode', () async {
+      Future<AppSettings> load(String json) async {
+        await db
+            .into(db.keyValues)
+            .insertOnConflictUpdate(
+              KeyValuesCompanion.insert(key: 'app_settings', value: json),
+            );
+        return await SettingsRepository(db).loadSettings();
+      }
+
+      final fading = await load('{"crossfadeSeconds":4}');
+      expect(fading.transitionMode, TransitionMode.crossfade);
+      expect(fading.crossfadeSeconds, 4);
+      final off = await load('{"crossfadeSeconds":0}');
+      expect(off.transitionMode, TransitionMode.off);
+      expect(off.crossfadeSeconds, 6);
+      final current = await load(
+        '{"transitionMode":"smart","crossfadeSeconds":3}',
+      );
+      expect(current.transitionMode, TransitionMode.smart);
+      expect(current.crossfadeSeconds, 3);
     });
 
     test('falls back to defaults on corrupted data', () async {

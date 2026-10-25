@@ -23,12 +23,26 @@ class SettingsRepository {
     final json = await readJson(_settingsKey);
     if (json == null) return const AppSettings();
     try {
-      return AppSettings.fromJson(json);
+      return AppSettings.fromJson(migrateSettingsJson(json));
     } on Object catch (e) {
       // Corrupted or incompatible settings must never block startup.
       debugPrint('Settings could not be read, using defaults: $e');
       return const AppSettings();
     }
+  }
+
+  /// Settings saved before transitions had a mode used `crossfadeSeconds`
+  /// = 0 for "off".
+  @visibleForTesting
+  static Map<String, Object?> migrateSettingsJson(Map<String, Object?> json) {
+    if (json.containsKey('transitionMode')) return json;
+    final seconds = json['crossfadeSeconds'];
+    final fading = seconds is int && seconds > 0;
+    return {
+      ...json,
+      'transitionMode': fading ? 'crossfade' : 'off',
+      'crossfadeSeconds': fading ? seconds : 6,
+    };
   }
 
   Future<void> saveSettings(AppSettings settings) =>

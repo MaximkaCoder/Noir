@@ -5,12 +5,16 @@ import 'package:noir/core/database/app_database.dart';
 import 'package:noir/core/database/database_provider.dart';
 import 'package:noir/features/library/data/library_repository.dart';
 import 'package:noir/features/playback/application/playback_controller.dart';
+import 'package:noir/features/playback/application/transition_status.dart';
 import 'package:noir/features/playback/domain/playback_engine.dart';
+import 'package:noir/features/playback/domain/transition_plan.dart';
+import 'package:noir/features/playback/domain/transition_planner.dart';
 import 'package:noir/features/settings/domain/app_settings.dart';
 import 'package:noir/features/settings/presentation/settings_controller.dart';
 import 'package:noir/shared/models/media.dart';
 import 'package:noir/shared/models/playback.dart';
 
+import '../helpers/fake_analysis.dart';
 import '../helpers/fake_audio_files.dart';
 import '../helpers/fake_engine.dart';
 import '../helpers/test_database.dart';
@@ -184,7 +188,14 @@ void main() {
   });
 
   group('crossfade', () {
-    setUp(() => setUpWith(const AppSettings(crossfadeSeconds: 5)));
+    setUp(
+      () => setUpWith(
+        const AppSettings(
+          transitionMode: TransitionMode.crossfade,
+          crossfadeSeconds: 5,
+        ),
+      ),
+    );
 
     test('starts the next track inside the fade window', () async {
       await controller().playTracks(tracks);
@@ -221,6 +232,120 @@ void main() {
         ..tick(const Duration(minutes: 2, seconds: 58));
       await pumpEventQueue();
       expect(engine.calls, isNot(contains(startsWith('crossfade'))));
+    });
+  });
+
+  group('smart transitions', () {
+    final analysisA = fake();
+    final analysisB = fake(bpm: 126, key: 'C major');
+    final aLength = Duration(microseconds: (analysisA.duration * 1e6).round());
+    Duration at(double seconds) =>
+        Duration(microseconds: (seconds * 1e6).round());
+
+    setUp(
+      () => setUpWith(const AppSettings(transitionMode: TransitionMode.smart), [
+        transitionSideLoaderProvider.overrideWithValue(
+          (track) async => TransitionSide(
+            analysis: track.title == 'A' ? analysisA : analysisB,
+          ),
+        ),
+      ]),
+    );
+
+    TransitionStatus? status() => container.read(transitionStatusProvider);
+
+    Future<TransitionPlan> planned() async {
+      await controller().playTracks(tracks);
+      // Inputs are gathered ~90 s before the end, the plan made at 70 s.
+      engine
+        ..durationValue = aLength
+        ..tick(aLength - const Duration(seconds: 85));
+      await pumpEventQueue();
+      expect(status(), isNull);
+      engine.tick(aLength - const Duration(seconds: 69));
+      await pumpEventQueue();
+      expect(status()?.phase, TransitionPhase.planned);
+      return status()!.plan;
+    }
+
+    test('plans a beatmatch and moves on when B is heard', () async {
+      final plan = await planned();
+      expect(plan.type, TransitionType.beatmatch);
+      expect(engine.calls, isNot(contains(startsWith('mix'))));
+
+      // Handed to the engine a few seconds before the start.
+      engine.tick(at(plan.startInA - 3));
+      await pumpEventQueue();
+      expect(engine.calls, contains('mix B beatmatch'));
+      expect(state().current!.track.title, 'A');
+
+      // A completion while preparing must not skip anything.
+      engine.emit(const EngineCompleted());
+      await pumpEventQueue();
+      expect(state().current!.track.title, 'A');
+
+      engine.mixStart!();
+      expect(state().current!.track.title, 'B');
+      expect(status()?.phase, TransitionPhase.mixing);
+      engine.mixProgress!(0.5);
+      expect(status()?.progress, 0.5);
+
+      engine.mix!.complete(true);
+      await pumpEventQueue();
+      expect(status(), isNull);
+      expect(state().current!.track.title, 'B');
+      engine.emit(const EngineCompleted());
+      await pumpEventQueue();
+      expect(state().current!.track.title, 'C');
+    });
+
+    test('an abandoned transition is planned again', () async {
+      final plan = await planned();
+      engine.tick(at(plan.startInA - 3));
+      await pumpEventQueue();
+      expect(engine.calls.where((c) => c.startsWith('mix')), hasLength(1));
+      engine.mix!.complete(false); // E.g. the user paused.
+      await pumpEventQueue();
+      expect(state().current!.track.title, 'A');
+      engine.tick(at(plan.startInA - 3.5));
+      await pumpEventQueue();
+      engine.tick(at(plan.startInA - 3));
+      await pumpEventQueue();
+      expect(engine.calls.where((c) => c.startsWith('mix')), hasLength(2));
+    });
+
+    test('skipping drops the planned transition', () async {
+      await planned();
+      await controller().next();
+      expect(status(), isNull);
+      expect(state().current!.track.title, 'B');
+    });
+
+    test('a next track on another engine is not mixed', () async {
+      engine.mixable = false;
+      await controller().playTracks(tracks);
+      engine
+        ..durationValue = aLength
+        ..tick(aLength - const Duration(seconds: 80));
+      await pumpEventQueue();
+      engine.tick(aLength - const Duration(seconds: 5));
+      await pumpEventQueue();
+      expect(engine.calls, isNot(contains(startsWith('mix'))));
+      expect(status(), isNull);
+      engine.emit(const EngineCompleted());
+      await pumpEventQueue();
+      expect(state().current!.track.title, 'B');
+    });
+
+    test('B removed while preparing still becomes current', () async {
+      final plan = await planned();
+      engine.tick(at(plan.startInA - 3));
+      await pumpEventQueue();
+      controller().removeAt(1);
+      expect(titles(), ['A', 'C', 'D']);
+      engine.mixStart!();
+      expect(state().current!.track.title, 'B');
+      expect(titles(), ['A', 'B', 'C', 'D']);
     });
   });
 

@@ -3,20 +3,33 @@ import 'dart:io';
 
 import 'package:audio_session/audio_session.dart';
 import 'package:flutter/foundation.dart';
-import 'package:just_audio/just_audio.dart';
 import 'package:noir/features/playback/domain/playback_engine.dart';
+import 'package:noir/features/playback/domain/transition_plan.dart';
+import 'package:noir/integrations/local_audio/audio_deck.dart';
+import 'package:noir/integrations/local_audio/just_audio_deck.dart';
+import 'package:noir/integrations/local_audio/mpv_deck.dart';
+import 'package:noir/integrations/local_audio/transition_runner.dart';
 import 'package:noir/shared/models/media.dart';
 import 'package:noir/shared/models/playback.dart';
 
-/// Plays user-owned local files with just_audio (media_kit on Windows).
-///
-/// Two players are kept so the next track can fade in while the current one
-/// fades out. Only the active player's streams are forwarded.
-class LocalAudioEngine implements PlaybackEngine {
-  LocalAudioEngine() {
+/// Plays user-owned local files (and cached audio of other sources) on two
+/// decks — libmpv on Windows/Linux, just_audio elsewhere — so the next
+/// track can be mixed in while the current one plays out. Only the active
+/// deck's events and position are forwarded.
+class LocalAudioEngine implements PlaybackEngine, MixingEngine {
+  LocalAudioEngine({AudioDeck Function()? deckFactory, MixClock? clock})
+    : _clock = clock ?? RealMixClock() {
+    final make = deckFactory ?? defaultDeck;
+    _active = make();
+    _standby = make();
     _bind(_active);
-    unawaited(_configureSession());
+    _ticker = Timer.periodic(_positionPeriod, (_) => _emitPosition());
+    if (deckFactory == null) unawaited(_configureSession());
   }
+
+  /// The libmpv deck where media_kit runs it, just_audio elsewhere.
+  static AudioDeck defaultDeck() =>
+      Platform.isWindows || Platform.isLinux ? MpvDeck() : JustAudioDeck();
 
   static const _caps = PlaybackCapabilities(
     canSeek: true,
@@ -29,10 +42,13 @@ class LocalAudioEngine implements PlaybackEngine {
     supportsQueueMutation: true,
   );
 
-  static const _rampStep = Duration(milliseconds: 50);
+  static const _positionPeriod = Duration(milliseconds: 250);
 
-  AudioPlayer _active = AudioPlayer();
-  AudioPlayer _standby = AudioPlayer();
+  late AudioDeck _active;
+  late AudioDeck _standby;
+  final MixClock _clock;
+  final _timing = MixTiming();
+  late final Timer _ticker;
 
   final _events = StreamController<EngineEvent>.broadcast();
   final _position = StreamController<Duration>.broadcast();
@@ -41,9 +57,14 @@ class LocalAudioEngine implements PlaybackEngine {
   StreamSubscription<void>? _noisySub;
 
   double _volume = 1;
-  Timer? _ramp;
-  Completer<void>? _fadeDone;
   PlaybackStatus? _lastStatus;
+  Duration? _lastPosition;
+
+  TransitionRunner? _runner;
+  Future<bool>? _running;
+
+  /// Every tick of the running transition, for diagnostics.
+  void Function(MixSample sample)? onMixSample;
 
   @override
   PlaybackCapabilities get capabilities => _caps;
@@ -63,6 +84,9 @@ class LocalAudioEngine implements PlaybackEngine {
   @override
   Duration? get currentDuration => _active.duration;
 
+  /// Latencies learned from earlier transitions.
+  MixTiming get timing => _timing;
+
   Future<void> _configureSession() async {
     try {
       final session = await AudioSession.instance;
@@ -75,38 +99,29 @@ class LocalAudioEngine implements PlaybackEngine {
     }
   }
 
-  void _bind(AudioPlayer player) {
+  void _bind(AudioDeck deck) {
     for (final s in _subs) {
       unawaited(s.cancel());
     }
     _subs
       ..clear()
-      ..add(
-        player.playerStateStream.listen(
-          _onPlayerState,
-          onError: (Object e, StackTrace _) => _fail(e),
-        ),
-      )
-      ..add(
-        player
-            .createPositionStream(
-              steps: 400,
-              maxPeriod: const Duration(milliseconds: 500),
-            )
-            .listen(_position.add),
-      )
-      ..add(player.durationStream.listen(_duration.add));
+      ..add(deck.status.listen(_onStatus))
+      ..add(deck.errors.listen(_fail))
+      ..add(deck.durations.listen(_duration.add));
+    // Deck streams don't replay; the new current item's length is known.
+    if (deck.duration != null) _duration.add(deck.duration);
+    _lastPosition = null;
+    _emitPosition();
   }
 
-  void _onPlayerState(PlayerState s) {
-    final status = switch (s.processingState) {
-      ProcessingState.idle => PlaybackStatus.idle,
-      ProcessingState.loading => PlaybackStatus.loading,
-      ProcessingState.buffering => PlaybackStatus.buffering,
-      ProcessingState.ready =>
-        s.playing ? PlaybackStatus.playing : PlaybackStatus.paused,
-      ProcessingState.completed => PlaybackStatus.completed,
-    };
+  void _emitPosition() {
+    final p = _active.position;
+    if (p == _lastPosition || _position.isClosed) return;
+    _lastPosition = p;
+    _position.add(p);
+  }
+
+  void _onStatus(PlaybackStatus status) {
     if (status == _lastStatus) return;
     _lastStatus = status;
     if (status == PlaybackStatus.completed) {
@@ -127,7 +142,7 @@ class LocalAudioEngine implements PlaybackEngine {
   }
 
   /// Returns false (and reports why) when the file is gone.
-  Future<bool> _checkFile(Track track) async {
+  bool _checkFile(Track track) {
     if (File(track.uri).existsSync()) return true;
     _events.add(
       const EngineFailed(
@@ -140,17 +155,18 @@ class LocalAudioEngine implements PlaybackEngine {
 
   @override
   Future<bool> load(Track track, {Duration start = Duration.zero}) async {
-    _cancelFade();
+    await _settle();
     _lastStatus = null;
-    if (!await _checkFile(track)) return false;
+    if (!_checkFile(track)) return false;
     try {
-      await _active.setVolume(_volume);
-      await _active.setFilePath(track.uri, initialPosition: start);
+      await _active.setSpeed(1);
+      await _active.setLevel(_volume);
+      await _active.open(track.uri, start: start);
       return true;
-    } on PlayerException catch (e) {
+    } on DeckLoadException catch (e) {
       _fail(e);
       return false;
-    } on PlayerInterruptedException {
+    } on DeckInterrupted {
       // Superseded by a newer load; nothing to report.
       return false;
     }
@@ -158,85 +174,120 @@ class LocalAudioEngine implements PlaybackEngine {
 
   @override
   Future<void> play() async {
-    _cancelFade();
-    // Not awaited: just_audio's play() completes only when playback stops.
-    unawaited(_active.play());
+    await _settle();
+    await _active.play();
   }
 
   @override
   Future<void> pause() async {
-    _cancelFade();
+    await _settle();
     await _active.pause();
   }
 
   @override
-  Future<void> seek(Duration position) => _active.seek(position);
+  Future<void> seek(Duration position) async {
+    await _settle();
+    await _active.seek(position);
+    _emitPosition();
+  }
 
   @override
   Future<void> stop() async {
-    _cancelFade();
+    await _settle();
     await _active.stop();
   }
 
   @override
   Future<void> setVolume(double volume) async {
     _volume = volume.clamp(0, 1);
-    if (_ramp == null) await _active.setVolume(_volume);
+    // A running transition picks the new volume up on its next tick.
+    if (_runner == null) await _active.setLevel(_volume);
   }
 
   @override
+  Future<bool> canMixInto(Track next) async => true;
+
+  @override
   Future<void> crossfadeTo(Track next, Duration fade) async {
-    _cancelFade();
-    if (!await _checkFile(next)) return;
-    final outgoing = _active;
-    final incoming = _standby;
+    await _settle();
+    if (!_checkFile(next)) return;
+    final at = await _active.exactPosition();
+    final seconds = fade.inMicroseconds / 1e6;
+    await transitionTo(
+      next,
+      TransitionPlan(
+        type: TransitionType.simpleCrossfade,
+        startInA: at,
+        endInA: at + seconds,
+        entryInB: 0,
+        reason: 'crossfade',
+      ),
+    );
+  }
+
+  @override
+  Future<bool> transitionTo(
+    Track next,
+    TransitionPlan plan, {
+    void Function()? onStart,
+    void Function(double progress)? onProgress,
+  }) async {
+    await _settle();
+    if (!File(next.uri).existsSync()) return false;
+    final runner = _runner = TransitionRunner(
+      outgoing: _active,
+      incoming: _standby,
+      plan: plan,
+      volume: () => _volume,
+      timing: _timing,
+      clock: _clock,
+      onSample: (s) => onMixSample?.call(s),
+      onProgress: onProgress,
+      onStart: () {
+        // From now on the incoming deck is the current item.
+        final outgoing = _active;
+        _active = _standby;
+        _standby = outgoing;
+        _lastStatus = null;
+        _bind(_active);
+        _onStatus(
+          _active.playing ? PlaybackStatus.playing : PlaybackStatus.paused,
+        );
+        onStart?.call();
+      },
+    );
+    final running = _running = runner.run(next.uri);
     try {
-      await incoming.setVolume(0);
-      await incoming.setFilePath(next.uri);
-    } on PlayerException catch (e) {
-      _fail(e);
-      return;
+      return await running;
+    } on Object catch (e) {
+      debugPrint('Transition failed: $e');
+      return runner.started;
+    } finally {
+      if (identical(_runner, runner)) {
+        _runner = null;
+        _running = null;
+      }
     }
-    unawaited(incoming.play());
-
-    // From now on the incoming player is the current item.
-    _active = incoming;
-    _standby = outgoing;
-    _lastStatus = null;
-    _bind(_active);
-
-    final done = _fadeDone = Completer<void>();
-    final started = DateTime.now();
-    _ramp = Timer.periodic(_rampStep, (timer) {
-      final t =
-          (DateTime.now().difference(started).inMilliseconds /
-                  fade.inMilliseconds)
-              .clamp(0.0, 1.0);
-      unawaited(incoming.setVolume(_volume * t));
-      unawaited(outgoing.setVolume(_volume * (1 - t)));
-      if (t >= 1) _finishFade();
-    });
-    await done.future;
   }
 
-  void _finishFade() {
-    _ramp?.cancel();
-    _ramp = null;
-    unawaited(_standby.stop());
-    unawaited(_active.setVolume(_volume));
-    final done = _fadeDone;
-    _fadeDone = null;
-    if (done != null && !done.isCompleted) done.complete();
-  }
-
-  /// Any user action during a fade jumps straight to its end state.
-  void _cancelFade() {
-    if (_ramp != null) _finishFade();
+  /// Any user action during a transition ends it first: one still waiting
+  /// is dropped, a running one jumps to its end state.
+  Future<void> _settle() async {
+    final runner = _runner;
+    final running = _running;
+    if (runner == null || running == null) return;
+    runner.settle();
+    try {
+      await running;
+    } on Object catch (_) {
+      // Reported by transitionTo.
+    }
   }
 
   @override
   Future<void> dispose() async {
-    _ramp?.cancel();
+    _ticker.cancel();
+    _runner?.settle();
     await _noisySub?.cancel();
     for (final s in _subs) {
       await s.cancel();
