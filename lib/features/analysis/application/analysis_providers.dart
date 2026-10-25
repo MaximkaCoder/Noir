@@ -1,34 +1,19 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:isolate';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:noir/features/analysis/data/analysis_store.dart';
 import 'package:noir/features/analysis/domain/track_analysis.dart';
-import 'package:noir/features/analysis/domain/track_analyzer.dart';
 import 'package:noir/features/library/application/library_scan_controller.dart';
 import 'package:noir/features/library/data/library_repository.dart';
 import 'package:noir/features/playback/application/playback_controller.dart';
-import 'package:noir/integrations/audio_decode/audio_decoder.dart';
 import 'package:noir/shared/models/media.dart';
 import 'package:noir/shared/models/playback.dart';
 import 'package:path/path.dart' as p;
 
 /// Decodes and analyses an audio file off the UI isolate.
 typedef AnalysisRunner = Future<TrackAnalysis> Function(String path);
-
-/// Decodes [path] and analyses it in a short-lived background isolate; only
-/// the small result crosses back. Throws `AudioDecodeException` when the
-/// file cannot be decoded.
-Future<TrackAnalysis> analyzeFileInBackground(String path) => Isolate.run(() {
-  final watch = Stopwatch()..start();
-  final analysis = analyzePcm(decodeAudioFile(path));
-  return analysis.copyWith(
-    analyzedAt: DateTime.now(),
-    elapsedMs: watch.elapsedMilliseconds,
-  );
-}, debugName: 'track-analysis');
 
 final analysisStoreProvider = Provider<AnalysisStore>(
   (ref) => AnalysisStore(
@@ -38,9 +23,9 @@ final analysisStoreProvider = Provider<AnalysisStore>(
   ),
 );
 
-final analysisRunnerProvider = Provider<AnalysisRunner>(
-  (ref) => analyzeFileInBackground,
-);
+/// The track analyser. Supplied by an optional module; without one nothing
+/// is analysed and NOIR offers plain crossfades only.
+final analysisRunnerProvider = Provider<AnalysisRunner?>((ref) => null);
 
 /// The audio file to analyse for a track, or null when there is none (yet).
 /// Local tracks are their file; a cache of streamed audio can extend this.
@@ -250,7 +235,7 @@ class AnalysisQueue extends Notifier<AnalysisQueueState> {
     _Priority priority, {
     required bool persist,
   }) {
-    if (!ref.mounted) return null;
+    if (!ref.mounted || ref.read(analysisRunnerProvider) == null) return null;
     if (priority != _Priority.request &&
         (_done.contains(trackId) || _failed.contains(trackId))) {
       return null;
@@ -326,7 +311,7 @@ class AnalysisQueue extends Notifier<AnalysisQueueState> {
       if (!ok) {
         _update(currentTrackId: () => job.trackId);
         try {
-          result = (await ref.read(analysisRunnerProvider)(job.path))
+          result = (await ref.read(analysisRunnerProvider)!(job.path))
               .copyWith(source: fingerprint);
           ok = true;
           if (job.persist && ref.mounted && generation == _generation) {

@@ -17,6 +17,7 @@ import 'package:noir/features/discover/application/for_you.dart';
 import 'package:noir/features/home/data/history_repository.dart';
 import 'package:noir/features/library/application/library_providers.dart';
 import 'package:noir/features/library/application/library_scan_controller.dart';
+import 'package:noir/features/playback/application/transition_status.dart';
 import 'package:noir/features/search/data/search_history_repository.dart';
 import 'package:noir/features/settings/application/maintenance.dart';
 import 'package:noir/features/settings/domain/app_settings.dart';
@@ -37,6 +38,10 @@ class SettingsScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final s = ref.watch(settingsProvider);
+    final smart = ref.watch(transitionPlannerProvider) != null;
+    final transitionMode = !smart && s.transitionMode == TransitionMode.smart
+        ? TransitionMode.crossfade
+        : s.transitionMode;
     final ctrl = ref.read(settingsProvider.notifier);
     void set(AppSettings Function(AppSettings) f) => ctrl.update(f);
 
@@ -112,21 +117,22 @@ class SettingsScreen extends ConsumerWidget {
                   ),
                 ),
                 const _Section('Sound'),
+                // Without a smart planner, Smart plays as a crossfade.
                 _ChoiceTile<TransitionMode>(
                   icon: Icons.graphic_eq_rounded,
                   title: 'Transitions',
                   subtitle:
                       "Tracks played through NOIR's player (local and cached).",
-                  value: s.transitionMode,
-                  options: const {
+                  value: transitionMode,
+                  options: {
                     TransitionMode.off: 'Off',
                     TransitionMode.crossfade: 'Crossfade',
-                    TransitionMode.smart: 'Smart',
+                    if (smart) TransitionMode.smart: 'Smart',
                   },
                   onChanged: (m) => set((s) => s.copyWith(transitionMode: m)),
                 ),
                 Reveal(
-                  visible: s.transitionMode == TransitionMode.crossfade,
+                  visible: transitionMode == TransitionMode.crossfade,
                   child: _SliderTile(
                     label: 'Crossfade length',
                     value: s.crossfadeSeconds.toDouble(),

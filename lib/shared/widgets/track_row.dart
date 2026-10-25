@@ -10,6 +10,7 @@ import 'package:noir/core/widgets/artwork.dart';
 import 'package:noir/core/widgets/dialogs.dart';
 import 'package:noir/core/widgets/menus.dart';
 import 'package:noir/features/accounts/domain/account_connection.dart';
+import 'package:noir/features/analysis/application/analysis_providers.dart';
 import 'package:noir/features/analysis/presentation/track_analysis_dialog.dart';
 import 'package:noir/features/playback/application/playback_controller.dart';
 import 'package:noir/features/playlists/presentation/add_to_playlist.dart';
@@ -230,11 +231,12 @@ class _TrackRowState extends ConsumerState<TrackRow> {
             'Open in YouTube Music',
             icon: Icons.open_in_new_rounded,
           ),
-        const NoirMenuItem(
-          'analysis',
-          'Show analysis',
-          icon: Icons.graphic_eq_rounded,
-        ),
+        if (ref.read(analysisRunnerProvider) != null)
+          const NoirMenuItem(
+            'analysis',
+            'Show analysis',
+            icon: Icons.graphic_eq_rounded,
+          ),
         if (widget.onRemove != null)
           NoirMenuItem(
             'remove',

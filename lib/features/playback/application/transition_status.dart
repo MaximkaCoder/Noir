@@ -3,10 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:noir/features/analysis/application/analysis_providers.dart';
-import 'package:noir/features/lyrics/application/lyrics_providers.dart';
-import 'package:noir/features/lyrics/domain/lyrics.dart';
 import 'package:noir/features/playback/domain/transition_plan.dart';
-import 'package:noir/features/playback/domain/transition_planner.dart';
 import 'package:noir/shared/models/media.dart';
 
 enum TransitionPhase {
@@ -75,22 +72,18 @@ final transitionSideLoaderProvider =
 /// When a track's vocals start and end, from time-synced lyrics (null when
 /// there are none, or the lookup fails or takes too long). Slow: it may ask
 /// several services, so planning never waits for it.
+///
+/// Null timing by default; the module that supplies [transitionPlannerProvider]
+/// supplies this too.
 final vocalTimingLoaderProvider =
-    Provider<Future<VocalTiming?> Function(Track track)>((ref) {
-      return (track) async {
-        final lyrics = await _orNull(
-          ref
-              .read(lyricsRepositoryProvider)
-              .find(LyricsRequest.fromTrack(track))
-              .timeout(const Duration(seconds: 20)),
-        );
-        return switch (lyrics) {
-          SyncedLyrics(:final lines) => VocalTiming.fromLines(lines),
-          InstrumentalLyrics() => const VocalTiming(),
-          _ => null,
-        };
-      };
-    });
+    Provider<Future<VocalTiming?> Function(Track track)>(
+      (ref) =>
+          (track) async => null,
+    );
+
+/// Plans smart transitions; null when no planner is installed (then the
+/// Smart setting is hidden and transitions are plain crossfades).
+final transitionPlannerProvider = Provider<TransitionPlanner?>((ref) => null);
 
 Future<T?> _orNull<T>(Future<T?> future) async {
   try {

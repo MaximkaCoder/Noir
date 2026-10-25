@@ -16,11 +16,11 @@ import 'package:noir/features/playback/domain/audio_source_provider.dart';
 import 'package:noir/features/playback/domain/playback_engine.dart';
 import 'package:noir/features/playback/domain/routing_engine.dart';
 import 'package:noir/features/playback/domain/transition_plan.dart';
-import 'package:noir/features/playback/domain/transition_planner.dart';
 import 'package:noir/features/settings/data/settings_repository.dart';
 import 'package:noir/features/settings/domain/app_settings.dart';
 import 'package:noir/features/settings/presentation/settings_controller.dart';
 import 'package:noir/integrations/local_audio/local_audio_engine.dart';
+import 'package:noir/integrations/local_audio/mix_runner.dart';
 import 'package:noir/integrations/youtube_music/innertube_client.dart';
 import 'package:noir/integrations/youtube_music/ytm_models.dart';
 import 'package:noir/integrations/youtube_playback/youtube_embed_engine.dart';
@@ -33,10 +33,15 @@ final audioFilesProvider = Provider<AudioFileProvider>(
   (ref) => const NoAudioFiles(),
 );
 
+/// How the local player runs a transition; plain crossfades when null.
+final mixRunnerFactoryProvider = Provider<MixRunnerFactory?>((ref) => null);
+
 final playbackEngineProvider = Provider<PlaybackEngine>((ref) {
   final dirs = ref.watch(appDirectoriesProvider);
   final engine = RoutingEngine({
-    MediaSource.local: LocalAudioEngine(),
+    MediaSource.local: LocalAudioEngine(
+      runner: ref.watch(mixRunnerFactoryProvider),
+    ),
     if (YouTubeEmbedEngine.isSupported)
       MediaSource.youtube: YouTubeEmbedEngine(
         pageDir: Directory(p.join(dirs.artwork.parent.path, 'yt_player')),
@@ -700,8 +705,11 @@ class PlaybackController extends Notifier<PlaybackState> {
     }
     final next = state.queue[nextIndex];
     if (next.uid == _noFadeUid) return;
-    if (mode == TransitionMode.smart && _engine is MixingEngine) {
-      _maybeSmart(position, duration, index, next);
+    final planner = ref.read(transitionPlannerProvider);
+    if (mode == TransitionMode.smart &&
+        planner != null &&
+        _engine is MixingEngine) {
+      _maybeSmart(planner, position, duration, index, next);
       return;
     }
 
@@ -733,6 +741,7 @@ class PlaybackController extends Notifier<PlaybackState> {
   static const _recheckEvery = 5.0;
 
   void _maybeSmart(
+    TransitionPlanner planner,
     Duration position,
     Duration duration,
     int index,
@@ -768,7 +777,7 @@ class PlaybackController extends Notifier<PlaybackState> {
         sides = (_bareSide(current.track), _bareSide(next.track));
         _log('${_pair(prep)}: analyses not loaded in time, plain fade');
       }
-      final plan = prep.plan = planTransition(
+      final plan = prep.plan = planner(
         sides.$1.withLyrics(prep.vocalsA),
         sides.$2.withLyrics(prep.vocalsB),
         fadeSeconds: _settings.crossfadeSeconds.toDouble(),
@@ -802,7 +811,7 @@ class PlaybackController extends Notifier<PlaybackState> {
         'position jumped to ${_s(at)}; planning again',
       );
       prep.plan = null;
-      _maybeSmart(position, duration, index, next);
+      _maybeSmart(planner, position, duration, index, next);
       return;
     }
     if (at < plan.startInA - _smartPrepare) return;

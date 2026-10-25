@@ -7,8 +7,8 @@ import 'package:noir/features/playback/domain/playback_engine.dart';
 import 'package:noir/features/playback/domain/transition_plan.dart';
 import 'package:noir/integrations/local_audio/audio_deck.dart';
 import 'package:noir/integrations/local_audio/just_audio_deck.dart';
+import 'package:noir/integrations/local_audio/mix_runner.dart';
 import 'package:noir/integrations/local_audio/mpv_deck.dart';
-import 'package:noir/integrations/local_audio/transition_runner.dart';
 import 'package:noir/shared/models/media.dart';
 import 'package:noir/shared/models/playback.dart';
 
@@ -17,8 +17,12 @@ import 'package:noir/shared/models/playback.dart';
 /// track can be mixed in while the current one plays out. Only the active
 /// deck's events and position are forwarded.
 class LocalAudioEngine implements PlaybackEngine, MixingEngine {
-  LocalAudioEngine({AudioDeck Function()? deckFactory, MixClock? clock})
-    : _clock = clock ?? RealMixClock() {
+  LocalAudioEngine({
+    AudioDeck Function()? deckFactory,
+    MixClock? clock,
+    MixRunnerFactory? runner,
+  }) : _clock = clock ?? RealMixClock(),
+       _makeRunner = runner ?? CrossfadeRunner.new {
     final make = deckFactory ?? defaultDeck;
     _active = make();
     _standby = make();
@@ -60,7 +64,8 @@ class LocalAudioEngine implements PlaybackEngine, MixingEngine {
   PlaybackStatus? _lastStatus;
   Duration? _lastPosition;
 
-  TransitionRunner? _runner;
+  final MixRunnerFactory _makeRunner;
+  MixRunner? _runner;
   Future<bool>? _running;
 
   /// Every tick of the running transition, for diagnostics.
@@ -234,7 +239,7 @@ class LocalAudioEngine implements PlaybackEngine, MixingEngine {
   }) async {
     await _settle();
     if (!File(next.uri).existsSync()) return false;
-    final runner = _runner = TransitionRunner(
+    final runner = _runner = _makeRunner(
       outgoing: _active,
       incoming: _standby,
       plan: plan,

@@ -8,7 +8,13 @@ import 'analysis_queue_test.dart' show fakeAnalysis;
 
 void main() {
   testWidgets('a track menu shows its stored analysis', (tester) async {
-    final app = await TestApp.pump(tester);
+    final app = await TestApp.pump(
+      tester,
+      // The menu item exists only where tracks can be analysed.
+      overrides: [
+        analysisRunnerProvider.overrideWithValue((_) async => fakeAnalysis()),
+      ],
+    );
     await tester.runAsync(() async {
       final store = app.container.read(analysisStoreProvider);
       final tracks = await LibraryRepository(app.db).watchTracks().first;

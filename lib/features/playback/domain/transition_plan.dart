@@ -1,5 +1,7 @@
 import 'dart:math' as math;
 
+import 'package:noir/features/analysis/domain/track_analysis.dart';
+
 /// How one track hands over to the next.
 enum TransitionType {
   /// Tempo- and phase-locked blend over whole bars (DJ style).
@@ -236,3 +238,56 @@ class TransitionPlan {
       '${endInA.toStringAsFixed(2)}, B @${entryInB.toStringAsFixed(2)}'
       '${bars == null ? '' : ', $bars bars'}, $reason)';
 }
+
+/// When singing starts and stops, from time-synced lyrics (seconds). Both
+/// null: the lyrics say the track is instrumental. Lyrics, when present,
+/// override the audio estimate.
+class VocalTiming {
+  const VocalTiming({this.firstStart, this.lastEnd});
+
+  final double? firstStart;
+  final double? lastEnd;
+}
+
+/// One side of a transition, as the planner sees it.
+class TransitionSide {
+  const TransitionSide({
+    this.analysis,
+    this.duration,
+    this.album,
+    this.artist,
+    this.trackNumber,
+    this.lyrics,
+  });
+
+  final TrackAnalysis? analysis;
+
+  /// Seconds, from metadata (used without an analysis).
+  final double? duration;
+  final String? album;
+  final String? artist;
+  final int? trackNumber;
+  final VocalTiming? lyrics;
+
+  TransitionSide withLyrics(VocalTiming? lyrics) => TransitionSide(
+    analysis: analysis,
+    duration: duration,
+    album: album,
+    artist: artist,
+    trackNumber: trackNumber,
+    lyrics: lyrics,
+  );
+}
+
+/// Planned transitions start at least this long after "now" (the next
+/// track must load and lock first). The caller adds it to `earliestStart`.
+const transitionLead = 6.0;
+
+/// Plans how [outgoing] hands over to [incoming]. Supplied by an optional
+/// module; without one NOIR offers plain crossfades only.
+typedef TransitionPlanner = TransitionPlan Function(
+  TransitionSide outgoing,
+  TransitionSide incoming, {
+  required double fadeSeconds,
+  required double earliestStart,
+});
