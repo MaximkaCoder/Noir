@@ -798,15 +798,31 @@ void main() {
       return opacity;
     }
 
-    testWidgets('the shell shows through the shrinking shape, which then '
-        'cross-fades into the island', (tester) async {
+    testWidgets('the shape stays opaque while it shrinks, then cross-fades '
+        'into the island once it is there', (tester) async {
       await pumpNowPlaying(tester);
       expect(veil(tester).backdropOpacity, 1);
+      Rect islandRect() => tester.getRect(
+        find.descendant(
+          of: find.byType(PlayerIsland),
+          matching: find.byType(LiquidGlass),
+        ),
+      );
+      Rect morphRect() =>
+          (tester
+                      .widget<ClipRRect>(
+                        find.byKey(NowPlayingTransition.clipKey),
+                      )
+                      .clipper!
+                  as NowPlayingClipper)
+              .shape
+              .outerRect;
 
       await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await tester.pump();
       final backdrop = <double>[];
       final island = <double>[];
+      final arrived = <bool>[];
       var elapsed = Duration.zero;
       while (elapsed < NowPlayingTransition.closeDuration) {
         await tester.pump(const Duration(milliseconds: 16));
@@ -814,26 +830,41 @@ void main() {
         if (find.byKey(NowPlayingScreen.veilKey).evaluate().isEmpty) break;
         backdrop.add(veil(tester).backdropOpacity);
         island.add(islandOpacity(tester));
+        final shape = morphRect();
+        final target = islandRect();
+        arrived.add(
+          [
+            shape.left - target.left,
+            shape.top - target.top,
+            shape.right - target.right,
+            shape.bottom - target.bottom,
+          ].every((d) => d.abs() <= 2),
+        );
       }
       await tester.pumpAndSettle();
       expect(find.byType(NowPlayingScreen), findsNothing);
       expect(islandOpacity(tester), 1);
 
-      // Mid-collapse the page is see-through: the shell shows through it.
-      final mid = backdrop[backdrop.length ~/ 2];
-      expect(mid, inExclusiveRange(0, 1), reason: '$backdrop');
-      // It fades over the collapse, never stepping, down to nothing.
-      for (var i = 1; i < backdrop.length; i++) {
-        expect(backdrop[i], lessThanOrEqualTo(backdrop[i - 1] + 1e-9));
-        expect(backdrop[i - 1] - backdrop[i], lessThan(0.15));
+      final log = 'backdrop $backdrop island $island arrived $arrived';
+      final landing = arrived.indexOf(true);
+      expect(landing, greaterThan(2), reason: log);
+      expect(arrived.sublist(landing), everyElement(isTrue), reason: log);
+      // On its way the shape is opaque and the island hidden under it.
+      for (var i = 0; i < landing; i++) {
+        expect(backdrop[i], 1, reason: 'frame $i: $log');
+        expect(island[i], 0, reason: 'frame $i: $log');
       }
-      expect(backdrop.last, lessThan(0.15), reason: '$backdrop');
-      // Near the end the island fades in under the fading shape.
-      final crossing = [
-        for (var i = 0; i < backdrop.length; i++)
-          if (backdrop[i] > 0 && island[i] > 0 && island[i] < 1) i,
-      ];
-      expect(crossing, isNotEmpty, reason: '$backdrop\n$island');
+      // Once there, it fades out as the island fades in, in step.
+      final fading = [for (var i = landing; i < backdrop.length; i++) i];
+      expect(fading.length, greaterThan(3), reason: log);
+      for (final i in fading.skip(1)) {
+        expect(backdrop[i], lessThan(backdrop[i - 1]), reason: 'frame $i');
+        expect(island[i], greaterThan(island[i - 1]), reason: 'frame $i');
+      }
+      for (final i in fading) {
+        expect(backdrop[i] + island[i], moreOrLessEquals(1, epsilon: 0.15));
+      }
+      expect(backdrop.last, lessThan(0.25), reason: log);
     });
   });
 

@@ -11,13 +11,13 @@ import 'package:noir/app/theme/glass_theme.dart';
 /// closes (chevron, Esc, swipe, back button). Opening, the page's artwork
 /// backdrop cross-fades in over the island, which fades out, and Now
 /// Playing's content fades in over it. Closing, the content fades first,
-/// then the shrinking shape turns see-through — the shell showing through
-/// its artwork tint — and cross-fades into the island's glass as it lands.
+/// the opaque shape shrinks onto the island, and only there cross-fades
+/// into the island's glass.
 /// Without an island on screen (phones, nothing playing) the page fades and
 /// rises from below instead.
 abstract final class NowPlayingTransition {
   static const openDuration = Duration(milliseconds: 500);
-  static const closeDuration = Duration(milliseconds: 400);
+  static const closeDuration = Duration(milliseconds: 480);
 
   /// The clip that carries the morphing shape, for tests.
   static const clipKey = ValueKey('now-playing-morph');
@@ -30,28 +30,25 @@ abstract final class NowPlayingTransition {
   static final ValueNotifier<double> coverage = ValueNotifier(0);
 
   /// The morph's easing over the route [animation]: emphasized on the way
-  /// out of the island; on the way back a symmetric ease, so the page
-  /// visibly shrinks over the whole close instead of snapping small at the
-  /// start, and settles gently onto the island.
+  /// out of the island. On the way back a symmetric ease, so the page
+  /// visibly shrinks instead of snapping small at the start, which lands
+  /// on the island's rect once route progress is down to [islandFade]; the
+  /// shape then stays there while it cross-fades into the island.
   static CurvedAnimation curve(Animation<double> animation) => CurvedAnimation(
     parent: animation,
     curve: NoirMotion.emphasized,
-    reverseCurve: Curves.easeInOutCubic,
+    reverseCurve: const _ShrinkThenLand(),
   );
 
   /// The island fades out over route progress 0 → [islandFade] while the
   /// page opens and back in over the same span while it closes (see
-  /// PlayerIsland, which hides over coverage 0–0.35). The page's material
-  /// cross-fades with it over that span.
-  static const islandFade = 0.35;
+  /// PlayerIsland). Closing, that is exactly when the shape, already the
+  /// island's size, fades out over it.
+  static const islandFade = 0.3;
 
-  /// How see-through the closing page gets before it hands over to the
-  /// island: it keeps the artwork tint while the shell shows through.
-  static const _closingTint = 0.6;
-
-  /// Route progress above which, closing, the content is still fading out
-  /// (the page stays opaque until then).
-  static const _contentGone = 0.78;
+  /// Route progress above which, closing, the content is still fading out:
+  /// before the shape has visibly moved.
+  static const _contentGone = 0.86;
 
   /// Opening, the content fades in once the shape has grown a little (eased
   /// morph progress 0.2–0.75); closing, it fades out first, before the
@@ -65,14 +62,15 @@ abstract final class NowPlayingTransition {
 
   /// How opaque the page's own material — the artwork backdrop — is.
   /// Opening, it cross-fades in over the island and is opaque before the
-  /// content shows. Closing, it turns see-through once the content is gone,
-  /// so the shell shows through the shrinking, still tinted shape, and in
-  /// the last [islandFade] it cross-fades into the island's glass.
+  /// content shows. Closing, it stays opaque while the shape shrinks, and
+  /// once the shape has landed on the island (the last [islandFade]) it
+  /// cross-fades into the island's glass.
   static CurvedAnimation backdropCurve(Animation<double> route) =>
       CurvedAnimation(
         parent: route,
         curve: const Interval(0, 0.12),
-        reverseCurve: const _BackdropOut(),
+        // Fades out exactly as the island fades in.
+        reverseCurve: const Interval(0, islandFade),
       );
 
   /// Whether the page morphs out of the island (and so fades its content
@@ -107,19 +105,17 @@ class _ContentIn extends Curve {
       const Interval(0.2, 0.75).transform(NoirMotion.emphasized.transform(t));
 }
 
-/// Closing (route progress falling from 1): opaque while the content fades,
-/// then down to the closing tint, then a cross-fade into the island.
-class _BackdropOut extends Curve {
-  const _BackdropOut();
+/// Closing (route progress falling from 1): the morph eases from the full
+/// window down to the island over 1 → [NowPlayingTransition.islandFade]
+/// and stays on it after.
+class _ShrinkThenLand extends Curve {
+  const _ShrinkThenLand();
 
   @override
   double transformInternal(double t) {
-    const fade = NowPlayingTransition.islandFade;
-    const gone = NowPlayingTransition._contentGone;
-    const tint = NowPlayingTransition._closingTint;
-    if (t >= gone) return 1;
-    if (t >= fade) return tint + (1 - tint) * (t - fade) / (gone - fade);
-    return tint * t / fade;
+    const land = NowPlayingTransition.islandFade;
+    if (t <= land) return 0;
+    return Curves.easeInOutCubic.transform((t - land) / (1 - land));
   }
 }
 
