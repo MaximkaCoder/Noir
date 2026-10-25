@@ -4,11 +4,11 @@ import 'dart:ui' show lerpDouble;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:noir/app/shell/adaptive_shell.dart';
 import 'package:noir/app/shell/navigation.dart';
 import 'package:noir/app/theme/design_tokens.dart';
 import 'package:noir/app/theme/glass_theme.dart';
 import 'package:noir/core/platform/window_controls.dart';
+import 'package:noir/core/widgets/artwork.dart';
 import 'package:noir/core/widgets/buttons.dart';
 import 'package:noir/core/widgets/glass_surface.dart';
 import 'package:noir/core/widgets/smooth_scroll.dart';
@@ -29,9 +29,15 @@ const double _collapsedWidth = 80;
 /// Room for a nav label at full width: sidebar minus item insets and icon.
 const double _labelWidth = _expandedWidth - 2 - 24 - 17 - 20 - 14 - 14;
 
+/// The same beside a collection's 40 px cover.
+const double _coverGap = 12;
+const double _coverLabelWidth =
+    _expandedWidth - 2 - 24 - 7 - 40 - _coverGap - 14;
+
 /// Desktop sidebar from the reference design. Collapses into an icon rail
-/// by animating its width: icons stay put while labels and the playlist
-/// section fade, so the change reads as one motion instead of a swap.
+/// by animating its width: icons and playlist covers stay put while labels
+/// and section headers fade, so the change reads as one motion instead of a
+/// swap. Settings lives behind the top bar's avatar (and Ctrl+,).
 class Sidebar extends StatelessWidget {
   const Sidebar({
     required this.shell,
@@ -90,7 +96,6 @@ class _SidebarBody extends ConsumerWidget {
     // Labels appear late when expanding and leave early when collapsing,
     // so they never show cramped.
     final labels = const Interval(0.4, 1, curve: Curves.easeOut).transform(t);
-    final rail = 1 - const Interval(0, 0.5).transform(t);
 
     final toggle = canToggle
         ? Padding(
@@ -142,163 +147,129 @@ class _SidebarBody extends ConsumerWidget {
             ),
           ),
         Expanded(
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              _Fade(
-                opacity: labels,
-                // Laid out at full width and clipped, so rows never reflow
-                // while the sidebar resizes.
-                child: ClipRect(
-                  child: OverflowBox(
-                    alignment: Alignment.topLeft,
-                    // Inside the 1 px glass border on either side.
-                    minWidth: _expandedWidth - 2,
-                    maxWidth: _expandedWidth - 2,
-                    child: _Collections(location: location),
-                  ),
-                ),
-              ),
-              _Fade(
-                opacity: rail,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    const Spacer(),
-                    _NavItem(
-                      label: Branch.settings.label,
-                      icon: shell.currentIndex == Branch.settings.index
-                          ? Branch.settings.selectedIcon
-                          : Branch.settings.icon,
-                      labelOpacity: 0,
-                      tooltip: true,
-                      selected: shell.currentIndex == Branch.settings.index,
-                      onTap: () => shell.goBranch(Branch.settings.index),
-                    ),
-                    const SizedBox(height: NoirSpacing.sm),
-                    Row(
-                      children: [
-                        const SizedBox(width: 23),
-                        AccountAvatar(
-                          size: 32,
-                          onTap: () => shell.goBranch(Branch.settings.index),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: NoirSpacing.lg),
-                  ],
-                ),
-              ),
-            ],
-          ),
+          child: _Collections(location: location, labels: labels, rail: t == 0),
         ),
       ],
     );
   }
 }
 
-/// Fades [child]; fully transparent content leaves layout, focus and
-/// semantics but keeps its state (e.g. the playlist scroll position).
-class _Fade extends StatelessWidget {
-  const _Fade({required this.opacity, required this.child});
-
-  final double opacity;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    final hidden = opacity == 0;
-    return ExcludeFocus(
-      excluding: hidden,
-      child: Offstage(
-        offstage: hidden,
-        child: IgnorePointer(
-          ignoring: opacity < 1,
-          child: Opacity(opacity: opacity, child: child),
-        ),
-      ),
-    );
-  }
-}
-
-/// Favorites, playlists and YouTube collections below the main items.
+/// Favorites, playlists and YouTube collections below the main items, each
+/// with its cover. In the rail only the covers remain (names as tooltips);
+/// headers and the create button fold away.
 class _Collections extends ConsumerWidget {
-  const _Collections({required this.location});
+  const _Collections({
+    required this.location,
+    required this.labels,
+    required this.rail,
+  });
 
   final String location;
+
+  /// Opacity of labels and headers: 0 in the rail, 1 at full width.
+  final double labels;
+  final bool rail;
+
+  /// Cover size; with [_NavItem]'s insets its center sits on the rail's.
+  static const double _cover = 40;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final t = Theme.of(context).textTheme;
     final playlists = ref.watch(playlistsProvider).value ?? const [];
     final ytPlaylists = ref.watch(youTubePlaylistsProvider).value ?? const [];
-    final hasLikes =
-        (ref.watch(youTubeLikesProvider).value ?? const []).isNotEmpty;
+    final likes = ref.watch(youTubeLikesProvider).value ?? const [];
+
+    Widget item({
+      required String label,
+      required Widget cover,
+      required String route,
+    }) => _NavItem(
+      key: ValueKey(route),
+      label: label,
+      leading: cover,
+      labelOpacity: labels,
+      tooltip: rail,
+      selected: location == route,
+      onTap: () => context.go(route),
+    );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(26, 24, 16, 8),
-          child: Text('Playlists', style: t.labelMedium),
+        _Fold(
+          t: labels,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(26, 24, 16, 8),
+            child: Text('Playlists', style: t.labelMedium),
+          ),
         ),
         Expanded(
           child: SmoothScroll(
             builder: (context, scroll) => ListView(
               controller: scroll,
-              padding: const EdgeInsets.only(bottom: NoirSpacing.md),
+              padding: const EdgeInsets.only(
+                top: NoirSpacing.sm,
+                bottom: NoirSpacing.md,
+              ),
               children: [
-                _NavItem(
+                item(
                   label: 'Favorites',
-                  icon: Icons.favorite_border_rounded,
-                  dense: true,
-                  selected: location == '/library/favorites',
-                  onTap: () => context.go('/library/favorites'),
+                  route: '/library/favorites',
+                  cover: const Artwork(
+                    path: null,
+                    size: _cover,
+                    icon: Icons.favorite_rounded,
+                  ),
                 ),
                 for (final p in playlists)
-                  _NavItem(
+                  item(
                     label: p.name,
-                    icon: Icons.music_note_outlined,
-                    dense: true,
-                    selected: location == '/library/playlist/${p.id}',
-                    onTap: () => context.go('/library/playlist/${p.id}'),
+                    route: '/library/playlist/${p.id}',
+                    cover: ArtworkCollage(paths: p.artworkPaths, size: _cover),
                   ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: PillButton(
-                      label: 'Create Playlist',
-                      icon: Icons.add_rounded,
-                      onPressed: () async {
-                        final id = await createPlaylist(context, ref);
-                        if (id != null && context.mounted) {
-                          context.go('/library/playlist/$id');
-                        }
-                      },
+                _Fold(
+                  t: labels,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: PillButton(
+                        label: 'Create Playlist',
+                        icon: Icons.add_rounded,
+                        onPressed: () async {
+                          final id = await createPlaylist(context, ref);
+                          if (id != null && context.mounted) {
+                            context.go('/library/playlist/$id');
+                          }
+                        },
+                      ),
                     ),
                   ),
                 ),
-                if (ytPlaylists.isNotEmpty || hasLikes) ...[
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(26, 8, 16, 8),
-                    child: Text('YouTube', style: t.labelMedium),
+                if (ytPlaylists.isNotEmpty || likes.isNotEmpty) ...[
+                  _Fold(
+                    t: labels,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(26, 8, 16, 8),
+                      child: Text('YouTube', style: t.labelMedium),
+                    ),
                   ),
-                  if (hasLikes)
-                    _NavItem(
+                  if (likes.isNotEmpty)
+                    item(
                       label: ref.watch(youTubeLikesTitleProvider),
-                      icon: Icons.thumb_up_alt_outlined,
-                      dense: true,
-                      selected: location == '/library/youtube/liked',
-                      onTap: () => context.go('/library/youtube/liked'),
+                      route: '/library/youtube/liked',
+                      cover: Artwork(
+                        path: likes.first.artworkUrl,
+                        size: _cover,
+                        icon: Icons.thumb_up_alt_outlined,
+                      ),
                     ),
                   for (final p in ytPlaylists)
-                    _NavItem(
+                    item(
                       label: p.title,
-                      icon: Icons.smart_display_outlined,
-                      dense: true,
-                      selected: location == '/library/youtube/${p.id}',
-                      onTap: () => context.go('/library/youtube/${p.id}'),
+                      route: '/library/youtube/${p.id}',
+                      cover: Artwork(path: p.thumbnailUrl, size: _cover),
                     ),
                 ],
               ],
@@ -310,22 +281,65 @@ class _Collections extends ConsumerWidget {
   }
 }
 
+/// Folds [child] away as [t] goes to 0: it fades and its height shrinks.
+/// Laid out at full sidebar width, so it never reflows; folded away it
+/// leaves focus and semantics.
+class _Fold extends StatelessWidget {
+  const _Fold({required this.t, required this.child});
+
+  final double t;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final hidden = t == 0;
+    return ExcludeFocus(
+      excluding: hidden,
+      child: ExcludeSemantics(
+        excluding: hidden,
+        child: IgnorePointer(
+          ignoring: t < 1,
+          child: ClipRect(
+            child: Align(
+              alignment: Alignment.topLeft,
+              heightFactor: t,
+              child: UnconstrainedBox(
+                alignment: Alignment.topLeft,
+                constrainedAxis: Axis.vertical,
+                clipBehavior: Clip.hardEdge,
+                child: SizedBox(
+                  // Inside the 1 px glass border on either side.
+                  width: _expandedWidth - 2,
+                  child: Opacity(opacity: t, child: child),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _NavItem extends StatelessWidget {
   const _NavItem({
     required this.label,
-    required this.icon,
     required this.selected,
     required this.onTap,
-    this.dense = false,
+    this.icon,
+    this.leading,
     this.labelOpacity = 1,
     this.tooltip = false,
-  });
+    super.key,
+  }) : assert((icon == null) != (leading == null), 'An icon or a cover');
 
   final String label;
-  final IconData icon;
+  final IconData? icon;
+
+  /// A 40 px cover in place of the icon (collections).
+  final Widget? leading;
   final bool selected;
   final VoidCallback onTap;
-  final bool dense;
   final double labelOpacity;
 
   /// Shows the label as a tooltip (icon-only rail).
@@ -337,6 +351,7 @@ class _NavItem extends StatelessWidget {
     final t = Theme.of(context).textTheme;
     final fx = NoirEffects.of(context);
     final color = selected ? c.textPrimary : c.textSecondary;
+    final cover = leading;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 1),
       child: Tooltip(
@@ -352,34 +367,50 @@ class _NavItem extends StatelessWidget {
             child: AnimatedContainer(
               duration: fx.motion(NoirMotion.fast),
               curve: NoirMotion.standard,
-              height: dense ? 38 : 42,
+              height: cover == null ? 42 : 48,
               // With the 1 px glass border and 12 px inset, 17 puts the
-              // icon's center at 40: the rail's center.
-              padding: const EdgeInsets.only(left: 17),
+              // icon's center at 40: the rail's center. Same for the
+              // 40 px cover at 7.
+              padding: EdgeInsets.only(left: cover == null ? 17 : 7),
               decoration: BoxDecoration(
                 color: selected ? c.selected : Colors.transparent,
                 borderRadius: NoirRadii.mdAll,
               ),
               child: Row(
                 children: [
-                  Icon(icon, size: dense ? 18 : 20, color: color),
-                  const SizedBox(width: 14),
+                  ?cover,
+                  if (cover == null) ...[
+                    Icon(icon, size: 20, color: color),
+                    const SizedBox(width: 14),
+                  ],
                   Expanded(
                     child: ClipRect(
                       child: OverflowBox(
                         alignment: Alignment.centerLeft,
                         minWidth: 0,
-                        maxWidth: _labelWidth,
-                        child: Opacity(
-                          opacity: labelOpacity,
-                          child: AnimatedDefaultTextStyle(
-                            duration: fx.motion(NoirMotion.fast),
-                            style: (dense ? t.labelMedium : t.labelLarge)!
-                                .copyWith(color: color),
-                            child: Text(
-                              label,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
+                        // Beside a cover the gap is clipped too: the rail
+                        // has no room for it.
+                        maxWidth: cover == null
+                            ? _labelWidth
+                            : _coverGap + _coverLabelWidth,
+                        child: Padding(
+                          padding: EdgeInsets.only(
+                            left: cover == null ? 0 : _coverGap,
+                          ),
+                          child: Opacity(
+                            opacity: labelOpacity,
+                            child: AnimatedDefaultTextStyle(
+                              duration: fx.motion(NoirMotion.fast),
+                              style:
+                                  (cover == null
+                                          ? t.labelLarge
+                                          : t.labelMedium)!
+                                      .copyWith(color: color),
+                              child: Text(
+                                label,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             ),
                           ),
                         ),

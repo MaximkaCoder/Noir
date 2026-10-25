@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:noir/app/shell/navigation.dart';
+import 'package:noir/app/shell/navigation_history.dart';
 import 'package:noir/app/shell/sidebar.dart';
 import 'package:noir/app/theme/design_tokens.dart';
 import 'package:noir/app/theme/glass_theme.dart';
@@ -300,7 +301,8 @@ class _ShellShortcuts extends ConsumerWidget {
   }
 }
 
-/// Right-aligned search pill and account avatar; doubles as window drag area.
+/// Back / forward on the left, search pill and account avatar on the
+/// right; doubles as window drag area.
 class TopBar extends ConsumerWidget {
   const TopBar({required this.shell, super.key});
 
@@ -318,6 +320,7 @@ class TopBar extends ConsumerWidget {
           padding: const EdgeInsets.fromLTRB(24, 12, 20, 4),
           child: Row(
             children: [
+              const HistoryButtons(),
               const Spacer(),
               if (!onSearch)
                 Semantics(
@@ -372,6 +375,98 @@ class TopBar extends ConsumerWidget {
                 const WindowControls(),
               ],
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Browser-like back and forward through [NavigationHistory]: small glass
+/// circles, dimmed while there is nowhere to go.
+class HistoryButtons extends ConsumerWidget {
+  const HistoryButtons({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final history = ref.watch(navigationHistoryProvider);
+    return ListenableBuilder(
+      listenable: history,
+      builder: (context, _) => Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _GlassCircleButton(
+            icon: Icons.arrow_back_rounded,
+            tooltip: 'Back (Alt+←)',
+            onPressed: history.canGoBack
+                ? () => unawaited(history.back())
+                : null,
+          ),
+          const SizedBox(width: NoirSpacing.sm),
+          _GlassCircleButton(
+            icon: Icons.arrow_forward_rounded,
+            tooltip: 'Forward (Alt+→)',
+            onPressed: history.canGoForward ? history.forward : null,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _GlassCircleButton extends StatelessWidget {
+  const _GlassCircleButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onPressed,
+  });
+
+  static const double _size = 34;
+
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.noir;
+    final fx = NoirEffects.of(context);
+    final enabled = onPressed != null;
+    return Tooltip(
+      message: tooltip,
+      child: Semantics(
+        button: true,
+        enabled: enabled,
+        label: tooltip,
+        // Only the arrow dims: the glass itself never sits in an opacity
+        // layer, where its lens could not reach the backdrop.
+        child: LiquidPress(
+          enabled: enabled,
+          child: GlassSurface(
+            borderRadius: NoirRadii.pillAll,
+            interactive: enabled,
+            child: Material(
+              type: MaterialType.transparency,
+              child: InkResponse(
+                onTap: onPressed,
+                customBorder: const CircleBorder(),
+                hoverColor: c.hover,
+                hoverDuration: fx.motion(NoirMotion.fast),
+                child: SizedBox.square(
+                  dimension: _size,
+                  child: TweenAnimationBuilder<Color?>(
+                    tween: ColorTween(
+                      end: enabled
+                          ? c.textPrimary
+                          : c.textTertiary.withValues(alpha: 0.5),
+                    ),
+                    duration: fx.motion(NoirMotion.fast),
+                    builder: (context, color, _) =>
+                        Icon(icon, size: 18, color: color),
+                  ),
+                ),
+              ),
+            ),
           ),
         ),
       ),

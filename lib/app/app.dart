@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:noir/app/router.dart';
+import 'package:noir/app/shell/navigation_history.dart';
 import 'package:noir/app/theme/app_theme.dart';
 import 'package:noir/app/theme/glass_theme.dart';
 import 'package:noir/features/playback/application/media_commands.dart';
@@ -58,9 +59,9 @@ class NoirApp extends ConsumerWidget {
 }
 
 /// App-wide input that belongs to no single screen:
-/// - the mouse "Back" side button and Alt+← go back like in a browser —
-///   an open dialog, sheet or menu closes first, then Now Playing, then the
-///   current section's sub-page; at a section root nothing happens;
+/// - the mouse Back / Forward side buttons and Alt+← / Alt+→ walk the
+///   [NavigationHistory] like a browser, across sections too; Back closes
+///   an open dialog, sheet or menu first, then Now Playing;
 /// - media keys reach the player while the window is focused. On Windows
 ///   SMTC may deliver the same press too; [MediaCommands] drops the
 ///   duplicate.
@@ -96,6 +97,8 @@ class _GlobalInputState extends ConsumerState<_GlobalInput> {
   @override
   void initState() {
     super.initState();
+    // Starts recording before the first navigation.
+    ref.read(navigationHistoryProvider);
     HardwareKeyboard.instance.addHandler(_onKey);
   }
 
@@ -110,9 +113,9 @@ class _GlobalInputState extends ConsumerState<_GlobalInput> {
       defaultTargetPlatform == TargetPlatform.windows ||
       defaultTargetPlatform == TargetPlatform.linux;
 
-  /// Uses the router's own back logic (the one Android's back button uses):
-  /// it pops modal routes before pages and never pops a section root.
-  void _back() => unawaited(ref.read(routerProvider).routerDelegate.popRoute());
+  void _back() => unawaited(ref.read(navigationHistoryProvider).back());
+
+  void _forward() => ref.read(navigationHistoryProvider).forward();
 
   bool _onKey(KeyEvent event) {
     final command =
@@ -130,20 +133,22 @@ class _GlobalInputState extends ConsumerState<_GlobalInput> {
     }
 
     final keys = HardwareKeyboard.instance;
+    final arrow = event.logicalKey;
     if (event is KeyDownEvent &&
-        event.logicalKey == LogicalKeyboardKey.arrowLeft &&
+        (arrow == LogicalKeyboardKey.arrowLeft ||
+            arrow == LogicalKeyboardKey.arrowRight) &&
         keys.isAltPressed &&
         !keys.isControlPressed &&
         !keys.isShiftPressed &&
         !keys.isMetaPressed &&
         !_editingText) {
-      _back();
+      arrow == LogicalKeyboardKey.arrowLeft ? _back() : _forward();
       return true;
     }
     return false;
   }
 
-  /// Text fields keep Alt+← for themselves.
+  /// Text fields keep Alt+← / Alt+→ for themselves.
   bool get _editingText =>
       FocusManager.instance.primaryFocus?.context
           ?.findAncestorStateOfType<EditableTextState>() !=
@@ -153,9 +158,11 @@ class _GlobalInputState extends ConsumerState<_GlobalInput> {
   Widget build(BuildContext context) {
     return Listener(
       onPointerDown: (event) {
-        if (event.kind == PointerDeviceKind.mouse &&
-            event.buttons & kBackMouseButton != 0) {
+        if (event.kind != PointerDeviceKind.mouse) return;
+        if (event.buttons & kBackMouseButton != 0) {
           _back();
+        } else if (event.buttons & kForwardMouseButton != 0) {
+          _forward();
         }
       },
       child: widget.child,

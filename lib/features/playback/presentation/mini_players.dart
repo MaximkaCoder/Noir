@@ -175,11 +175,7 @@ class _PlayerIslandState extends ConsumerState<PlayerIsland> {
 }
 
 class _IslandBar extends ConsumerWidget {
-  const _IslandBar(
-    this.state, {
-    required this.glassKey,
-    required this.refract,
-  });
+  const _IslandBar(this.state, {required this.glassKey, required this.refract});
 
   final PlaybackState state;
   final GlobalKey glassKey;
@@ -321,7 +317,7 @@ class _IslandNowPlayingState extends State<_IslandNowPlaying> {
   @override
   Widget build(BuildContext context) {
     final state = widget.state;
-    final uid = state.current!.uid;
+    final id = state.current!.track.id;
     final fx = NoirEffects.of(context);
     final reveal = _hovered || _scrubbing;
     return MouseRegion(
@@ -342,10 +338,7 @@ class _IslandNowPlayingState extends State<_IslandNowPlaying> {
                     children: [
                       Hero(
                         tag: 'now-playing-art',
-                        child: Artwork(
-                          path: state.current!.track.artwork,
-                          size: 36,
-                        ),
+                        child: _CoverSwap(state.current!.track, size: 36),
                       ),
                       const SizedBox(width: NoirSpacing.sm + 2),
                       Expanded(
@@ -355,7 +348,7 @@ class _IslandNowPlayingState extends State<_IslandNowPlaying> {
                           children: [
                             _Swap(
                               duration: fx.motion(NoirMotion.medium),
-                              child: _Title(state, key: ValueKey(uid)),
+                              child: _Title(state, key: ValueKey(id)),
                             ),
                             _Swap(
                               duration: fx.motion(NoirMotion.fast),
@@ -364,7 +357,7 @@ class _IslandNowPlayingState extends State<_IslandNowPlaying> {
                                       _scrub,
                                       key: const ValueKey('times'),
                                     )
-                                  : _Subtitle(state, key: ValueKey(uid)),
+                                  : _Subtitle(state, key: ValueKey(id)),
                             ),
                           ],
                         ),
@@ -392,6 +385,80 @@ class _IslandNowPlayingState extends State<_IslandNowPlaying> {
       ),
     );
   }
+}
+
+/// The current track's cover. A new track's cover is decoded first and
+/// then cross-fades in over the old one, so it never fades through an empty
+/// frame. Keyed by track (and artwork, which may resolve later).
+class _CoverSwap extends StatefulWidget {
+  const _CoverSwap(this.track, {required this.size});
+
+  final Track track;
+  final double size;
+
+  /// How long a slow download may hold the old cover.
+  static const _patience = Duration(seconds: 2);
+
+  @override
+  State<_CoverSwap> createState() => _CoverSwapState();
+}
+
+class _CoverSwapState extends State<_CoverSwap> {
+  late Track _shown = widget.track;
+  Track? _loading;
+
+  static bool _same(Track a, Track b) => a.id == b.id && a.artwork == b.artwork;
+
+  @override
+  void didUpdateWidget(_CoverSwap old) {
+    super.didUpdateWidget(old);
+    final next = widget.track;
+    if (_same(next, _shown)) {
+      _shown = next;
+      _loading = null;
+      return;
+    }
+    if (_loading case final loading? when _same(loading, next)) return;
+    _loading = next;
+    unawaited(_reveal(next));
+  }
+
+  Future<void> _reveal(Track next) async {
+    await precacheArtwork(
+      context,
+      next.artwork,
+      widget.size,
+    ).timeout(_CoverSwap._patience, onTimeout: () {});
+    if (!mounted || !identical(_loading, next)) return;
+    setState(() {
+      _shown = next;
+      _loading = null;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final shown = _shown;
+    return AnimatedSwitcher(
+      duration: NoirEffects.of(context).motion(NoirMotion.slow),
+      switchInCurve: NoirMotion.standard,
+      switchOutCurve: NoirMotion.standard,
+      // The old cover stays opaque underneath while the new one fades in.
+      transitionBuilder: (child, animation) => FadeTransition(
+        opacity: child.key == ValueKey(_keyOf(shown))
+            ? animation
+            : const AlwaysStoppedAnimation(1),
+        child: child,
+      ),
+      child: Artwork(
+        key: ValueKey(_keyOf(shown)),
+        path: shown.artwork,
+        size: widget.size,
+      ),
+    );
+  }
+
+  static String _keyOf(Track t) => '${t.id}|${t.artwork}';
 }
 
 /// Cross-fade that keeps the outgoing child left-aligned.
@@ -641,7 +708,7 @@ class MobileMiniPlayer extends ConsumerWidget {
                   children: [
                     Hero(
                       tag: 'now-playing-art',
-                      child: Artwork(path: s.current!.track.artwork, size: 40),
+                      child: _CoverSwap(s.current!.track, size: 40),
                     ),
                     const SizedBox(width: NoirSpacing.md),
                     Expanded(child: _NowPlayingText(s)),

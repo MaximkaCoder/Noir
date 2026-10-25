@@ -1,15 +1,21 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noir/app/router.dart';
+import 'package:noir/app/shell/adaptive_shell.dart';
 import 'package:noir/app/shell/sidebar.dart';
+import 'package:noir/app/theme/app_theme.dart';
+import 'package:noir/core/widgets/artwork.dart';
 import 'package:noir/core/widgets/buttons.dart';
 import 'package:noir/core/widgets/glass_surface.dart';
 import 'package:noir/core/widgets/liquid_glass.dart';
 import 'package:noir/features/library/data/library_repository.dart';
 import 'package:noir/features/playback/application/playback_controller.dart';
 import 'package:noir/features/playback/presentation/mini_players.dart';
+import 'package:noir/features/playback/presentation/playback_controls.dart';
+import 'package:noir/features/playlists/data/playlist_repository.dart';
 import 'package:noir/features/queue/presentation/queue_panel.dart';
 import 'package:noir/features/settings/data/settings_repository.dart';
 import 'package:noir/features/settings/domain/app_settings.dart';
@@ -26,6 +32,16 @@ Future<void> _play(TestApp app) async {
 
 Finder _inSidebar(String label) =>
     find.descendant(of: find.byType(Sidebar), matching: find.text(label));
+
+Finder _inRail(Finder matching) =>
+    find.descendant(of: find.byType(Sidebar), matching: matching);
+
+String _location(TestApp app) => app.container
+    .read(routerProvider)
+    .routerDelegate
+    .currentConfiguration
+    .uri
+    .toString();
 
 Finder _inIsland(Finder matching) =>
     find.descendant(of: find.byType(PlayerIsland), matching: matching);
@@ -50,7 +66,8 @@ void main() {
       await TestApp.pump(tester, size: const Size(900, 700));
       expect(tester.getSize(find.byType(Sidebar)).width, 80);
       expect(find.byTooltip('Expand sidebar'), findsNothing);
-      expect(find.byTooltip('Settings'), findsOneWidget);
+      // Settings sits behind the top bar's avatar, not in the rail.
+      expect(_inRail(find.byTooltip('Settings')), findsNothing);
     });
 
     testWidgets('phone: bottom navigation with every destination', (
@@ -104,6 +121,77 @@ void main() {
       await tester.tap(find.byTooltip('Collapse sidebar'));
       await tester.pump();
       expect(tester.getSize(find.byType(Sidebar)).width, 80);
+    });
+  });
+
+  group('sidebar rail', () {
+    testWidgets('shows playlist covers, no settings gear or avatar', (
+      tester,
+    ) async {
+      final app = await TestApp.pump(tester, size: const Size(900, 700));
+      final id = await PlaylistRepository(app.db).create('Late Night');
+      await tester.pumpAndSettle();
+
+      expect(_inRail(find.byType(AccountAvatar)), findsNothing);
+      expect(_inRail(find.byIcon(Icons.settings_outlined)), findsNothing);
+      expect(_inRail(find.byTooltip('Favorites')), findsOneWidget);
+      expect(_inRail(find.byTooltip('Late Night')), findsOneWidget);
+      // Headers and the create button fold away.
+      expect(_inRail(find.text('Create Playlist')).hitTestable(), findsNothing);
+
+      final favorites = _inRail(find.byIcon(Icons.favorite_rounded));
+      final cover = _inRail(find.byType(ArtworkCollage));
+      expect(tester.getSize(cover), const Size.square(40));
+      // Centered in the rail, in the full list's order.
+      expect(tester.getCenter(cover).dx, 40);
+      expect(tester.getCenter(favorites).dx, 40);
+      expect(
+        tester.getCenter(favorites).dy,
+        lessThan(tester.getCenter(cover).dy),
+      );
+
+      await tester.tap(cover);
+      await tester.pumpAndSettle();
+      expect(_location(app), '/library/playlist/$id');
+      final item = find.ancestor(
+        of: cover,
+        matching: find.byWidgetPredicate(
+          (w) => w is Semantics && (w.properties.button ?? false),
+        ),
+      );
+      expect(tester.widget<Semantics>(item.first).properties.selected, isTrue);
+
+      // Settings stays one shortcut away.
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.comma);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pumpAndSettle();
+      expect(_location(app), '/settings');
+    });
+
+    testWidgets('covers stay in place while labels fade', (tester) async {
+      final app = await TestApp.pump(tester);
+      await PlaylistRepository(app.db).create('Late Night');
+      await tester.pumpAndSettle();
+      final cover = _inRail(find.byType(ArtworkCollage));
+      final label = _inRail(find.text('Late Night'));
+      double labelOpacity() => tester
+          .widget<Opacity>(
+            find.ancestor(of: label, matching: find.byType(Opacity)).first,
+          )
+          .opacity;
+      expect(tester.getCenter(cover).dx, 40);
+      expect(labelOpacity(), 1);
+
+      await tester.tap(find.byTooltip('Collapse sidebar'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 120));
+      expect(tester.getCenter(cover).dx, 40);
+      expect(labelOpacity(), lessThan(1));
+
+      await tester.pumpAndSettle();
+      expect(tester.getCenter(cover).dx, 40);
+      expect(labelOpacity(), 0);
     });
   });
 
@@ -238,6 +326,120 @@ void main() {
       expect(glass.center.dx, 248 + (1360 - 248) / 2);
       expect(glass.bottom, 860 - 16);
       expect(_inSidebar('Ash & Ember'), findsNothing);
+    });
+
+    testWidgets('a new cover cross-fades in over the old one', (tester) async {
+      final app = await TestApp.pump(tester);
+      await _play(app);
+      await tester.pumpAndSettle();
+      final covers = _inIsland(find.byType(Artwork));
+      expect(covers, findsOneWidget);
+
+      await app.container.read(playbackProvider.notifier).next();
+      // The new cover is decoded first, then fades in.
+      await tester.pump();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 150));
+      expect(covers, findsNWidgets(2));
+      double opacity(int i) => tester
+          .widget<FadeTransition>(
+            find
+                .ancestor(
+                  of: covers.at(i),
+                  matching: find.byType(FadeTransition),
+                )
+                .first,
+          )
+          .opacity
+          .value;
+      // The old cover stays opaque underneath the incoming one.
+      expect(opacity(0), 1);
+      expect(opacity(1), inExclusiveRange(0, 1));
+      // Title and artist cross-fade too.
+      expect(_inIsland(find.text('Ash & Ember')), findsOneWidget);
+      expect(_inIsland(find.text('Quiet Harbor')), findsOneWidget);
+
+      await tester.pumpAndSettle();
+      expect(covers, findsOneWidget);
+      expect(_inIsland(find.text('Ash & Ember')), findsNothing);
+    });
+
+    testWidgets('the mouse wheel over the volume glides it', (tester) async {
+      final app = await TestApp.pump(tester);
+      await _play(app);
+      final ctrl = app.container.read(playbackProvider.notifier);
+      await ctrl.setVolume(0.5);
+      await tester.pumpAndSettle();
+      double volume() => app.container.read(playbackProvider).volume;
+
+      final pointer = TestPointer(1, PointerDeviceKind.mouse);
+      await tester.sendEventToBinding(
+        pointer.hover(tester.getCenter(_inIsland(find.byType(Slider)))),
+      );
+      await tester.sendEventToBinding(pointer.scroll(const Offset(0, -50)));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 40));
+      expect(volume(), inExclusiveRange(0.5, 0.55));
+      await tester.pumpAndSettle();
+      expect(volume(), closeTo(0.55, 1e-9));
+
+      // Notches add up, mid-glide too.
+      await tester.sendEventToBinding(pointer.scroll(const Offset(0, 50)));
+      await tester.sendEventToBinding(pointer.scroll(const Offset(0, 50)));
+      await tester.pumpAndSettle();
+      expect(volume(), closeTo(0.45, 1e-9));
+
+      // Elsewhere on the island the wheel leaves the volume alone.
+      await tester.sendEventToBinding(
+        pointer.hover(tester.getCenter(_inIsland(find.text('Ash & Ember')))),
+      );
+      await tester.sendEventToBinding(pointer.scroll(const Offset(0, -50)));
+      await tester.pumpAndSettle();
+      expect(volume(), closeTo(0.45, 1e-9));
+    });
+
+    testWidgets('the wheel over the volume does not scroll the page', (
+      tester,
+    ) async {
+      final app = await TestApp.pump(tester);
+      await app.container.read(playbackProvider.notifier).setVolume(0.5);
+      double volume() => app.container.read(playbackProvider).volume;
+      final scroll = ScrollController();
+      addTearDown(scroll.dispose);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: app.container,
+          child: MaterialApp(
+            theme: buildNoirTheme(Brightness.dark, Density.comfortable),
+            home: Scaffold(
+              body: ListView(
+                controller: scroll,
+                children: const [
+                  SizedBox(height: 300),
+                  Center(child: VolumeControl()),
+                  SizedBox(height: 2000),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+
+      final pointer = TestPointer(1, PointerDeviceKind.mouse);
+      await tester.sendEventToBinding(
+        pointer.hover(tester.getCenter(find.byType(VolumeControl))),
+      );
+      await tester.sendEventToBinding(pointer.scroll(const Offset(0, -50)));
+      await tester.pumpAndSettle();
+      expect(volume(), closeTo(0.55, 1e-9));
+      expect(scroll.offset, 0);
+
+      // Off the control the wheel scrolls the page as usual.
+      await tester.sendEventToBinding(pointer.hover(const Offset(40, 100)));
+      await tester.sendEventToBinding(pointer.scroll(const Offset(0, 100)));
+      await tester.pumpAndSettle();
+      expect(scroll.offset, greaterThan(0));
+      expect(volume(), closeTo(0.55, 1e-9));
     });
 
     testWidgets('the capsule shrinks with the window', (tester) async {

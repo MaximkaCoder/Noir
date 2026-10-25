@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:noir/app/router.dart';
 import 'package:noir/features/library/data/library_repository.dart';
+import 'package:noir/features/library/presentation/collection_screens.dart';
 import 'package:noir/features/playback/application/playback_controller.dart';
 import 'package:noir/features/playback/presentation/now_playing_screen.dart';
 import 'package:noir/shared/models/media.dart';
@@ -84,23 +85,46 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  Future<void> visit(TestApp app, WidgetTester tester, String to) async {
+    router(app).go(to);
+    await tester.pumpAndSettle();
+    expect(location(app), to);
+  }
+
+  Finder arrow(String tooltip) => find.descendant(
+    of: find.byTooltip(tooltip),
+    matching: find.byType(InkResponse),
+  );
+  bool enabled(WidgetTester tester, String tooltip) =>
+      tester.widget<InkResponse>(arrow(tooltip)).onTap != null;
+
   group('mouse back button', () {
-    testWidgets('pops a section sub-page back to its root', (tester) async {
+    testWidgets('walks back through visited screens, across sections', (
+      tester,
+    ) async {
       final app = await TestApp.pump(tester);
-      router(app).go('/library/favorites');
-      await tester.pumpAndSettle();
-      expect(location(app), '/library/favorites');
+      await visit(app, tester, '/library');
+      await visit(app, tester, '/library/favorites');
+      await visit(app, tester, '/search');
 
       await mouseBack(tester);
+      expect(location(app), '/library/favorites');
+      await mouseBack(tester);
       expect(location(app), '/library');
+      await mouseBack(tester);
+      expect(location(app), '/');
+      // Nothing left: stays put.
+      await mouseBack(tester);
+      expect(location(app), '/');
+      expect(tester.takeException(), isNull);
     });
 
     testWidgets('closes a dialog first, then Now Playing', (tester) async {
       final app = await TestApp.pump(tester);
       final tracks = await tracksOf(app);
       await app.container.read(playbackProvider.notifier).playTracks(tracks);
-      router(app).go('/library/favorites');
-      await tester.pumpAndSettle();
+      await visit(app, tester, '/library');
+      await visit(app, tester, '/library/favorites');
       unawaited(router(app).push('/now-playing'));
       await tester.pumpAndSettle();
       expect(find.byType(NowPlayingScreen), findsOneWidget);
@@ -118,31 +142,70 @@ void main() {
       expect(location(app), '/library');
     });
 
-    testWidgets('does nothing at a section root', (tester) async {
+    testWidgets('does nothing without history', (tester) async {
       final app = await TestApp.pump(tester);
-      router(app).go('/library');
-      await tester.pumpAndSettle();
+      expect(location(app), '/');
 
       await mouseBack(tester);
-      expect(location(app), '/library');
+      expect(location(app), '/');
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('the forward button does nothing', (tester) async {
+    testWidgets('keeps what a screen was opened with', (tester) async {
       final app = await TestApp.pump(tester);
-      router(app).go('/library/favorites');
+      const album = Album(
+        title: 'Low Light',
+        artist: 'Mara Vale',
+        trackCount: 2,
+      );
+      router(app).go('/library/album', extra: album);
       await tester.pumpAndSettle();
+      await visit(app, tester, '/search');
 
-      await mouseBack(tester, button: kForwardMouseButton);
-      expect(location(app), '/library/favorites');
+      await mouseBack(tester);
+      expect(location(app), '/library/album');
+      expect(find.byType(AlbumScreen), findsOneWidget);
     });
   });
 
-  group('Alt+Left', () {
-    testWidgets('goes back like the mouse button', (tester) async {
+  group('mouse forward button', () {
+    testWidgets('returns to where Back came from', (tester) async {
       final app = await TestApp.pump(tester);
-      router(app).go('/library/favorites');
-      await tester.pumpAndSettle();
+      await visit(app, tester, '/library/favorites');
+      await visit(app, tester, '/search');
+
+      await mouseBack(tester);
+      await mouseBack(tester);
+      expect(location(app), '/');
+
+      await mouseBack(tester, button: kForwardMouseButton);
+      expect(location(app), '/library/favorites');
+      await mouseBack(tester, button: kForwardMouseButton);
+      expect(location(app), '/search');
+      // Nothing ahead: stays put.
+      await mouseBack(tester, button: kForwardMouseButton);
+      expect(location(app), '/search');
+    });
+
+    testWidgets('a new visit drops the forward history', (tester) async {
+      final app = await TestApp.pump(tester);
+      await visit(app, tester, '/library/favorites');
+      await mouseBack(tester);
+      expect(location(app), '/');
+
+      await visit(app, tester, '/search');
+      await mouseBack(tester, button: kForwardMouseButton);
+      expect(location(app), '/search');
+      await mouseBack(tester);
+      expect(location(app), '/');
+    });
+  });
+
+  group('Alt+Left / Alt+Right', () {
+    testWidgets('go back and forward like the mouse buttons', (tester) async {
+      final app = await TestApp.pump(tester);
+      await visit(app, tester, '/library');
+      await visit(app, tester, '/library/favorites');
       await openDialog(tester, app);
 
       await altLeft(tester);
@@ -151,6 +214,48 @@ void main() {
 
       await altLeft(tester);
       expect(location(app), '/library');
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.altLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.altLeft);
+      await tester.pumpAndSettle();
+      expect(location(app), '/library/favorites');
+    });
+  });
+
+  group('top bar arrows', () {
+    testWidgets('are disabled until there is somewhere to go', (tester) async {
+      final app = await TestApp.pump(tester);
+      expect(enabled(tester, 'Back (Alt+←)'), isFalse);
+      expect(enabled(tester, 'Forward (Alt+→)'), isFalse);
+
+      await visit(app, tester, '/library');
+      expect(enabled(tester, 'Back (Alt+←)'), isTrue);
+      expect(enabled(tester, 'Forward (Alt+→)'), isFalse);
+
+      await tester.tap(arrow('Back (Alt+←)'));
+      await tester.pumpAndSettle();
+      expect(location(app), '/');
+      expect(enabled(tester, 'Back (Alt+←)'), isFalse);
+      expect(enabled(tester, 'Forward (Alt+→)'), isTrue);
+
+      await tester.tap(arrow('Forward (Alt+→)'));
+      await tester.pumpAndSettle();
+      expect(location(app), '/library');
+      expect(enabled(tester, 'Forward (Alt+→)'), isFalse);
+    });
+
+    testWidgets('sit at the left of the top bar', (tester) async {
+      await TestApp.pump(tester);
+      final back = tester.getRect(arrow('Back (Alt+←)'));
+      final forward = tester.getRect(arrow('Forward (Alt+→)'));
+      final search = tester.getRect(
+        find.text('Search music, artists, albums…'),
+      );
+      expect(back.left, lessThan(forward.left));
+      expect(forward.right, lessThan(search.left));
+      // Just past the 248 px sidebar.
+      expect(back.left, inInclusiveRange(248, 248 + 40));
     });
   });
 

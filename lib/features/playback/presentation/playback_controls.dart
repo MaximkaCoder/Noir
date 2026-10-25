@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:ui' show lerpDouble;
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart' hide RepeatMode;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:noir/app/theme/app_theme.dart';
@@ -286,43 +287,109 @@ class ProgressLine extends ConsumerWidget {
   }
 }
 
-class VolumeControl extends ConsumerWidget {
+/// Mute toggle and volume slider. Scrolling the mouse wheel over it glides
+/// the volume up or down a [wheelStep] per notch; the page underneath does
+/// not scroll meanwhile.
+class VolumeControl extends ConsumerStatefulWidget {
   const VolumeControl({this.showSlider = true, super.key});
 
   /// Without the slider only the mute toggle remains (narrow layouts).
   final bool showSlider;
 
+  static const double wheelStep = 0.05;
+
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<VolumeControl> createState() => _VolumeControlState();
+}
+
+class _VolumeControlState extends ConsumerState<VolumeControl>
+    with SingleTickerProviderStateMixin {
+  late final _glide = AnimationController(vsync: this)..addListener(_onGlide);
+  double _from = 0;
+
+  /// Where the wheel is heading; further notches add to it mid-glide.
+  double _to = 0;
+
+  @override
+  void dispose() {
+    _glide.dispose();
+    super.dispose();
+  }
+
+  void _onWheel(PointerSignalEvent event) {
+    if (event is! PointerScrollEvent || event.scrollDelta.dy == 0) return;
+    // Claims the event, so no scrollable underneath also takes it.
+    GestureBinding.instance.pointerSignalResolver.register(event, (event) {
+      final up = (event as PointerScrollEvent).scrollDelta.dy < 0;
+      final volume = ref.read(playbackProvider).volume;
+      final base = _glide.isAnimating ? _to : volume;
+      final step = up ? VolumeControl.wheelStep : -VolumeControl.wheelStep;
+      _glideTo((base + step).clamp(0.0, 1.0));
+    });
+  }
+
+  void _glideTo(double target) {
+    _to = target;
+    final duration = NoirEffects.of(context).motion(NoirMotion.fast);
+    if (duration == Duration.zero) {
+      unawaited(ref.read(playbackProvider.notifier).setVolume(target));
+      return;
+    }
+    _from = ref.read(playbackProvider).volume;
+    _glide
+      ..duration = duration
+      ..forward(from: 0);
+  }
+
+  void _onGlide() {
+    final t = NoirMotion.standard.transform(_glide.value);
+    unawaited(
+      ref.read(playbackProvider.notifier).setVolume(lerpDouble(_from, _to, t)!),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final caps = ref.watch(playbackProvider.select((s) => s.capabilities));
     if (!caps.canControlVolume) return const SizedBox.shrink();
     final volume = ref.watch(playbackProvider.select((s) => s.volume));
     final ctrl = ref.read(playbackProvider.notifier);
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        NoirIconButton(
-          icon: volume == 0
-              ? Icons.volume_off_rounded
-              : volume < 0.5
-              ? Icons.volume_down_rounded
-              : Icons.volume_up_rounded,
-          tooltip: volume == 0 ? 'Unmute' : 'Mute',
-          size: 18,
-          onPressed: () => unawaited(ctrl.setVolume(volume == 0 ? 0.8 : 0)),
-        ),
-        if (showSlider)
-          SizedBox(
-            width: 96,
-            child: Semantics(
-              label: 'Volume',
-              child: Slider(
-                value: volume,
-                onChanged: (v) => unawaited(ctrl.setVolume(v)),
+    return Listener(
+      // The whole control, gaps included, takes the wheel.
+      behavior: HitTestBehavior.opaque,
+      onPointerSignal: _onWheel,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          NoirIconButton(
+            icon: volume == 0
+                ? Icons.volume_off_rounded
+                : volume < 0.5
+                ? Icons.volume_down_rounded
+                : Icons.volume_up_rounded,
+            tooltip: volume == 0 ? 'Unmute' : 'Mute',
+            size: 18,
+            onPressed: () {
+              _glide.stop();
+              unawaited(ctrl.setVolume(volume == 0 ? 0.8 : 0));
+            },
+          ),
+          if (widget.showSlider)
+            SizedBox(
+              width: 96,
+              child: Semantics(
+                label: 'Volume',
+                child: Slider(
+                  value: volume,
+                  onChanged: (v) {
+                    _glide.stop();
+                    unawaited(ctrl.setVolume(v));
+                  },
+                ),
               ),
             ),
-          ),
-      ],
+        ],
+      ),
     );
   }
 }

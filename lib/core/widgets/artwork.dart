@@ -1,7 +1,10 @@
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:noir/app/theme/design_tokens.dart';
+import 'package:noir/features/artwork/application/artwork_providers.dart';
 import 'package:noir/features/artwork/domain/art_urls.dart';
 import 'package:noir/features/youtube/presentation/youtube_cover.dart';
 
@@ -78,6 +81,55 @@ class Artwork extends StatelessWidget {
       child: SizedBox.square(dimension: size, child: image),
     );
   }
+}
+
+/// Decodes what an [Artwork] of [size] first paints for [path] into the
+/// image cache, so a swap to it can show at once instead of loading. Never
+/// throws; completes when the image is ready or has failed.
+Future<void> precacheArtwork(
+  BuildContext context,
+  String? path,
+  double size,
+) async {
+  if (path == null) return;
+  final dpr = MediaQuery.devicePixelRatioOf(context);
+  final px = size * dpr;
+  // The same images, at the same decode sizes (cache keys), as [Artwork]
+  // and [YouTubeCover] request.
+  final ImageProvider image;
+  final videoId = youtubeThumbnailVideoId(path);
+  if (videoId != null) {
+    final art = ProviderScope.containerOf(
+      context,
+      listen: false,
+    ).read(resolvedArtProvider(videoId))?.squareUrl(px);
+    if (art != null) {
+      image = ResizeImage.resizeIfNeeded(
+        artBucket(px),
+        null,
+        NetworkImage(art),
+      );
+    } else {
+      final frame = youtubeFrame(px);
+      final width = frame.width * size / frame.square;
+      image = ResizeImage.resizeIfNeeded(
+        math.min(frame.width, (width * dpr).ceil()),
+        null,
+        NetworkImage(youtubeFrameUrl(videoId, frame)),
+      );
+    }
+  } else if (!isRemoteImage(path)) {
+    image = ResizeImage.resizeIfNeeded(px.ceil(), null, FileImage(File(path)));
+  } else if (isGoogleArt(path)) {
+    image = ResizeImage.resizeIfNeeded(
+      artBucket(px),
+      null,
+      NetworkImage(resizeGoogleArt(path, px)),
+    );
+  } else {
+    image = NetworkImage(path);
+  }
+  await precacheImage(image, context, onError: (_, _) {});
 }
 
 bool isRemoteImage(String source) =>
