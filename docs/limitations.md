@@ -10,13 +10,11 @@
 | Background / screen-off / audio-only YouTube playback | YouTube Developer Policies III.I.7, III.I.9 | Visible embedded player; full audio features for local files |
 | Downloading YouTube content | Policy III.E.1.b | — |
 | YouTube watch history | Not exposed by the API | NOIR's own local history |
-| Personalized recommendations | Not available to third-party apps | Discover: YouTube Music's anonymous (non-personalized) home feed and radio |
+| Personalized recommendations | Not available to third-party apps | "For you": anonymous radio seeded by your own plays, likes and playlists, computed on the device |
 | Explicit-content badges | No reliable data source | — |
 
 ## This version
 
-- **Google / YouTube is not connected yet.** The capability audit, OAuth design
-  and a working WebView2 embed spike exist; the integration is Phase 5.
 - **Windows media controls** use System Media Transport Controls through
   NOIR's own runner code (no Rust-based package): media keys work while the
   window is unfocused or minimized, and the Windows media flyout shows the
@@ -59,8 +57,9 @@ API anonymously (see [privacy.md](privacy.md)). It is undocumented:
   waits for the next refresh (every 30 min while Home is revisited, or the
   refresh button).
 - **Radio** continues only queues containing a YouTube track, with repeat
-  off. It fetches 20 songs about 30 s before the last one ends; if that
-  fails, playback simply stops at the end, without an error. "Start radio"
+  off. It appends 20 more songs whenever fewer than five are left after the
+  current one; if that fails, playback simply stops at the end, without an
+  error. "Start radio"
   on a local file needs a match on YouTube Music.
 - Playback of what it finds uses the official embedded player, with the same
   limits as other YouTube items (visible player, no background audio).
