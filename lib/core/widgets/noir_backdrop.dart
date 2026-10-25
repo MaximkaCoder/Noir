@@ -51,6 +51,12 @@ class NoirBackdrop extends StatelessWidget {
           if (fx.ambient && artworkPath != null)
             AnimatedSwitcher(
               duration: fx.motion(NoirMotion.slow * 2),
+              // The switcher lays its children out loosely: without this
+              // the 24 px image would sit small in the middle.
+              layoutBuilder: (current, previous) => Stack(
+                fit: StackFit.expand,
+                children: [...previous, ?current],
+              ),
               child: Opacity(
                 key: ValueKey(artworkPath),
                 opacity: dark ? 0.18 : 0.12,
