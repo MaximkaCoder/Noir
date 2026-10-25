@@ -26,12 +26,6 @@ class HistoryRepository {
       .watch()
       .map((rows) => [for (final r in rows) _db.tracks.map(r.data).toTrack()]);
 
-  /// [watchRecentTracks], once.
-  Future<List<Track>> recentTracks({int limit = 24}) async => [
-    for (final r in await _recent(limit).get())
-      _db.tracks.map(r.data).toTrack(),
-  ];
-
   Selectable<QueryRow> _recent(int limit) => _db.customSelect(
     'SELECT t.* FROM tracks t JOIN ( '
     'SELECT track_id, MAX(played_at) AS last FROM play_history '

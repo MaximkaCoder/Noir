@@ -129,9 +129,17 @@ pumpNowPlaying(
 
   final rows = await db.select(db.tracks).get();
   rows.sort((a, b) => a.path.compareTo(b.path));
-  await container
+  // Not awaited: a YouTube song first asks (fake) YouTube Music for its
+  // song twin, which completes as the test pumps.
+  final started = container
       .read(playbackProvider.notifier)
       .playTracks(tracks ?? [for (final r in rows) r.toTrack()]);
+  var playing = false;
+  unawaited(started.then((_) => playing = true));
+  for (var i = 0; i < 20 && !playing; i++) {
+    await tester.pump(const Duration(milliseconds: 10));
+  }
+  await started;
   unawaited(container.read(routerProvider).push<void>('/now-playing'));
   if (settle) {
     await tester.pumpAndSettle();

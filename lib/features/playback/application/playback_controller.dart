@@ -9,6 +9,7 @@ import 'package:noir/features/discover/application/for_you.dart';
 import 'package:noir/features/home/data/history_repository.dart';
 import 'package:noir/features/library/application/library_scan_controller.dart';
 import 'package:noir/features/library/data/library_repository.dart';
+import 'package:noir/features/playback/application/song_versions.dart';
 import 'package:noir/features/playback/application/transition_log.dart';
 import 'package:noir/features/playback/application/transition_status.dart';
 import 'package:noir/features/playback/domain/audio_source_provider.dart';
@@ -451,8 +452,30 @@ class PlaybackController extends Notifier<PlaybackState> {
   /// Tells the audio file provider what is likely to play next.
   void _hintUpcoming() {
     if (state.index == null) return;
-    final next = state.upcoming.take(2).map((q) => q.track).toList();
-    if (next.isNotEmpty) ref.read(audioFilesProvider).prefetch(next);
+    final next = state.upcoming.take(2).toList();
+    if (next.isEmpty) return;
+    // Song twins first, so the audio fetched ahead is the one that plays.
+    unawaited(
+      Future.wait([for (final q in next) _preferSong(q)]).then((items) {
+        if (!ref.mounted) return;
+        ref.read(audioFilesProvider).prefetch([
+          for (final q in items) ?q?.track,
+        ]);
+      }),
+    );
+  }
+
+  /// Swaps [item]'s music video for its song twin ([SongVersions]) in the
+  /// queue. Returns the item as it now is, or null once it left the queue.
+  Future<QueueItem?> _preferSong(QueueItem item) async {
+    final song = await ref.read(songVersionsProvider).resolve(item.track);
+    if (!ref.mounted) return null;
+    final i = state.queue.indexWhere((q) => q.uid == item.uid);
+    if (i < 0) return null;
+    if (song == item.track) return state.queue[i];
+    final swapped = state.queue[i].copyWith(track: song);
+    state = state.copyWith(queue: [...state.queue]..[i] = swapped);
+    return swapped;
   }
 
   Future<void> _startAt(int index) async {
@@ -462,8 +485,11 @@ class PlaybackController extends Notifier<PlaybackState> {
 
   Future<void> _loadCurrent({required bool autoplay}) async {
     _sessionReady = true;
-    final item = state.current;
-    if (item == null) return;
+    final current = state.current;
+    if (current == null) return;
+    state = state.copyWith(status: PlaybackStatus.loading);
+    final item = await _preferSong(current);
+    if (item == null || state.current?.uid != item.uid) return; // Superseded.
     _crossfading = false;
     _whyNot = null;
     if (_smart != null) {

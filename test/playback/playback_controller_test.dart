@@ -189,6 +189,7 @@ void main() {
 
     await controller().jumpTo(3);
     controller().addToQueue([tracks.first]);
+    await pumpEventQueue();
     expect(files.prefetched.last, ['A']);
   });
 

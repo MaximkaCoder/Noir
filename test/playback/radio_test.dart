@@ -134,7 +134,7 @@ void main() {
     await complete();
     expect(state().status, PlaybackStatus.completed);
     expect(uris(), ['y1']);
-    expect(ytm.calls, isEmpty);
+    expect(radioCalls(), isEmpty);
   });
 
   test('no radio for local-only queues or with repeat on', () async {
@@ -146,7 +146,7 @@ void main() {
     controller().cycleRepeat(); // all
     await complete();
     expect(state().current!.track.uri, 'y1');
-    expect(ytm.calls, isEmpty);
+    expect(radioCalls(), isEmpty);
   });
 
   test('a failing YouTube Music ends the queue quietly', () async {
@@ -177,7 +177,7 @@ void main() {
       )
       ..radioPages['m1'] = YtmTrackPage(tracks: [match, r1]);
     await controller().startRadio(local.single);
-    expect(ytm.calls, ['search Mara Vale A songs', 'radio m1']);
+    expect(radioCalls(), ['search Mara Vale A songs', 'radio m1']);
     // The match is the same song as the seed, so it is not queued again.
     expect(uris(), [local.single.uri, 'r1']);
   });

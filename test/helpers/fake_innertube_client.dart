@@ -31,6 +31,9 @@ class FakeInnerTubeClient implements InnerTubeClient {
   Map<String, YtmCollection> collections = {};
   Map<String, YtmTrackPage> playlistMorePages = {};
 
+  /// `get_queue` entries by video id. None by default.
+  Map<String, YtmQueueEntry> queueEntries = {};
+
   /// Lyrics: browse id by video id, lyrics by browse id. None by default.
   Map<String, String> lyricsTabs = {};
   Map<String, YtmLyrics> lyricsPages = {};
@@ -112,6 +115,12 @@ class FakeInnerTubeClient implements InnerTubeClient {
   Future<YtmTrackPage> playlistMore(String continuation) => _answer(
     'playlistMore $continuation',
     () => playlistMorePages[continuation] ?? const YtmTrackPage(tracks: []),
+  );
+
+  @override
+  Future<Map<String, YtmQueueEntry>> queue(List<String> videoIds) => _answer(
+    'queue ${videoIds.join(',')}',
+    () => {for (final id in videoIds) id: ?queueEntries[id]},
   );
 
   @override

@@ -4,7 +4,6 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:noir/features/discover/application/discover_providers.dart';
-import 'package:noir/features/home/data/history_repository.dart';
 import 'package:noir/features/settings/data/settings_repository.dart';
 import 'package:noir/features/youtube/data/youtube_repository.dart';
 import 'package:noir/features/youtube/presentation/youtube_cover.dart';
@@ -87,39 +86,29 @@ class YouTubePlayLog {
 
 // --------------------------------------------------------- listen again --
 
-/// Home's first shelf, like YouTube Music's "Listen again": the songs the
-/// user played most (and most recently) in NOIR, YouTube and local alike.
-/// Rebuilt after each play.
+/// Home's first shelf, like YouTube Music's "Listen again": the YouTube
+/// songs the user played most (and most recently) in NOIR. Local files are
+/// left out: Home is about YouTube Music. Rebuilt after each play.
 final listenAgainProvider = FutureProvider<List<Track>>((ref) async {
   final plays = await ref.read(youTubePlayLogProvider).read();
-  final local = await ref.read(historyRepositoryProvider).recentTracks();
-  return listenAgain(plays, local, DateTime.now());
+  return listenAgain(plays, DateTime.now());
 });
 
-/// [plays] ranked like [tasteSeeds] does (each play counts, fading over two
-/// weeks), with the recently played local songs taking turns with them.
+/// [plays] ranked like [tasteSeeds] does: each play counts, fading over two
+/// weeks.
 List<Track> listenAgain(
   List<YouTubePlay> plays,
-  List<Track> local,
   DateTime now, {
   int length = 20,
-}) {
-  final youTube = [
-    for (final s in tasteSeeds(
-      plays: plays,
-      likes: const [],
-      playlistTracks: const [],
-      now: now,
-    ))
-      s.track,
-  ];
-  return [
-    for (var i = 0; i < max(youTube.length, local.length); i++) ...[
-      if (i < youTube.length) youTube[i],
-      if (i < local.length) local[i],
-    ],
-  ].take(length).toList();
-}
+}) => [
+  for (final s in tasteSeeds(
+    plays: plays,
+    likes: const [],
+    playlistTracks: const [],
+    now: now,
+  ).take(length))
+    s.track,
+];
 
 // ---------------------------------------------------------------- seeds --
 
