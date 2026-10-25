@@ -249,7 +249,7 @@ TextStyle lyricLineStyle(BuildContext context, double size) =>
     (Theme.of(context).textTheme.headlineSmall ?? const TextStyle()).copyWith(
       fontSize: size,
       fontWeight: FontWeight.w800,
-      height: 1.22,
+      height: 1.32,
       letterSpacing: -0.02 * size,
     );
 

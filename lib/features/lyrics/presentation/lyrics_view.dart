@@ -158,9 +158,9 @@ double lyricsFontSize(BoxConstraints box, {required bool compact}) {
 }
 
 /// Lyric type size beside the player in a [width] × [height] player area:
-/// it grows with the window, from 28 px up to 52 px on large screens.
+/// it grows with the window, from 28 px up to 60 px on large screens.
 double lyricsFontSizeFor(double width, double height) =>
-    min(width * 0.026, height * 0.045).clamp(28.0, 52.0);
+    min(width * 0.03, height * 0.052).clamp(28.0, 60.0);
 
 class _PlainLyrics extends StatelessWidget {
   const _PlainLyrics({
@@ -588,7 +588,7 @@ class _SyncedLyricsListState extends ConsumerState<SyncedLyricsList>
                               : _LineState.future,
                           style: base,
                           color: c.textPrimary,
-                          gap: size * 0.3,
+                          gap: size * 0.45,
                           duration: fx.motion(NoirMotion.slow),
                           onTap: canSeek ? () => _seekTo(i) : null,
                           karaoke: karaokeRow(i, base),

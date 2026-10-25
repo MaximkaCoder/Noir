@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:math';
 import 'dart:ui' as ui;
 
 import 'package:flutter/gestures.dart';
@@ -310,11 +309,11 @@ void main() {
           )
           .style
           .fontSize!;
-      expect(size, inInclusiveRange(32, 40));
-      // The lyrics run to a right margin as wide as the player's left one.
+      expect(size, inInclusiveRange(36, 44));
+      // The lyrics start past the middle and keep a wide right margin.
       final column = tester.getRect(find.byKey(NowPlayingScreen.lyricsKey));
-      expect(column.right, moreOrLessEquals(1360 - 1360 * 0.06, epsilon: 1));
-      expect(column.width, greaterThan(1360 * 0.4));
+      expect(column.left, greaterThanOrEqualTo(1360 * 0.515 - 1));
+      expect(column.right, moreOrLessEquals(1360 - 1360 * 0.1, epsilon: 1));
     });
 
     // Player column, cover and lyrics as laid out beside each other.
@@ -349,18 +348,16 @@ void main() {
       Size size,
       ({Rect cover, Rect lyrics, Rect column, double font}) at,
     ) {
-      final margin = size.width * 0.06;
-      // The player hugs the left edge with a proportional margin...
-      expect(at.cover.left, moreOrLessEquals(margin, epsilon: 1));
-      // ...and the lyrics reach a matching right margin.
+      // As in Apple Music: the player centred in the left half, nudged
+      // towards the middle...
       expect(
-        at.lyrics.right,
-        moreOrLessEquals(size.width - margin, epsilon: 1),
+        at.cover.center.dx,
+        moreOrLessEquals(size.width / 4 + size.width * 0.025, epsilon: 1),
       );
-      // The gap to the lyrics matches the margin: balanced, not pushed.
-      final gap = at.lyrics.left - at.cover.right;
-      expect(gap, greaterThanOrEqualTo(margin - 1));
-      expect(gap, lessThanOrEqualTo(max(56, margin * 1.3)));
+      // ...the lyrics from just past the middle to a wide right margin.
+      expect(at.lyrics.left, greaterThanOrEqualTo(size.width * 0.515 - 1));
+      expect(at.lyrics.left - at.cover.right, greaterThanOrEqualTo(56));
+      expect(at.lyrics.right, moreOrLessEquals(size.width * 0.9, epsilon: 1));
       // The player column is centered vertically below the title bar.
       final above = at.cover.top - TitleBarMetrics.height;
       final below = size.height - at.column.bottom;
@@ -371,8 +368,8 @@ void main() {
       const size = Size(1100, 700);
       final at = await besideLyrics(tester, size);
       proportional(size, at);
-      expect(at.cover.width, inInclusiveRange(260, 320));
-      expect(at.font, inInclusiveRange(28, 30));
+      expect(at.cover.width, inInclusiveRange(320, 380));
+      expect(at.font, inInclusiveRange(32, 34));
     });
 
     testWidgets('beside lyrics nothing is capped on a large screen', (
@@ -382,9 +379,9 @@ void main() {
       final at = await besideLyrics(tester, size);
       proportional(size, at);
       // Cover and type grow with the window, up to their own limits.
-      expect(at.cover.width, moreOrLessEquals(560, epsilon: 1));
-      expect(at.font, moreOrLessEquals(52, epsilon: 0.5));
-      expect(at.lyrics.right - at.cover.left, greaterThan(2560 * 0.8));
+      expect(at.cover.width, moreOrLessEquals(760, epsilon: 1));
+      expect(at.font, moreOrLessEquals(60, epsilon: 0.5));
+      expect(at.lyrics.right - at.cover.left, greaterThan(2560 * 0.6));
     });
 
     testWidgets('YouTube songs get YouTube Music lyrics first', (tester) async {

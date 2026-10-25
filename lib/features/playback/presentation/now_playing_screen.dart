@@ -426,7 +426,8 @@ class _RenderContentGate extends RenderProxyBox {
 ///
 /// The colours flow like a liquid: copies of the bitmap drift and turn
 /// slowly over one another ([_FlowPainter]), on a 60 s loop. Still with
-/// Animations off, in Performance mode and while the app is hidden.
+/// Animations off and while the app is hidden. It flows in Performance mode
+/// too: it only redraws a tiny bitmap three times a frame.
 class _ArtworkBackdrop extends StatefulWidget {
   const _ArtworkBackdrop({required this.source, required this.baked});
 
@@ -512,7 +513,6 @@ class _ArtworkBackdropState extends State<_ArtworkBackdrop>
     final run =
         NowPlayingScreen.flowEnabled &&
         fx.animations &&
-        fx.ambient &&
         visible &&
         (_shown != null || _previous != null);
     if (run && !_flow.isAnimating) {
@@ -1076,9 +1076,10 @@ class _Stage extends MultiChildRenderObjectWidget {
   static double wideCoverCap(double width, double height) =>
       min(min(460, width * 0.42), max(200, height * 0.62));
 
-  /// The largest the cover gets beside lyrics; it grows with the window.
+  /// The largest the cover gets beside lyrics; it grows with the window,
+  /// to about two thirds of its height as in Apple Music.
   static double lyricsCoverCap(double width, double height) =>
-      min(width * 0.28, height * 0.5).clamp(260.0, 560.0);
+      min(width * 0.33, height * 0.64).clamp(260.0, 760.0);
 
   @override
   _RenderStage createRenderObject(BuildContext context) =>
@@ -1210,7 +1211,9 @@ class _RenderStage extends RenderBox
         max<double>(200, h - 32 - restB),
       );
       final colB = artB;
-      final xB = marginB;
+      // The player sits centred in the left half (nudged towards the
+      // middle), the lyrics start just past it.
+      final xB = max(marginB, (w / 2 - artB) / 2 + w * 0.025);
 
       // Without lyrics: one centered column — cover, details, progress,
       // the controls (and the video) — the cover sized so it all
@@ -1286,11 +1289,11 @@ class _RenderStage extends RenderBox
         Offset.lerp(controlsA, controlsB, t)!,
         scale: _lerp(1, cScale, t),
       );
-      // The lyrics run from a gap after the player as wide as the left
-      // margin (a little more on small windows, to keep them apart) to a
-      // matching right margin: equal spacing balances the page.
-      final lyricsFrom = xB + colB + max<double>(56, marginB);
-      final lyricsTo = w - marginB;
+      // The lyrics start just past the middle (further when the player
+      // reaches it) and keep a wide right margin, so lines wrap at a
+      // readable length.
+      final lyricsFrom = max(xB + colB + max<double>(56, w * 0.06), w * 0.515);
+      final lyricsTo = w - max(marginB, w * 0.1);
       // Lyrics slide in from a little to the right as they fade in.
       placeTight(
         _Slot.lyrics,
