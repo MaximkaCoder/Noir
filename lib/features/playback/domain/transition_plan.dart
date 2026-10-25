@@ -102,6 +102,7 @@ class TransitionPlan {
     this.aFall,
     this.skippedA = 0,
     this.alternatives = const [],
+    this.phaseLock = false,
   });
 
   final TransitionType type;
@@ -175,7 +176,11 @@ class TransitionPlan {
   /// Human-readable explanation, for logs and tests.
   final String reason;
 
-  bool get phaseLocked => type == TransitionType.beatmatch;
+  /// A fade whose incoming beats are locked to the outgoing ones (the
+  /// grids agree on the tempo).
+  final bool phaseLock;
+
+  bool get phaseLocked => type == TransitionType.beatmatch || phaseLock;
 
   /// Outgoing media seconds the blend covers.
   double get spanInA => endInA - startInA;
