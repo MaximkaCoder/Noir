@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui' as ui;
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -66,6 +68,9 @@ pumpNowPlaying(
   /// YouTube Music; one that knows nothing by default (no network).
   FakeInnerTubeClient? innerTube,
   List<Override> overrides = const [],
+
+  /// False for pages that never settle (the flowing backdrop).
+  bool settle = true,
 }) async {
   tester.view
     ..physicalSize = size
@@ -128,7 +133,12 @@ pumpNowPlaying(
       .read(playbackProvider.notifier)
       .playTracks(tracks ?? [for (final r in rows) r.toTrack()]);
   unawaited(container.read(routerProvider).push<void>('/now-playing'));
-  await tester.pumpAndSettle();
+  if (settle) {
+    await tester.pumpAndSettle();
+  } else {
+    await tester.pump();
+    await tester.pump(NowPlayingTransition.openDuration);
+  }
   expect(find.byTooltip('Close player (Esc)'), findsOneWidget);
   return (container: container, engine: engine, http: http);
 }
@@ -328,8 +338,8 @@ void main() {
       return (
         cover: tester.getRect(find.byKey(NowPlayingScreen.coverKey)),
         lyrics: tester.getRect(find.byKey(NowPlayingScreen.lyricsKey)),
-        // The column ends with the secondary row, the Lyrics pill in it.
-        column: tester.getRect(_inPlayer(find.byTooltip('Hide lyrics'))),
+        // The column ends with the controls' capsule.
+        column: tester.getRect(find.byKey(ControlCapsule.glassKey)),
         font: font,
       );
     }
@@ -844,6 +854,146 @@ void main() {
     });
   });
 
+  group('controls', () {
+    Finder inCapsule(Finder finder) => find.descendant(
+      of: find.byKey(ControlCapsule.glassKey),
+      matching: finder,
+    );
+
+    testWidgets('one glass capsule holds every control', (tester) async {
+      await pumpNowPlaying(tester);
+      expect(find.byKey(ControlCapsule.glassKey), findsOneWidget);
+      for (final tooltip in [
+        'Shuffle off',
+        'Previous',
+        'Pause',
+        'Next',
+        'Repeat off',
+        'Mute',
+        'Show lyrics',
+        'Queue',
+      ]) {
+        expect(
+          inCapsule(find.byTooltip(tooltip)),
+          findsOneWidget,
+          reason: tooltip,
+        );
+      }
+      // No separate Lyrics pill any more.
+      expect(_inPlayer(find.text('Lyrics')), findsNothing);
+
+      await tester.tap(inCapsule(find.byTooltip('Show lyrics')));
+      await tester.pumpAndSettle();
+      expect(inCapsule(find.byTooltip('Hide lyrics')), findsOneWidget);
+    });
+
+    testWidgets('hovering the volume widens the capsule for its slider', (
+      tester,
+    ) async {
+      await pumpNowPlaying(tester);
+      double width() =>
+          tester.getSize(find.byKey(ControlCapsule.glassKey)).width;
+      final collapsed = width();
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      addTearDown(mouse.removePointer);
+      await mouse.addPointer(location: Offset.zero);
+      await mouse.moveTo(tester.getCenter(inCapsule(find.byTooltip('Mute'))));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      final mid = width();
+      await tester.pumpAndSettle();
+      final expanded = width();
+      expect(expanded, moreOrLessEquals(collapsed + 96, epsilon: 1));
+      expect(mid, inExclusiveRange(collapsed, expanded));
+      // Still centered as it grows.
+      expect(
+        tester.getCenter(find.byKey(ControlCapsule.glassKey)).dx,
+        moreOrLessEquals(1360 / 2, epsilon: 1),
+      );
+
+      // It lingers a moment after the pointer leaves, then collapses.
+      await mouse.moveTo(const Offset(20, 400));
+      await tester.pump(const Duration(milliseconds: 150));
+      expect(width(), expanded);
+      await tester.pumpAndSettle();
+      expect(width(), moreOrLessEquals(collapsed, epsilon: 0.5));
+    });
+  });
+
+  group('flowing backdrop', () {
+    double flowAt(WidgetTester tester) {
+      final painter = tester
+          .widget<CustomPaint>(find.byKey(NowPlayingScreen.flowKey))
+          .painter!;
+      // The painter repaints from the flow animation; its value is the
+      // backdrop's phase.
+      // ignore: avoid_dynamic_calls
+      return (painter as dynamic).flow.value as double;
+    }
+
+    testWidgets('flows only while enabled', (tester) async {
+      NowPlayingScreen.flowEnabled = true;
+      addTearDown(() => NowPlayingScreen.flowEnabled = false);
+      // Artwork to flow: a small two-colour image.
+      final art = await tester.runAsync(() async {
+        final recorder = ui.PictureRecorder();
+        ui.Canvas(recorder)
+          ..drawColor(const Color(0xFF6A2BE2), BlendMode.src)
+          ..drawRect(
+            const Rect.fromLTWH(0, 0, 32, 64),
+            Paint()..color = const Color(0xFF1E90FF),
+          );
+        final image = await recorder.endRecording().toImage(64, 64);
+        final png = await image.toByteData(format: ui.ImageByteFormat.png);
+        final dir = Directory.systemTemp.createTempSync('noir_flow_');
+        final file = File('${dir.path}/art.png')
+          ..writeAsBytesSync(png!.buffer.asUint8List());
+        return file;
+      });
+      addTearDown(() => art!.parent.deleteSync(recursive: true));
+      final app = await pumpNowPlaying(
+        tester,
+        settle: false,
+        tracks: [
+          ytTrack('a', title: 'Ash & Ember').copyWith(
+            id: 'local:1',
+            source: MediaSource.local,
+            uri: 'a.mp3',
+            artworkPath: art!.path,
+          ),
+        ],
+      );
+      // Decoding and baking the artwork happens off the fake clock.
+      for (var i = 0; i < 200; i++) {
+        if (find.byKey(NowPlayingScreen.flowKey).evaluate().isNotEmpty) break;
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 20)),
+        );
+        await tester.pump();
+      }
+      await tester.pump(const Duration(seconds: 1));
+      final first = flowAt(tester);
+      await tester.pump(const Duration(seconds: 2));
+      expect(flowAt(tester), isNot(first));
+
+      // Animations off: it holds still.
+      app.container
+          .read(settingsProvider.notifier)
+          .update((s) => s.copyWith(animations: false));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      final held = flowAt(tester);
+      await tester.pump(const Duration(seconds: 2));
+      expect(flowAt(tester), held);
+      // Unmounted before teardown, while nothing animates.
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('off by default under flutter test', (tester) async {
+      expect(NowPlayingScreen.flowEnabled, isFalse);
+    });
+  });
+
   group('keyboard', () {
     testWidgets('Space plays and pauses, even after a button was used', (
       tester,
@@ -859,10 +1009,11 @@ void main() {
       await tester.pump();
       expect(playing(), isTrue);
 
-      // Tapped and focused, the Lyrics pill must not take Space for itself.
+      // Tapped and focused, the lyrics button must not take Space itself.
       await tester.tap(_inPlayer(find.byTooltip('Show lyrics')));
       await tester.pumpAndSettle();
-      Focus.of(tester.element(_inPlayer(find.text('Lyrics')))).requestFocus();
+      Focus.of(tester.element(_inPlayer(find.byIcon(Icons.lyrics_rounded))))
+          .requestFocus();
       await tester.pump();
       expect(app.container.read(lyricsVisibleProvider), isTrue);
       await tester.sendKeyEvent(LogicalKeyboardKey.space);
@@ -1030,13 +1181,12 @@ void main() {
       expect(progress.top, greaterThan(artist.bottom));
       expect(progress.width, moreOrLessEquals(cover.width, epsilon: 1));
       expect(progress.center.dx, moreOrLessEquals(1360 / 2, epsilon: 1));
-      final play = tester.getRect(_inPlayer(find.byTooltip('Pause')));
-      expect(play.top, greaterThan(progress.bottom));
-      expect(play.center.dx, moreOrLessEquals(1360 / 2, epsilon: 1));
-      final lyrics = tester.getRect(_inPlayer(find.byTooltip('Show lyrics')));
-      expect(lyrics.top, greaterThan(play.bottom));
+      // Every control in one capsule under it, centered.
+      final capsule = tester.getRect(find.byKey(ControlCapsule.glassKey));
+      expect(capsule.top, greaterThan(progress.bottom));
+      expect(capsule.center.dx, moreOrLessEquals(1360 / 2, epsilon: 1));
       // All of it fits the window.
-      expect(lyrics.bottom, lessThanOrEqualTo(860));
+      expect(capsule.bottom, lessThanOrEqualTo(860));
     });
 
     testWidgets('a short window shrinks the cover to fit', (tester) async {

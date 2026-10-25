@@ -6,8 +6,9 @@ import 'dart:ui' as ui show Image;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide RepeatMode;
 import 'package:flutter/rendering.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -16,6 +17,7 @@ import 'package:noir/app/theme/glass_theme.dart';
 import 'package:noir/core/platform/window_controls.dart';
 import 'package:noir/core/widgets/artwork.dart';
 import 'package:noir/core/widgets/buttons.dart';
+import 'package:noir/core/widgets/glass_surface.dart';
 import 'package:noir/core/widgets/liquid_press.dart';
 import 'package:noir/core/widgets/noir_backdrop.dart';
 import 'package:noir/core/widgets/smooth_scroll.dart';
@@ -66,6 +68,14 @@ class NowPlayingScreen extends ConsumerStatefulWidget {
 
   /// The [NowPlayingVeilPainter]'s paint, for tests.
   static const veilKey = ValueKey('now-playing-veil');
+
+  /// The flowing backdrop's paint, for tests.
+  static const flowKey = ValueKey('now-playing-flow');
+
+  /// Whether the backdrop may flow at all. Off under `flutter test`, where
+  /// an endless animation would keep every page from settling; tests of
+  /// the flow switch it on.
+  static bool flowEnabled = !Platform.environment.containsKey('FLUTTER_TEST');
 
   @override
   ConsumerState<NowPlayingScreen> createState() => _NowPlayingScreenState();
@@ -413,6 +423,10 @@ class _RenderContentGate extends RenderProxyBox {
 /// bitmap that is kept for the last few tracks, so reopening Now Playing
 /// shows it on the very first frame. Cross-fades paint the image with an
 /// alpha instead of fading a layer.
+///
+/// The colours flow like a liquid: copies of the bitmap drift and turn
+/// slowly over one another ([_FlowPainter]), on a 60 s loop. Still with
+/// Animations off, in Performance mode and while the app is hidden.
 class _ArtworkBackdrop extends StatefulWidget {
   const _ArtworkBackdrop({required this.source, required this.baked});
 
@@ -427,7 +441,7 @@ class _ArtworkBackdrop extends StatefulWidget {
 }
 
 class _ArtworkBackdropState extends State<_ArtworkBackdrop>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   _BitmapImage? _shown;
 
   /// The previous image, under [_shown] while it fades in.
@@ -439,6 +453,20 @@ class _ArtworkBackdropState extends State<_ArtworkBackdrop>
     vsync: this,
     value: 1,
   )..addStatusListener(_faded);
+
+  /// One loop of the flow; every motion in it turns a whole number of
+  /// times per loop, so it never jumps.
+  late final AnimationController _flow = AnimationController(
+    vsync: this,
+    duration: const Duration(seconds: 60),
+  );
+  late final AppLifecycleListener _lifecycle;
+
+  @override
+  void initState() {
+    super.initState();
+    _lifecycle = AppLifecycleListener(onStateChange: (_) => _syncFlow());
+  }
 
   /// Baked backdrops of the last few tracks, by source.
   static final _cache = <String, _BitmapImage>{};
@@ -456,6 +484,7 @@ class _ArtworkBackdropState extends State<_ArtworkBackdrop>
   void didChangeDependencies() {
     super.didChangeDependencies();
     _load();
+    _syncFlow();
   }
 
   @override
@@ -466,8 +495,31 @@ class _ArtworkBackdropState extends State<_ArtworkBackdrop>
 
   @override
   void dispose() {
+    _lifecycle.dispose();
+    _flow.dispose();
     _fade.dispose();
     super.dispose();
+  }
+
+  /// Flows while there is artwork, motion is wanted and the app is shown.
+  void _syncFlow() {
+    final fx = NoirEffects.of(context);
+    final state = SchedulerBinding.instance.lifecycleState;
+    final visible =
+        state != AppLifecycleState.hidden &&
+        state != AppLifecycleState.paused &&
+        state != AppLifecycleState.detached;
+    final run =
+        NowPlayingScreen.flowEnabled &&
+        fx.animations &&
+        fx.ambient &&
+        visible &&
+        (_shown != null || _previous != null);
+    if (run && !_flow.isAnimating) {
+      _flow.repeat();
+    } else if (!run && _flow.isAnimating) {
+      _flow.stop();
+    }
   }
 
   void _faded(AnimationStatus status) {
@@ -531,6 +583,7 @@ class _ArtworkBackdropState extends State<_ArtworkBackdrop>
         ..duration = duration
         ..forward(from: 0);
     }
+    _syncFlow();
   }
 
   /// Decodes [provider] and bakes the blur into a tiny bitmap. Null when
@@ -575,15 +628,6 @@ class _ArtworkBackdropState extends State<_ArtworkBackdrop>
     }
   }
 
-  Widget _image(_BitmapImage image, Animation<double>? opacity) => Image(
-    image: image,
-    fit: BoxFit.cover,
-    gaplessPlayback: true,
-    filterQuality: FilterQuality.high,
-    excludeFromSemantics: true,
-    opacity: opacity,
-  );
-
   @override
   Widget build(BuildContext context) {
     final shown = _shown;
@@ -595,9 +639,19 @@ class _ArtworkBackdropState extends State<_ArtworkBackdrop>
         fit: StackFit.expand,
         children: [
           const NoirBackdrop(),
-          if (previous != null)
-            _image(previous, shown == null ? ReverseAnimation(_fade) : null),
-          if (shown != null) _image(shown, previous == null ? null : _fade),
+          if (art)
+            // Its own layer: only the flow repaints each frame.
+            RepaintBoundary(
+              child: CustomPaint(
+                key: NowPlayingScreen.flowKey,
+                painter: _FlowPainter(
+                  shown: shown?.image,
+                  previous: previous?.image,
+                  fade: _fade,
+                  flow: _flow,
+                ),
+              ),
+            ),
           if (art)
             DecoratedBox(
               decoration: BoxDecoration(
@@ -614,6 +668,93 @@ class _ArtworkBackdropState extends State<_ArtworkBackdrop>
       ),
     );
   }
+}
+
+/// The backdrop's artwork as a slowly flowing liquid: the blurred bitmap
+/// fills the window, drifting a little, and two larger copies turn over it
+/// in opposite directions at partial opacity, so its colours swirl into
+/// one another. The previous track's flow fades out under the new one.
+class _FlowPainter extends CustomPainter {
+  _FlowPainter({
+    required this.shown,
+    required this.previous,
+    required this.fade,
+    required this.flow,
+  }) : super(repaint: Listenable.merge([fade, flow]));
+
+  final ui.Image? shown;
+  final ui.Image? previous;
+  final Animation<double> fade;
+
+  /// 0–1 over one loop.
+  final Animation<double> flow;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final previous = this.previous;
+    final shown = this.shown;
+    if (previous != null) {
+      _paintFlow(canvas, size, previous, shown == null ? 1 - fade.value : 1);
+    }
+    if (shown != null) {
+      _paintFlow(canvas, size, shown, previous == null ? 1 : fade.value);
+    }
+  }
+
+  void _paintFlow(Canvas canvas, Size size, ui.Image image, double alpha) {
+    if (alpha <= 0) return;
+    final a = flow.value * 2 * pi;
+    final w = size.width;
+    final h = size.height;
+    final src = Rect.fromLTWH(
+      0,
+      0,
+      image.width.toDouble(),
+      image.height.toDouble(),
+    );
+    Paint paint(double opacity) => Paint()
+      ..filterQuality = FilterQuality.high
+      ..color = Color.fromRGBO(0, 0, 0, alpha * opacity);
+
+    // The whole artwork, covering the window with a little room to drift.
+    final scale = max(w / src.width, h / src.height) * 1.12;
+    final base = Rect.fromCenter(
+      center: Offset(w / 2 + sin(a) * w * 0.03, h / 2 + cos(a * 2) * h * 0.03),
+      width: src.width * scale,
+      height: src.height * scale,
+    );
+    canvas.drawImageRect(image, src, base, paint(1));
+
+    // Two larger copies turning over it; big enough to cover the window at
+    // any angle.
+    final side = sqrt(w * w + h * h) * 1.15;
+    for (final (turn, drift, phase, opacity) in const [
+      (1.0, 2.0, 0.0, 0.5),
+      (-1.0, 3.0, pi / 2, 0.4),
+    ]) {
+      canvas
+        ..save()
+        ..translate(
+          w / 2 + sin(a * drift + phase) * w * 0.12,
+          h / 2 + cos(a * (drift - 1) + phase) * h * 0.12,
+        )
+        ..rotate(a * turn + phase)
+        ..drawImageRect(
+          image,
+          src,
+          Rect.fromCenter(center: Offset.zero, width: side, height: side),
+          paint(opacity),
+        )
+        ..restore();
+    }
+  }
+
+  @override
+  bool shouldRepaint(_FlowPainter old) =>
+      old.shown != shown ||
+      old.previous != previous ||
+      old.fade != fade ||
+      old.flow != flow;
 }
 
 class _TopBar extends ConsumerWidget {
@@ -819,14 +960,7 @@ class _Player extends ConsumerWidget {
                   : details(0),
             ),
             const _StageSlot(slot: _Slot.progress, child: ProgressSlider()),
-            const _StageSlot(
-              slot: _Slot.transport,
-              child: PlaybackControls(large: true),
-            ),
-            const _StageSlot(
-              slot: _Slot.secondary,
-              child: _SecondaryControls(),
-            ),
+            const _StageSlot(slot: _Slot.controls, child: ControlCapsule()),
             if (video)
               _StageSlot(
                 slot: _Slot.video,
@@ -873,7 +1007,7 @@ class _Player extends ConsumerWidget {
   }
 }
 
-enum _Slot { cover, details, progress, transport, secondary, video, lyrics }
+enum _Slot { cover, details, progress, controls, video, lyrics }
 
 class _StageParentData extends ContainerBoxParentData<RenderBox> {
   _Slot? slot;
@@ -1066,9 +1200,8 @@ class _RenderStage extends RenderBox
       place(slot, rect.topLeft);
     }
 
-    // Controls keep their natural size, shrunk only to fit [width].
-    final transport = measure(_Slot.transport, double.infinity);
-    final secondary = measure(_Slot.secondary, double.infinity);
+    // The controls keep their natural size, shrunk only to fit a column.
+    final controls = measure(_Slot.controls, double.infinity);
 
     double height;
     if (wide) {
@@ -1085,9 +1218,7 @@ class _RenderStage extends RenderBox
           16 +
           measure(_Slot.progress, 300).height +
           16 +
-          transport.height +
-          8 +
-          secondary.height +
+          controls.height +
           (hasVideo ? 20 + YouTubeVideoLayer.miniSize.height : 0);
       final artB = min(
         _Stage.lyricsCoverCap(w, h),
@@ -1097,7 +1228,7 @@ class _RenderStage extends RenderBox
       final xB = marginB;
 
       // Without lyrics: one centered column — cover, details, progress,
-      // transport, secondary (and the video) — the cover sized so it all
+      // the controls (and the video) — the cover sized so it all
       // fits the height, the progress bar as wide as the cover (within
       // readable bounds). The details are laid out at a width that depends
       // on the window only (laying them out twice would restart their
@@ -1115,9 +1246,7 @@ class _RenderStage extends RenderBox
           16 +
           measure(_Slot.progress, textA).height +
           20 +
-          transport.height +
-          8 +
-          secondary.height +
+          controls.height +
           (hasVideo ? 20 + video.height : 0);
       final artA = min(capA, max(min<double>(160, capA), h - 48 - rest));
       final colA = columnFor(artA);
@@ -1131,23 +1260,18 @@ class _RenderStage extends RenderBox
         (w - colA) / 2,
         detailsAt.dy + details.height + 16,
       );
-      final transportA = Offset(
-        (w - transport.width) / 2,
+      final controlsA = Offset(
+        (w - controls.width) / 2,
         progressA.dy + progress.height + 20,
-      );
-      final secondaryA = Offset(
-        (w - secondary.width) / 2,
-        transportA.dy + transport.height + 8,
       );
       final videoA = Offset(
         (w - video.width) / 2,
-        secondaryA.dy + secondary.height + 20,
+        controlsA.dy + controls.height + 20,
       );
       final heightA = yA + totalA + 16;
 
       // With lyrics.
-      final tScale = min<double>(1, colB / max<double>(1, transport.width));
-      final sScale = min<double>(1, colB / max<double>(1, secondary.width));
+      final cScale = min<double>(1, colB / max<double>(1, controls.width));
       final totalB =
           artB +
           24 +
@@ -1155,23 +1279,17 @@ class _RenderStage extends RenderBox
           16 +
           progress.height +
           16 +
-          transport.height * tScale +
-          8 +
-          secondary.height * sScale +
+          controls.height * cScale +
           (hasVideo ? 20 + video.height : 0);
       final yB = max<double>(8, (h - totalB) / 2);
       final coverB = Rect.fromLTWH(xB, yB, artB, artB);
       final detailsB = Offset(xB, coverB.bottom + 24);
       final progressB = detailsB.translate(0, details.height + 16);
-      final transportB = Offset(
-        xB + (colB - transport.width * tScale) / 2,
+      final controlsB = Offset(
+        xB + (colB - controls.width * cScale) / 2,
         progressB.dy + progress.height + 16,
       );
-      final secondaryB = Offset(
-        xB + (colB - secondary.width * sScale) / 2,
-        transportB.dy + transport.height * tScale + 8,
-      );
-      final videoB = Offset(xB, secondaryB.dy + secondary.height * sScale + 20);
+      final videoB = Offset(xB, controlsB.dy + controls.height * cScale + 20);
       final heightB = max(h, yB + totalB + 24);
 
       placeTight(_Slot.cover, Rect.lerp(coverA, coverB, t)!);
@@ -1179,14 +1297,9 @@ class _RenderStage extends RenderBox
       place(_Slot.progress, Offset.lerp(progressA, progressB, t)!);
       place(_Slot.video, Offset.lerp(videoA, videoB, t)!);
       place(
-        _Slot.transport,
-        Offset.lerp(transportA, transportB, t)!,
-        scale: _lerp(1, tScale, t),
-      );
-      place(
-        _Slot.secondary,
-        Offset.lerp(secondaryA, secondaryB, t)!,
-        scale: _lerp(1, sScale, t),
+        _Slot.controls,
+        Offset.lerp(controlsA, controlsB, t)!,
+        scale: _lerp(1, cScale, t),
       );
       // The lyrics' column runs from a gap after the player to the right
       // margin. Lines are start-aligned and most are much shorter than
@@ -1223,8 +1336,7 @@ class _RenderStage extends RenderBox
       final progress = measure(_Slot.progress, cw);
       final video = measure(_Slot.video, cw);
       final hasVideo = c[_Slot.video] != null;
-      final tScale = min<double>(1, cw / max<double>(1, transport.width));
-      final sScale = min<double>(1, cw / max<double>(1, secondary.width));
+      final cScale = min<double>(1, cw / max<double>(1, controls.width));
 
       // The lyrics take the cover's place; everything below follows.
       const top = 16.0;
@@ -1236,17 +1348,11 @@ class _RenderStage extends RenderBox
       place(_Slot.progress, Offset(x, y));
       y += progress.height + 20;
       place(
-        _Slot.transport,
-        Offset((w - transport.width * tScale) / 2, y),
-        scale: tScale,
+        _Slot.controls,
+        Offset((w - controls.width * cScale) / 2, y),
+        scale: cScale,
       );
-      y += transport.height * tScale + 8;
-      place(
-        _Slot.secondary,
-        Offset((w - secondary.width * sScale) / 2, y),
-        scale: sScale,
-      );
-      y += secondary.height * sScale;
+      y += controls.height * cScale;
       if (hasVideo) {
         place(_Slot.video, Offset(x, y + 24));
         y += 24 + video.height;
@@ -1298,43 +1404,226 @@ class _RenderStage extends RenderBox
   }
 }
 
-/// Lyrics · volume · queue.
-class _SecondaryControls extends ConsumerWidget {
-  const _SecondaryControls();
+/// Every control in one Liquid Glass capsule: shuffle · previous ·
+/// play/pause · next · repeat | volume · lyrics · queue. Hovering the
+/// volume reveals its slider and the capsule widens to make room.
+class ControlCapsule extends ConsumerWidget {
+  const ControlCapsule({super.key});
+
+  /// The capsule's glass, for tests.
+  static const glassKey = ValueKey('now-playing-capsule');
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final s = ref.watch(playbackProvider);
+    final ctrl = ref.read(playbackProvider.notifier);
+    final caps = s.capabilities;
+    final hasItem = s.current != null;
     final lyrics = ref.watch(lyricsVisibleProvider);
     final queueOpen = ref.watch(queueSheetOpenProvider);
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        // PillButton has no Liquid Glass response of its own.
-        LiquidPress(
-          pressedScale: 0.94,
-          bubbleScale: 1.06,
-          child: Tooltip(
-            message: lyrics ? 'Hide lyrics' : 'Show lyrics',
-            child: PillButton(
-              label: 'Lyrics',
-              icon: Icons.format_quote_rounded,
-              filled: lyrics,
-              onPressed: ref.read(lyricsVisibleProvider.notifier).toggle,
+    final c = context.noir;
+    const gap = SizedBox(width: NoirSpacing.xs);
+    return GlassSurface(
+      key: glassKey,
+      borderRadius: NoirRadii.pillAll,
+      interactive: true,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (caps.canShuffle) ...[
+            NoirIconButton(
+              icon: Icons.shuffle_rounded,
+              tooltip: s.shuffle ? 'Shuffle on' : 'Shuffle off',
+              active: s.shuffle,
+              onPressed: hasItem ? ctrl.toggleShuffle : null,
             ),
+            gap,
+          ],
+          if (caps.canSkip) ...[
+            NoirIconButton(
+              icon: Icons.skip_previous_rounded,
+              tooltip: 'Previous',
+              size: 24,
+              color: c.textPrimary,
+              onPressed: hasItem ? () => unawaited(ctrl.previous()) : null,
+            ),
+            gap,
+          ],
+          PrimaryPlayButton(
+            playing: s.isPlaying,
+            onPressed: hasItem ? () => unawaited(ctrl.togglePlayPause()) : null,
           ),
-        ),
-        const SizedBox(width: NoirSpacing.sm),
-        const VolumeControl(),
-        const SizedBox(width: NoirSpacing.sm),
-        NoirIconButton(
-          icon: Icons.queue_music_rounded,
-          tooltip: 'Queue',
-          active: queueOpen,
-          onPressed: () => unawaited(showQueueSheet(context, ref)),
-        ),
-      ],
+          if (caps.canSkip) ...[
+            gap,
+            NoirIconButton(
+              icon: Icons.skip_next_rounded,
+              tooltip: 'Next',
+              size: 24,
+              color: c.textPrimary,
+              onPressed: s.hasNext ? () => unawaited(ctrl.next()) : null,
+            ),
+          ],
+          if (caps.canRepeat) ...[
+            gap,
+            NoirIconButton(
+              icon: s.repeat == RepeatMode.one
+                  ? Icons.repeat_one_rounded
+                  : Icons.repeat_rounded,
+              tooltip: switch (s.repeat) {
+                RepeatMode.off => 'Repeat off',
+                RepeatMode.all => 'Repeat all',
+                RepeatMode.one => 'Repeat one',
+              },
+              active: s.repeat != RepeatMode.off,
+              onPressed: hasItem ? ctrl.cycleRepeat : null,
+            ),
+          ],
+          Container(
+            width: 1,
+            height: 24,
+            margin: const EdgeInsets.symmetric(horizontal: NoirSpacing.sm),
+            color: c.textTertiary.withValues(alpha: 0.35),
+          ),
+          const _RevealingVolume(),
+          gap,
+          NoirIconButton(
+            icon: Icons.lyrics_rounded,
+            tooltip: lyrics ? 'Hide lyrics' : 'Show lyrics',
+            active: lyrics,
+            onPressed: ref.read(lyricsVisibleProvider.notifier).toggle,
+          ),
+          gap,
+          NoirIconButton(
+            icon: Icons.queue_music_rounded,
+            tooltip: 'Queue',
+            active: queueOpen,
+            onPressed: () => unawaited(showQueueSheet(context, ref)),
+          ),
+        ],
+      ),
     );
   }
+}
+
+/// [VolumeControl] showing only its icon until the pointer is over it;
+/// then its slider slides out (and the capsule around it widens), sliding
+/// back a moment after the pointer leaves. The wheel works throughout.
+class _RevealingVolume extends StatefulWidget {
+  const _RevealingVolume();
+
+  /// How long the pointer may be away before the slider hides.
+  static const linger = Duration(milliseconds: 300);
+
+  @override
+  State<_RevealingVolume> createState() => _RevealingVolumeState();
+}
+
+class _RevealingVolumeState extends State<_RevealingVolume>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _reveal = AnimationController(vsync: this);
+  late final CurvedAnimation _curve = CurvedAnimation(
+    parent: _reveal,
+    curve: NoirMotion.standard,
+  );
+  Timer? _hide;
+
+  @override
+  void dispose() {
+    _hide?.cancel();
+    _curve.dispose();
+    _reveal.dispose();
+    super.dispose();
+  }
+
+  void _show({required bool shown}) {
+    _hide?.cancel();
+    final duration = NoirEffects.of(context)
+        .motion(const Duration(milliseconds: 250));
+    if (shown) {
+      _reveal.animateTo(1, duration: duration);
+    } else {
+      _hide = Timer(_RevealingVolume.linger, () {
+        if (mounted) _reveal.animateBack(0, duration: duration);
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      onEnter: (_) => _show(shown: true),
+      onExit: (_) => _show(shown: false),
+      child: AnimatedBuilder(
+        animation: _curve,
+        builder: (context, child) => ExcludeFocus(
+          excluding: _reveal.value == 0,
+          child: _ClipEnd(
+            hidden: _volumeSliderWidth * (1 - _curve.value),
+            child: child,
+          ),
+        ),
+        child: const VolumeControl(),
+      ),
+    );
+  }
+}
+
+/// The width of [VolumeControl]'s slider.
+const _volumeSliderWidth = 96.0;
+
+/// Lays [child] out at its natural size but takes [hidden] px less width,
+/// clipping that much off its end.
+class _ClipEnd extends SingleChildRenderObjectWidget {
+  const _ClipEnd({required this.hidden, super.child});
+
+  final double hidden;
+
+  @override
+  _RenderClipEnd createRenderObject(BuildContext context) =>
+      _RenderClipEnd(hidden);
+
+  @override
+  void updateRenderObject(BuildContext context, _RenderClipEnd clip) =>
+      clip.hidden = hidden;
+}
+
+class _RenderClipEnd extends RenderProxyBox {
+  _RenderClipEnd(this._hidden);
+
+  double get hidden => _hidden;
+  double _hidden;
+  set hidden(double value) {
+    if (value == _hidden) return;
+    _hidden = value;
+    markNeedsLayout();
+  }
+
+  @override
+  void performLayout() {
+    final child = this.child!
+      ..layout(constraints.loosen(), parentUsesSize: true);
+    size = constraints.constrain(
+      Size(max(0, child.size.width - _hidden), child.size.height),
+    );
+  }
+
+  @override
+  void paint(PaintingContext context, Offset offset) {
+    if (_hidden <= 0) return super.paint(context, offset);
+    layer = context.pushClipRect(
+      needsCompositing,
+      offset,
+      Offset.zero & size,
+      super.paint,
+      oldLayer: layer as ClipRectLayer?,
+    );
+  }
+
+  @override
+  bool hitTestChildren(BoxHitTestResult result, {required Offset position}) =>
+      (Offset.zero & size).contains(position) &&
+      super.hitTestChildren(result, position: position);
 }
 
 class _LargeArtwork extends StatelessWidget {
