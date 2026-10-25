@@ -98,6 +98,10 @@ class TransitionPlan {
     this.vocalSourceB = VocalSource.none,
     this.keys = KeyRelation.unknown,
     this.quick = false,
+    this.bRise,
+    this.aFall,
+    this.skippedA = 0,
+    this.alternatives = const [],
   });
 
   final TransitionType type;
@@ -152,6 +156,18 @@ class TransitionPlan {
   final VocalSource vocalSourceB;
   final KeyRelation keys;
 
+  /// Blend progress where B reaches full level / A starts to fall; null:
+  /// from [overlap].
+  final double? bRise;
+  final double? aFall;
+
+  /// Seconds of A's content after [endInA] that are never played (its
+  /// weak tail).
+  final double skippedA;
+
+  /// The runner-up plans the planner considered, best first, for the log.
+  final List<String> alternatives;
+
   /// A last-resort quick fade: nothing better fitted the time left or the
   /// vocals (it may touch them).
   final bool quick;
@@ -182,24 +198,28 @@ class TransitionPlan {
     final c = t.clamp(0.0, 1.0);
     if (spanInA <= 0) return (c >= 1 ? 0 : 1, c >= 1 ? gainB : 0);
     if (type == TransitionType.echoOut) {
-      // B lands on the downbeat at full level; A drops and dies away like
-      // an echo tail.
-      final tail = 0.45 * (1 - c) * (1 - c);
-      return (tail * gainA, gainB);
+      // A drops and dies away like an echo tail over its last bar; B lands
+      // on the next downbeat at full level, right as the tail ends.
+      final tail = 0.5 * (1 - c) * (1 - c);
+      final land = ((c - 0.96) / 0.04).clamp(0.0, 1.0);
+      return (tail * gainA, land * gainB);
     }
     final o = overlap.clamp(0.0, 0.49);
-    final inT = (c / (1 - o)).clamp(0.0, 1.0);
-    final outT = ((c - o) / (1 - o)).clamp(0.0, 1.0);
+    final rise = (bRise ?? 1 - o).clamp(0.05, 1.0);
+    final fall = (aFall ?? o).clamp(0.0, 0.95);
+    final inT = (c / rise).clamp(0.0, 1.0);
+    final outT = ((c - fall) / (1 - fall)).clamp(0.0, 1.0);
     var a = math.cos(math.pi / 2 * outT);
     var b = math.sin(math.pi / 2 * inT);
     final swap = bassSwapAt;
     if (swap != null) {
       // Without EQ, emulate the swap with levels: B waits at -6 dB until
-      // the swap, then the two trade places within about a beat.
+      // the swap, then the two trade places within about a beat and A
+      // dips sharply (-9 dB) for the rest of the blend.
       const width = 0.06;
       final s = ((c - swap) / width + 0.5).clamp(0.0, 1.0);
       b = math.min(b, 0.5 + 0.5 * s);
-      a = math.min(a, 1 - 0.5 * s);
+      a = math.min(a, 1 - 0.65 * s);
     }
     final trimA = 1 + (gainA - 1) * c;
     return (a * trimA, b * gainB);

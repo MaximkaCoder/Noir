@@ -15,6 +15,9 @@ TrackAnalysis fake({
   bool steady = true,
   double tempoConfidence = 0.8,
   double tail = 2,
+
+  /// Level (dBFS) at each second; no energy curve when null.
+  double Function(double second)? energy,
 }) {
   final beat = 60 / bpm;
   final bar = beat * 4;
@@ -25,7 +28,9 @@ TrackAnalysis fake({
     duration: end + tail,
     loudnessLufs: lufs,
     peakDb: -1,
-    energyCurve: const [],
+    energyCurve: energy == null
+        ? const []
+        : [for (var t = 0; t < end + tail; t++) energy(t + 0.5)],
     contentStart: downbeat,
     contentEnd: end,
     bpm: bpm,

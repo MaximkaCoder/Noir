@@ -746,8 +746,12 @@ class PlaybackController extends Notifier<PlaybackState> {
         'analysis A ${sides.$1.analysis != null ? 'yes' : 'no'}, B '
         '${sides.$2.analysis != null ? 'yes' : 'no'}; vocals out '
         '${_s(plan.vocalOutA)} (${plan.vocalSourceA.name}), in '
-        '${_s(plan.vocalInB)} (${plan.vocalSourceB.name})',
+        '${_s(plan.vocalInB)} (${plan.vocalSourceB.name}); A tail skipped '
+        '${_s(plan.skippedA)}',
       );
+      for (final (i, alt) in plan.alternatives.indexed) {
+        _log('  ${i == 0 ? 'chosen' : 'also  '} $alt');
+      }
       _setTransition(
         TransitionStatus(plan: plan, phase: TransitionPhase.planned),
       );
