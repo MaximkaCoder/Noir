@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -5,8 +7,10 @@ import 'package:noir/core/database/app_database.dart';
 import 'package:noir/core/database/database_provider.dart';
 import 'package:noir/features/library/data/library_repository.dart';
 import 'package:noir/features/playback/application/playback_controller.dart';
+import 'package:noir/features/playback/application/transition_log.dart';
 import 'package:noir/features/playback/application/transition_status.dart';
 import 'package:noir/features/playback/domain/playback_engine.dart';
+import 'package:noir/features/playback/domain/routing_engine.dart';
 import 'package:noir/features/playback/domain/transition_plan.dart';
 import 'package:noir/features/playback/domain/transition_planner.dart';
 import 'package:noir/features/settings/domain/app_settings.dart';
@@ -32,13 +36,14 @@ void main() {
   Future<void> setUpWith([
     AppSettings settings = const AppSettings(),
     List<Override> overrides = const [],
+    PlaybackEngine? customEngine,
   ]) async {
     db = inMemoryDatabase();
     engine = FakeEngine();
     container = ProviderContainer(
       overrides: [
         databaseProvider.overrideWithValue(db),
-        playbackEngineProvider.overrideWithValue(engine),
+        playbackEngineProvider.overrideWithValue(customEngine ?? engine),
         initialSettingsProvider.overrideWithValue(settings),
         ...overrides,
       ],
@@ -242,15 +247,38 @@ void main() {
     Duration at(double seconds) =>
         Duration(microseconds: (seconds * 1e6).round());
 
-    setUp(
-      () => setUpWith(const AppSettings(transitionMode: TransitionMode.smart), [
-        transitionSideLoaderProvider.overrideWithValue(
-          (track) async => TransitionSide(
-            analysis: track.title == 'A' ? analysisA : analysisB,
+    /// Lyrics lookups; tests may keep them pending forever.
+    late Future<VocalTiming?> Function(Track) lyrics;
+
+    Future<void> setUpSmart([PlaybackEngine? customEngine]) {
+      lyrics = (_) async => null;
+      return setUpWith(
+        const AppSettings(transitionMode: TransitionMode.smart),
+        [
+          transitionSideLoaderProvider.overrideWithValue(
+            (track) async => TransitionSide(
+              analysis: track.title == 'A' ? analysisA : analysisB,
+            ),
           ),
-        ),
-      ]),
-    );
+          vocalTimingLoaderProvider.overrideWithValue((t) => lyrics(t)),
+        ],
+        customEngine,
+      );
+    }
+
+    setUp(setUpSmart);
+
+    List<String> log() => container.read(transitionLogProvider).lines;
+
+    /// Plays toward the end in quarter-second ticks from [from] seconds
+    /// before it, stopping when a transition is handed to the engine.
+    Future<void> playOut(FakeEngine e, double from) async {
+      for (var left = from; left > 0; left -= 0.25) {
+        e.tick(aLength - at(left));
+        await pumpEventQueue();
+        if (e.mix != null) return;
+      }
+    }
 
     TransitionStatus? status() => container.read(transitionStatusProvider);
 
@@ -319,6 +347,110 @@ void main() {
       await controller().next();
       expect(status(), isNull);
       expect(state().current!.track.title, 'B');
+    });
+
+    test('seeking to 15 s before the end still transitions, even while '
+        'lyrics never arrive', () async {
+      lyrics = (_) => Completer<VocalTiming?>().future;
+      await controller().playTracks(tracks);
+      engine.durationValue = aLength;
+      await controller().seek(aLength - at(15));
+      await playOut(engine, 15);
+      expect(engine.calls, contains(startsWith('mix B')));
+      final plan = engine.mixPlan!;
+      expect(plan.startInA, lessThan(analysisA.duration));
+      expect(plan.seconds, greaterThan(1));
+      expect(log().join('\n'), contains('plan'));
+    });
+
+    test('seeking to 3 s before the end gives at least a quick fade', () async {
+      await controller().playTracks(tracks);
+      // The pair is prepared while the track plays...
+      engine
+        ..durationValue = aLength
+        ..tick(const Duration(seconds: 10));
+      await pumpEventQueue();
+      // ...then the user jumps to the very end.
+      await controller().seek(aLength - at(3));
+      await playOut(engine, 3);
+      final plan = engine.mixPlan!;
+      expect(plan.quick, isTrue);
+      expect(plan.endInA, lessThanOrEqualTo(analysisA.duration + 1e-6));
+      expect(plan.seconds, greaterThan(0.5));
+    });
+
+    test('a seek after the plan was handed over plans again', () async {
+      final first = await planned();
+      engine.tick(at(first.startInA - 3));
+      await pumpEventQueue();
+      expect(engine.mix, isNotNull);
+      // The user seeks into the blend region; the engine drops the wait.
+      await controller().seek(aLength - at(12));
+      final dropped = engine.mix!;
+      engine.mix = null;
+      dropped.complete(false);
+      await pumpEventQueue();
+      await playOut(engine, 12);
+      expect(engine.calls.where((c) => c.startsWith('mix')), hasLength(2));
+      expect(engine.mixPlan!.startInA, greaterThan(first.startInA));
+      expect(log().join('\n'), contains('dropped'));
+    });
+
+    test(
+      'YouTube tracks with cached audio are mixed on the local player',
+      () async {
+        final local = FakeEngine();
+        final youtube = FakeEngine();
+        final files = FakeAudioFiles()..files['ytA'] = r'C:\cache\ytA.m4a';
+        final router = RoutingEngine({
+          MediaSource.local: local,
+          MediaSource.youtube: youtube,
+        }, files: files);
+        container.dispose();
+        await db.close();
+        await setUpSmart(router);
+        Track yt(String id) => Track(
+          id: 'youtube:$id',
+          source: MediaSource.youtube,
+          title: id == 'ytA' ? 'A' : 'B',
+          uri: id,
+          duration: aLength,
+        );
+        await controller().playTracks([yt('ytA'), yt('ytB')]);
+        expect(local.calls, contains('load A @0'));
+        // B is not cached yet: nothing can be mixed...
+        local
+          ..durationValue = aLength
+          ..tick(at(5));
+        await pumpEventQueue();
+        expect(log().join('\n'), contains('is not on the mixing player'));
+        // ...until its audio lands in the cache; then it is.
+        files.files['ytB'] = r'C:\cache\ytB.m4a';
+        local.tick(at(12));
+        await pumpEventQueue();
+        expect(log().join('\n'), contains('is on the mixing player'));
+        await playOut(local, 70);
+        expect(local.calls, contains(startsWith('mix B')));
+        expect(youtube.calls, isNot(contains(startsWith('load'))));
+      },
+    );
+
+    test('a track end without a transition says why', () async {
+      engine.mixable = false;
+      await controller().playTracks(tracks);
+      engine
+        ..durationValue = aLength
+        ..tick(aLength - at(5));
+      await pumpEventQueue();
+      engine.emit(const EngineCompleted());
+      await pumpEventQueue();
+      expect(
+        log().last,
+        contains(
+          '"A" ended without a transition: "B" is not on the mixing '
+          'player',
+        ),
+      );
     });
 
     test('a next track on another engine is not mixed', () async {

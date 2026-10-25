@@ -54,35 +54,41 @@ class TransitionStatusNotifier extends Notifier<TransitionStatus?> {
   void set(TransitionStatus? status) => state = status;
 }
 
-/// Loads what the transition planner needs about a track: its stored
-/// analysis and, from time-synced lyrics, when its vocals start and end.
-/// Never throws; missing pieces are null.
+/// Loads what the transition planner knows about a track without the
+/// network: its stored analysis and tags. Never throws; missing pieces are
+/// null.
 final transitionSideLoaderProvider =
     Provider<Future<TransitionSide> Function(Track track)>((ref) {
-      return (track) async {
-        final analysis = await _orNull(
+      return (track) async => TransitionSide(
+        analysis: await _orNull(
           ref.read(trackAnalysisProvider(track.id).future),
-        );
+        ),
+        duration: track.duration == null
+            ? null
+            : track.duration!.inMicroseconds / 1e6,
+        album: track.album,
+        artist: track.artist,
+        trackNumber: track.trackNumber,
+      );
+    });
+
+/// When a track's vocals start and end, from time-synced lyrics (null when
+/// there are none, or the lookup fails or takes too long). Slow: it may ask
+/// several services, so planning never waits for it.
+final vocalTimingLoaderProvider =
+    Provider<Future<VocalTiming?> Function(Track track)>((ref) {
+      return (track) async {
         final lyrics = await _orNull(
           ref
               .read(lyricsRepositoryProvider)
               .find(LyricsRequest.fromTrack(track))
               .timeout(const Duration(seconds: 20)),
         );
-        return TransitionSide(
-          analysis: analysis,
-          duration: track.duration == null
-              ? null
-              : track.duration!.inMicroseconds / 1e6,
-          album: track.album,
-          artist: track.artist,
-          trackNumber: track.trackNumber,
-          lyrics: switch (lyrics) {
-            SyncedLyrics(:final lines) => VocalTiming.fromLines(lines),
-            InstrumentalLyrics() => const VocalTiming(),
-            _ => null,
-          },
-        );
+        return switch (lyrics) {
+          SyncedLyrics(:final lines) => VocalTiming.fromLines(lines),
+          InstrumentalLyrics() => const VocalTiming(),
+          _ => null,
+        };
       };
     });
 

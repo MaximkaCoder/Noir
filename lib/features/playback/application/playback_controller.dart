@@ -8,6 +8,7 @@ import 'package:noir/features/discover/application/discover_providers.dart';
 import 'package:noir/features/home/data/history_repository.dart';
 import 'package:noir/features/library/application/library_scan_controller.dart';
 import 'package:noir/features/library/data/library_repository.dart';
+import 'package:noir/features/playback/application/transition_log.dart';
 import 'package:noir/features/playback/application/transition_status.dart';
 import 'package:noir/features/playback/domain/audio_source_provider.dart';
 import 'package:noir/features/playback/domain/playback_engine.dart';
@@ -87,6 +88,9 @@ class PlaybackController extends Notifier<PlaybackState> {
 
   /// The smart transition being prepared for the current -> next pair.
   _SmartPrep? _smart;
+
+  /// Why the current track can't hand over with a transition, for the log.
+  String? _whyNot;
   DateTime _lastSessionSave = DateTime.fromMillisecondsSinceEpoch(0);
 
   /// Off until [restoreSession] has run (or the user starts something), so
@@ -241,8 +245,7 @@ class PlaybackController extends Notifier<PlaybackState> {
 
   // ------------------------------------------------------------ transport --
 
-  Future<void> togglePlayPause() =>
-      state.isPlaying ? _engine.pause() : resume();
+  Future<void> togglePlayPause() => state.isPlaying ? pause() : resume();
 
   Future<void> resume() async {
     if (state.current == null) return;
@@ -253,6 +256,7 @@ class PlaybackController extends Notifier<PlaybackState> {
   }
 
   Future<void> pause() async {
+    _userAction();
     await _engine.pause();
     _saveSession(force: true);
   }
@@ -272,13 +276,17 @@ class PlaybackController extends Notifier<PlaybackState> {
     final index = state.index;
     if (index == null) return;
     if (_engine.currentPosition > _restartThreshold || index == 0) {
+      _userAction();
       await _engine.seek(Duration.zero);
     } else {
       await _startAt(index - 1);
     }
   }
 
-  Future<void> seek(Duration position) => _engine.seek(position);
+  Future<void> seek(Duration position) {
+    _userAction();
+    return _engine.seek(position);
+  }
 
   Future<void> setVolume(double volume) async {
     state = state.copyWith(volume: volume.clamp(0, 1));
@@ -456,6 +464,7 @@ class PlaybackController extends Notifier<PlaybackState> {
     final item = state.current;
     if (item == null) return;
     _crossfading = false;
+    _whyNot = null;
     if (_smart != null) {
       _smart = null;
       _setTransition(null);
@@ -490,6 +499,15 @@ class PlaybackController extends Notifier<PlaybackState> {
 
   Future<void> _onCompleted() async {
     if (_crossfading) return;
+    if (_settings.transitionMode != TransitionMode.off &&
+        state.repeat != RepeatMode.one &&
+        state.hasNext) {
+      _log(
+        '"${state.current?.track.title}" ended without a transition: '
+        '${_whyNoTransition()}',
+      );
+    }
+    _whyNot = null;
     if (state.repeat == RepeatMode.one) {
       await _engine.seek(Duration.zero);
       await _engine.play();
@@ -623,17 +641,25 @@ class PlaybackController extends Notifier<PlaybackState> {
     final index = state.index;
     if (mode == TransitionMode.off ||
         _crossfading ||
-        !_engine.capabilities.canCrossfade ||
         state.repeat == RepeatMode.one ||
         !state.isPlaying ||
         duration == null ||
         index == null) {
       return;
     }
+    if (!_engine.capabilities.canCrossfade) {
+      _whyNot =
+          'the current track plays on a player that cannot mix '
+          '(${state.queue[index].track.source.name}, not cached)';
+      return;
+    }
     final nextIndex = index + 1 < state.queue.length
         ? index + 1
         : (state.repeat == RepeatMode.all ? 0 : null);
-    if (nextIndex == null) return;
+    if (nextIndex == null) {
+      _whyNot = 'nothing queued after it';
+      return;
+    }
     final next = state.queue[nextIndex];
     if (next.uid == _noFadeUid) return;
     if (mode == TransitionMode.smart && _engine is MixingEngine) {
@@ -648,16 +674,25 @@ class PlaybackController extends Notifier<PlaybackState> {
     unawaited(_crossfadeInto(index, next, fade));
   }
 
-  /// Inputs are gathered (analyses, lyrics) this long before the end...
-  static const _smartLookahead = Duration(seconds: 90);
-
-  /// ...and the plan is made this long before it, so a beat-matched blend
-  /// can start on a phrase well before the outro.
+  /// The plan is made this long before the end, so a beat-matched blend can
+  /// start on a phrase well before the outro. Inputs are gathered as soon
+  /// as the track plays.
   static const _smartPlanAt = Duration(seconds: 70);
 
   /// The engine gets the plan this long before its start, to load and
   /// lock the next track.
   static const _smartPrepare = 4.0;
+
+  /// Below this much time left, plans start almost at once (a seek near
+  /// the end) instead of leaving [transitionLead] to prepare.
+  static const _shortOnTime = 20.0;
+
+  /// Planning without analyses (plain crossfade) once this little is left.
+  static const _lastCall = 12.0;
+
+  /// A next track found not to be on the mixing player is checked again
+  /// after this much playback (its audio may get cached meanwhile).
+  static const _recheckEvery = 5.0;
 
   void _maybeSmart(
     Duration position,
@@ -665,34 +700,67 @@ class PlaybackController extends Notifier<PlaybackState> {
     int index,
     QueueItem next,
   ) {
-    final remaining = duration - position;
-    if (remaining > _smartLookahead) return;
     final current = state.queue[index];
+    final at = position.inMicroseconds / 1e6;
+    final remaining = (duration - position).inMicroseconds / 1e6;
     var prep = _smart;
     if (prep == null || prep.fromUid != current.uid || prep.toUid != next.uid) {
-      prep = _smart = _SmartPrep(current.uid, next.uid);
+      prep = _smart = _SmartPrep(current, next);
       _setTransition(null);
-      unawaited(_gatherSmart(prep, current.track, next.track));
+      unawaited(_gatherSmart(prep, at));
     }
-    final at = position.inMicroseconds / 1e6;
+    if (prep.mixable == false && at - prep.checkedAt >= _recheckEvery) {
+      unawaited(_checkMixable(prep, at));
+    }
+    if (prep.mixable != true) {
+      _whyNot = prep.mixable == null
+          ? 'still checking whether "${next.track.title}" plays on the '
+                'mixing player'
+          : '"${next.track.title}" is not on the mixing player (not cached)';
+      return;
+    }
     if (prep.plan == null) {
-      final sides = prep.sides;
-      if (sides == null || remaining > _smartPlanAt) return;
+      var sides = prep.sides;
+      if (remaining > _smartPlanAt.inSeconds) return;
+      if (sides == null) {
+        if (remaining > _lastCall) {
+          _whyNot = 'analyses not loaded yet';
+          return;
+        }
+        sides = (_bareSide(current.track), _bareSide(next.track));
+        _log('${_pair(prep)}: analyses not loaded in time, plain fade');
+      }
       final plan = prep.plan = planTransition(
-        sides.$1,
-        sides.$2,
+        sides.$1.withLyrics(prep.vocalsA),
+        sides.$2.withLyrics(prep.vocalsB),
         fadeSeconds: _settings.crossfadeSeconds.toDouble(),
-        earliestStart: at + transitionLead,
+        earliestStart: at + (remaining > _shortOnTime ? transitionLead : 1.0),
       );
-      debugPrint('Smart transition: $plan');
+      prep.plannedWithLyrics = prep.lyricsDone;
+      _log(
+        '${_pair(prep)}: plan ${plan.type.name}'
+        '${plan.quick ? ' (quick)' : ''} at ${_s(plan.startInA)} for '
+        '${_s(plan.seconds)} (A ends ${_s(plan.endInA)}, B from '
+        '${_s(plan.entryInB)}${plan.bars == null ? '' : ', ${plan.bars} bars'}'
+        ') — ${plan.reason}; now ${_s(at)} of ${_s(at + remaining)}; '
+        'analysis A ${sides.$1.analysis != null ? 'yes' : 'no'}, B '
+        '${sides.$2.analysis != null ? 'yes' : 'no'}; vocals out '
+        '${_s(plan.vocalOutA)} (${plan.vocalSourceA.name}), in '
+        '${_s(plan.vocalInB)} (${plan.vocalSourceB.name})',
+      );
       _setTransition(
         TransitionStatus(plan: plan, phase: TransitionPhase.planned),
       );
     }
     final plan = prep.plan!;
     // Seeked past the planned start: plan again from here.
-    if (at > plan.startInA - 1) {
+    if (at > plan.startInA - 1 && !plan.quick) {
+      _log(
+        '${_pair(prep)}: dropped ${plan.type.name} at ${_s(plan.startInA)}, '
+        'position jumped to ${_s(at)}; planning again',
+      );
       prep.plan = null;
+      _maybeSmart(position, duration, index, next);
       return;
     }
     if (at < plan.startInA - _smartPrepare) return;
@@ -700,19 +768,56 @@ class PlaybackController extends Notifier<PlaybackState> {
     unawaited(_mixInto(next, plan, prep));
   }
 
-  /// Collects both sides' analyses and vocal timing; also checks once that
-  /// the next track plays on the same (mixing) engine.
-  Future<void> _gatherSmart(_SmartPrep prep, Track from, Track to) async {
-    final engine = _engine;
-    final mixer = engine is MixingEngine ? engine as MixingEngine : null;
-    if (mixer == null || !await mixer.canMixInto(to)) {
-      if (identical(_smart, prep)) _noFadeUid = prep.toUid;
-      return;
-    }
+  TransitionSide _bareSide(Track track) => TransitionSide(
+    duration: track.duration == null
+        ? null
+        : track.duration!.inMicroseconds / 1e6,
+    album: track.album,
+    artist: track.artist,
+    trackNumber: track.trackNumber,
+  );
+
+  /// Gathers both sides as soon as the pair is known: whether the next
+  /// track plays on the mixing player, the stored analyses (fast) and the
+  /// lyrics' vocal timing (slow; a plan made before it arrives is redone
+  /// if there is still time).
+  Future<void> _gatherSmart(_SmartPrep prep, double at) async {
+    await _checkMixable(prep, at);
     final load = ref.read(transitionSideLoaderProvider);
-    final sides = await Future.wait([load(from), load(to)]);
+    final sides = await Future.wait([
+      load(prep.from.track),
+      load(prep.to.track),
+    ]);
     if (!ref.mounted || !identical(_smart, prep)) return;
     prep.sides = (sides[0], sides[1]);
+    final vocals = ref.read(vocalTimingLoaderProvider);
+    final timings = await Future.wait([
+      vocals(prep.from.track),
+      vocals(prep.to.track),
+    ]);
+    if (!ref.mounted || !identical(_smart, prep)) return;
+    prep
+      ..vocalsA = timings[0]
+      ..vocalsB = timings[1]
+      ..lyricsDone = true;
+    if (prep.plan != null && !prep.handedOver && !prep.plannedWithLyrics) {
+      prep.plan = null; // Plan again with the vocal timing.
+    }
+  }
+
+  Future<void> _checkMixable(_SmartPrep prep, double at) async {
+    prep.checkedAt = at;
+    final engine = _engine;
+    final mixer = engine is MixingEngine ? engine as MixingEngine : null;
+    final ok = mixer != null && await mixer.canMixInto(prep.to.track);
+    if (!ref.mounted || !identical(_smart, prep)) return;
+    if (prep.mixable != ok) {
+      _log(
+        '${_pair(prep)}: next track ${ok ? 'is' : 'is not'} on the mixing '
+        'player (${prep.to.track.source.name})',
+      );
+    }
+    prep.mixable = ok;
   }
 
   /// Runs [plan] into [next]. The queue moves on when the engine says
@@ -724,6 +829,9 @@ class PlaybackController extends Notifier<PlaybackState> {
   ) async {
     final engine = _engine as MixingEngine;
     var started = false;
+    prep
+      ..handedOver = true
+      ..userAction = false;
     final ok = await engine.transitionTo(
       next.track,
       plan,
@@ -758,19 +866,62 @@ class PlaybackController extends Notifier<PlaybackState> {
     );
     if (!ref.mounted) return;
     _crossfading = false;
-    if (identical(_smart, prep)) {
-      if (ok) {
-        _smart = null;
-      } else if (++prep.failures >= 3) {
-        // Abandoned again and again: let this pair play out normally.
-        _noFadeUid = prep.toUid;
-      }
-      // Otherwise (a pause, a seek...) the plan is retried while there is
-      // time for it, or made again from the new position.
+    prep.handedOver = false;
+    if (ok) {
+      _log('${_pair(prep)}: ${plan.type.name} done');
+      if (identical(_smart, prep)) _smart = null;
+    } else if (prep.userAction) {
+      // A pause or seek: the plan is retried while there is time for it,
+      // or made again from the new position.
+      _log(
+        '${_pair(prep)}: waiting ${plan.type.name} dropped by a pause '
+        'or seek',
+      );
+      prep.userAction = false;
+    } else if (++prep.failures >= 3) {
+      _log('${_pair(prep)}: the player gave up 3 times; no transition');
+      if (identical(_smart, prep)) _noFadeUid = prep.toUid;
+    } else {
+      _log(
+        '${_pair(prep)}: the player could not start ${plan.type.name}; '
+        'retrying',
+      );
     }
     _setTransition(null);
     _saveSession(force: true);
   }
+
+  /// For the log: why the current track is ending without a transition.
+  String _whyNoTransition() {
+    final prep = _smart;
+    if (prep == null || prep.fromUid != state.current?.uid) {
+      return _whyNot ?? 'nothing was prepared (not playing near the end?)';
+    }
+    final next = '"${prep.to.track.title}"';
+    if (prep.mixable == null) {
+      return 'still checking whether $next plays on the mixing player';
+    }
+    if (prep.mixable == false) {
+      return '$next is not on the mixing player (not cached)';
+    }
+    final plan = prep.plan;
+    if (plan == null) {
+      return prep.sides == null ? 'analyses not loaded' : 'not planned yet';
+    }
+    return 'the ${plan.type.name} planned at ${_s(plan.startInA)} '
+        'never started';
+  }
+
+  /// The smart transition (if any) is about to be disturbed by the user.
+  void _userAction() => _smart?.userAction = true;
+
+  void _log(String message) => ref.read(transitionLogProvider).add(message);
+
+  static String _s(double? seconds) =>
+      seconds == null ? '-' : '${seconds.toStringAsFixed(1)}s';
+
+  static String _pair(_SmartPrep prep) =>
+      '"${prep.from.track.title}" → "${prep.to.track.title}"';
 
   void _setTransition(TransitionStatus? status) {
     final notifier = ref.read(transitionStatusProvider.notifier);
@@ -805,16 +956,38 @@ class PlaybackController extends Notifier<PlaybackState> {
 
 /// A smart transition being prepared between two queue items.
 class _SmartPrep {
-  _SmartPrep(this.fromUid, this.toUid);
+  _SmartPrep(this.from, this.to);
 
-  final int fromUid;
-  final int toUid;
+  final QueueItem from;
+  final QueueItem to;
 
-  /// Planner inputs (outgoing, incoming), once gathered.
+  int get fromUid => from.uid;
+  int get toUid => to.uid;
+
+  /// Whether [to] plays on the same, mixing player; null while checking.
+  bool? mixable;
+
+  /// Outgoing position of the last [mixable] check.
+  double checkedAt = 0;
+
+  /// Planner inputs without lyrics (outgoing, incoming), once loaded.
   (TransitionSide, TransitionSide)? sides;
+
+  /// Vocal timing from lyrics, once [lyricsDone].
+  VocalTiming? vocalsA;
+  VocalTiming? vocalsB;
+  bool lyricsDone = false;
+  bool plannedWithLyrics = false;
+
   TransitionPlan? plan;
 
-  /// Times the engine abandoned the transition before it started.
+  /// The engine has the plan.
+  bool handedOver = false;
+
+  /// The user paused or seeked while the engine had the plan.
+  bool userAction = false;
+
+  /// Times the engine abandoned the transition by itself.
   int failures = 0;
 }
 

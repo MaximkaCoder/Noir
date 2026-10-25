@@ -97,6 +97,7 @@ class TransitionPlan {
     this.vocalSourceA = VocalSource.none,
     this.vocalSourceB = VocalSource.none,
     this.keys = KeyRelation.unknown,
+    this.quick = false,
   });
 
   final TransitionType type;
@@ -150,6 +151,10 @@ class TransitionPlan {
   final VocalSource vocalSourceA;
   final VocalSource vocalSourceB;
   final KeyRelation keys;
+
+  /// A last-resort quick fade: nothing better fitted the time left or the
+  /// vocals (it may touch them).
+  final bool quick;
 
   /// Human-readable explanation, for logs and tests.
   final String reason;
