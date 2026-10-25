@@ -18,6 +18,7 @@ import 'package:noir/core/widgets/liquid_press.dart';
 import 'package:noir/core/widgets/noir_backdrop.dart';
 import 'package:noir/features/playback/application/playback_controller.dart';
 import 'package:noir/features/playback/presentation/mini_players.dart';
+import 'package:noir/features/playback/presentation/playback_shortcuts.dart';
 import 'package:noir/features/queue/presentation/queue_panel.dart';
 import 'package:noir/features/settings/presentation/settings_controller.dart';
 
@@ -258,8 +259,9 @@ class _CompactLayout extends StatelessWidget {
   }
 }
 
-/// Desktop keyboard shortcuts. Ignored while typing in a text field because
-/// the field handles those keys first.
+/// Desktop keyboard shortcuts. Playback keys come from [PlaybackShortcuts],
+/// which lets them through to a focused text field (Space types a space in
+/// search).
 class _ShellShortcuts extends ConsumerWidget {
   const _ShellShortcuts({required this.shell, required this.child});
 
@@ -268,7 +270,6 @@ class _ShellShortcuts extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final playback = ref.read(playbackProvider.notifier);
     void search() {
       shell.goBranch(Branch.search.index);
       ref.read(searchFocusProvider).requestFocus();
@@ -276,27 +277,17 @@ class _ShellShortcuts extends ConsumerWidget {
 
     return CallbackShortcuts(
       bindings: {
-        const SingleActivator(LogicalKeyboardKey.space): () =>
-            unawaited(playback.togglePlayPause()),
         const SingleActivator(LogicalKeyboardKey.keyF, control: true): search,
         const SingleActivator(LogicalKeyboardKey.keyK, control: true): search,
         const SingleActivator(LogicalKeyboardKey.keyF, meta: true): search,
-        const SingleActivator(
-          LogicalKeyboardKey.arrowRight,
-          control: true,
-        ): () =>
-            unawaited(playback.next()),
-        const SingleActivator(
-          LogicalKeyboardKey.arrowLeft,
-          control: true,
-        ): () =>
-            unawaited(playback.previous()),
         const SingleActivator(LogicalKeyboardKey.comma, control: true): () =>
             shell.goBranch(Branch.settings.index),
         const SingleActivator(LogicalKeyboardKey.keyP, control: true): () =>
             openNowPlaying(context),
       },
-      child: FocusScope(autofocus: true, child: child),
+      child: PlaybackShortcuts(
+        child: FocusScope(autofocus: true, child: child),
+      ),
     );
   }
 }

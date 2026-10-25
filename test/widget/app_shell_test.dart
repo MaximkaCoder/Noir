@@ -223,6 +223,32 @@ void main() {
       expect(field.focusNode!.hasFocus, isTrue);
     });
 
+    testWidgets('Space types in search instead of pausing', (tester) async {
+      final app = await TestApp.pump(tester);
+      await _play(app);
+      await tester.pumpAndSettle();
+      bool playing() => app.container.read(playbackProvider).isPlaying;
+      expect(playing(), isTrue);
+
+      // Outside a text field Space pauses...
+      await tester.sendKeyEvent(LogicalKeyboardKey.space);
+      await tester.pump();
+      expect(playing(), isFalse);
+      await tester.sendKeyEvent(LogicalKeyboardKey.space);
+      await tester.pump();
+      expect(playing(), isTrue);
+
+      // ...while typing in search it is left to the field.
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyK);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pumpAndSettle();
+      final handled = await tester.sendKeyEvent(LogicalKeyboardKey.space);
+      await tester.pump();
+      expect(playing(), isTrue);
+      expect(handled, isFalse, reason: 'the key goes on to the text field');
+    });
+
     testWidgets('branch switch fades through and keeps branch state', (
       tester,
     ) async {

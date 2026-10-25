@@ -5,6 +5,7 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:noir/features/discover/application/discover_providers.dart';
+import 'package:noir/features/discover/application/for_you.dart';
 import 'package:noir/features/home/data/history_repository.dart';
 import 'package:noir/features/library/application/library_scan_controller.dart';
 import 'package:noir/features/library/data/library_repository.dart';
@@ -484,6 +485,9 @@ class PlaybackController extends Notifier<PlaybackState> {
   void _recordPlay(Track track) {
     final id = track.localId;
     if (id != null) unawaited(ref.read(historyRepositoryProvider).record(id));
+    if (track.source == MediaSource.youtube) {
+      unawaited(ref.read(youTubePlayLogProvider).record(track));
+    }
   }
 
   void _onEngineEvent(EngineEvent event) {

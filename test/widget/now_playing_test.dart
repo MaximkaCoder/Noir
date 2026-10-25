@@ -1033,6 +1033,36 @@ void main() {
       expect(playing(), isTrue);
     });
 
+    testWidgets('tapping the cover pauses and plays, shrinking it', (
+      tester,
+    ) async {
+      final app = await pumpNowPlaying(tester);
+      bool playing() => app.container.read(playbackProvider).isPlaying;
+      double scale() => tester
+          .widget<AnimatedScale>(
+            find
+                .descendant(
+                  of: find.byKey(NowPlayingScreen.coverKey),
+                  matching: find.byType(AnimatedScale),
+                )
+                .first,
+          )
+          .scale;
+      expect(scale(), 1);
+
+      await tester.tap(find.byKey(NowPlayingScreen.coverKey));
+      await tester.pump();
+      expect(playing(), isFalse);
+      expect(scale(), lessThan(1));
+      expect(find.byIcon(Icons.pause_rounded), findsWidgets);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(NowPlayingScreen.coverKey));
+      await tester.pumpAndSettle();
+      expect(playing(), isTrue);
+      expect(scale(), 1);
+    });
+
     testWidgets('Ctrl+→ skips to the next track', (tester) async {
       final app = await pumpNowPlaying(tester);
       expect(

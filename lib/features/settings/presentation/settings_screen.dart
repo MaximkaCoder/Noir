@@ -13,6 +13,7 @@ import 'package:noir/core/widgets/glass_surface.dart';
 import 'package:noir/core/widgets/liquid_press.dart';
 import 'package:noir/core/widgets/reveal.dart';
 import 'package:noir/features/accounts/presentation/account_card.dart';
+import 'package:noir/features/discover/application/for_you.dart';
 import 'package:noir/features/home/data/history_repository.dart';
 import 'package:noir/features/library/application/library_providers.dart';
 import 'package:noir/features/library/application/library_scan_controller.dart';
@@ -597,17 +598,21 @@ class _LibrarySettings extends ConsumerWidget {
         ),
         _ActionRow(
           title: 'Listening history',
-          detail: 'Used for Recently played',
+          detail: 'Used for Recently played and For you',
           action: 'Clear',
           onPressed: () async {
             final ok = await confirm(
               context,
               title: 'Clear listening history?',
-              message: 'Recently played will be empty until you play again.',
+              message:
+                  'Recently played will be empty until you play again, and '
+                  'For you will rely on your likes and playlists only.',
               confirmLabel: 'Clear',
               destructive: true,
             );
-            if (ok) await ref.read(historyRepositoryProvider).clear();
+            if (!ok) return;
+            await ref.read(historyRepositoryProvider).clear();
+            await ref.read(youTubePlayLogProvider).clear();
           },
         ),
       ],

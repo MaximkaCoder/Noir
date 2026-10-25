@@ -10,6 +10,7 @@ import 'package:noir/core/widgets/dialogs.dart';
 import 'package:noir/core/widgets/shelf_row.dart';
 import 'package:noir/core/widgets/states.dart';
 import 'package:noir/features/discover/application/discover_providers.dart';
+import 'package:noir/features/discover/application/for_you.dart';
 import 'package:noir/features/discover/presentation/load_more.dart';
 import 'package:noir/features/discover/presentation/ytm_items.dart';
 import 'package:noir/integrations/youtube_music/innertube_client.dart';
@@ -197,10 +198,91 @@ class _DiscoverSectionState extends ConsumerState<DiscoverSection> {
   }
 }
 
+/// Home's "For you": recommendations seeded by the user's own plays,
+/// likes and playlists ([forYouProvider]). A sliver; hidden until there is
+/// something to show (no taste yet, or offline).
+class ForYouSection extends ConsumerStatefulWidget {
+  const ForYouSection({required this.tileWidth, super.key});
+
+  final double tileWidth;
+
+  @override
+  ConsumerState<ForYouSection> createState() => _ForYouSectionState();
+}
+
+class _ForYouSectionState extends ConsumerState<ForYouSection> {
+  late final AppLifecycleListener _lifecycle;
+  bool _reshuffling = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _lifecycle = AppLifecycleListener(
+      onResume: () => unawaited(ref.read(forYouProvider.notifier).refresh()),
+    );
+  }
+
+  @override
+  void dispose() {
+    _lifecycle.dispose();
+    super.dispose();
+  }
+
+  Future<void> _reshuffle() async {
+    setState(() => _reshuffling = true);
+    try {
+      await ref.read(forYouProvider.notifier).refresh(force: true);
+    } finally {
+      if (mounted) setState(() => _reshuffling = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final shelves = ref.watch(forYouProvider).value?.shelves ?? const [];
+    if (shelves.isEmpty) {
+      return const SliverToBoxAdapter(child: SizedBox.shrink());
+    }
+    return SliverMainAxisGroup(
+      slivers: [
+        SliverToBoxAdapter(
+          child: _Header(
+            title: 'For you',
+            subtitle: 'From what you play and like',
+            refreshTooltip: 'New picks',
+            onRefresh: _reshuffling ? null : () => unawaited(_reshuffle()),
+          ),
+        ),
+        SliverOpacity(
+          opacity: _reshuffling ? 0.5 : 1,
+          sliver: SliverList.list(
+            children: [
+              for (final (i, shelf) in shelves.indexed)
+                _ShelfRow(
+                  key: ValueKey('for-you-$i-${shelf.title}'),
+                  shelf: shelf,
+                  tile: widget.tileWidth,
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _Header extends StatelessWidget {
-  const _Header({required this.onRefresh});
+  const _Header({
+    required this.onRefresh,
+    this.title = 'Discover',
+    this.subtitle = 'From YouTube Music',
+    this.refreshTooltip = 'Refresh Discover',
+  });
 
   final VoidCallback? onRefresh;
+  final String title;
+  final String subtitle;
+  final String refreshTooltip;
 
   @override
   Widget build(BuildContext context) {
@@ -220,11 +302,11 @@ class _Header extends StatelessWidget {
               children: [
                 Semantics(
                   header: true,
-                  child: Text('Discover', style: t.titleLarge),
+                  child: Text(title, style: t.titleLarge),
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  'From YouTube Music',
+                  subtitle,
                   style: t.labelSmall?.copyWith(
                     color: context.noir.textTertiary,
                   ),
@@ -235,7 +317,7 @@ class _Header extends StatelessWidget {
           if (onRefresh != null)
             NoirIconButton(
               icon: Icons.refresh_rounded,
-              tooltip: 'Refresh Discover',
+              tooltip: refreshTooltip,
               size: 18,
               onPressed: onRefresh,
             ),
@@ -282,7 +364,7 @@ class _ChipRow extends StatelessWidget {
 }
 
 class _ShelfRow extends StatelessWidget {
-  const _ShelfRow({required this.shelf, required this.tile});
+  const _ShelfRow({required this.shelf, required this.tile, super.key});
 
   final YtmShelf shelf;
   final double tile;

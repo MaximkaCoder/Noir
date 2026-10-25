@@ -97,22 +97,39 @@ class YouTubeRepository {
 
   /// Liked videos, newest like first; with [musicOnly], only those
   /// [isMusicVideo] accepts.
-  Stream<List<Track>> watchLikes({bool musicOnly = false}) {
+  Stream<List<Track>> watchLikes({bool musicOnly = false}) => _likesQuery()
+      .watch()
+      .map((rows) => _likedTracks(rows, musicOnly: musicOnly));
+
+  /// [watchLikes], once.
+  Future<List<Track>> likes({bool musicOnly = false}) async =>
+      _likedTracks(await _likesQuery().get(), musicOnly: musicOnly);
+
+  JoinedSelectStatement<HasResultSet, dynamic> _likesQuery() {
     final l = _db.ytLikes;
     final v = _db.ytVideos;
-    final query = _db.select(l).join([innerJoin(v, v.id.equalsExp(l.videoId))])
+    return _db.select(l).join([innerJoin(v, v.id.equalsExp(l.videoId))])
       ..orderBy([OrderingTerm.asc(l.position)]);
-    return query.watch().map(
-      (rows) => [
-        for (final r in rows.map((r) => r.readTable(v)))
-          if (!musicOnly ||
-              isMusicVideo(
-                categoryId: r.categoryId,
-                channelTitle: r.channelTitle,
-              ))
-            r.toTrack(),
-      ],
-    );
+  }
+
+  List<Track> _likedTracks(
+    List<TypedResult> rows, {
+    required bool musicOnly,
+  }) => [
+    for (final r in rows.map((r) => r.readTable(_db.ytVideos)))
+      if (!musicOnly ||
+          isMusicVideo(categoryId: r.categoryId, channelTitle: r.channelTitle))
+        r.toTrack(),
+  ];
+
+  /// Every song in the user's playlists (repeats included).
+  Future<List<Track>> allPlaylistTracks() async {
+    final i = _db.ytPlaylistItems;
+    final v = _db.ytVideos;
+    final rows = await _db.select(i).join([
+      innerJoin(v, v.id.equalsExp(i.videoId)),
+    ]).get();
+    return [for (final r in rows) r.readTable(v).toTrack()];
   }
 
   Stream<int> watchLikeCount() {

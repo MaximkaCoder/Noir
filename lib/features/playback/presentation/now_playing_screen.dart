@@ -1605,7 +1605,10 @@ class _RenderClipEnd extends RenderProxyBox {
       super.hitTestChildren(result, position: position);
 }
 
-class _LargeArtwork extends StatelessWidget {
+/// The big cover. A tap plays or pauses. As in Apple Music it sits a little
+/// smaller while paused and springs back to full size on play, and a tap
+/// flashes the new state's glyph over it.
+class _LargeArtwork extends ConsumerStatefulWidget {
   const _LargeArtwork({required this.state, required this.size});
 
   final PlaybackState state;
@@ -1613,11 +1616,43 @@ class _LargeArtwork extends StatelessWidget {
   /// The size its image is decoded for; the layout may draw it smaller.
   final double size;
 
+  /// Cover scale while paused.
+  static const pausedScale = 0.9;
+
+  @override
+  ConsumerState<_LargeArtwork> createState() => _LargeArtworkState();
+}
+
+class _LargeArtworkState extends ConsumerState<_LargeArtwork>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _flash = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 700),
+  );
+
+  /// Glyph of the state a tap switched to.
+  bool _flashPlaying = false;
+
+  @override
+  void dispose() {
+    _flash.dispose();
+    super.dispose();
+  }
+
+  void _toggle() {
+    final playing = widget.state.status == PlaybackStatus.playing;
+    unawaited(ref.read(playbackProvider.notifier).togglePlayPause());
+    setState(() => _flashPlaying = !playing);
+    if (NoirEffects.of(context).animations) _flash.forward(from: 0);
+  }
+
   @override
   Widget build(BuildContext context) {
-    final track = state.current!.track;
+    final track = widget.state.current!.track;
     final dark = Theme.of(context).brightness == Brightness.dark;
-    return DecoratedBox(
+    final fx = NoirEffects.of(context);
+    final paused = widget.state.status == PlaybackStatus.paused;
+    final cover = DecoratedBox(
       decoration: BoxDecoration(
         borderRadius: NoirRadii.xlAll,
         boxShadow: [
@@ -1645,7 +1680,87 @@ class _LargeArtwork extends StatelessWidget {
               color: Colors.white.withValues(alpha: dark ? 0.12 : 0.4),
             ),
           ),
-          child: _CoverSwitcher(track: track, size: size),
+          child: _CoverSwitcher(track: track, size: widget.size),
+        ),
+      ),
+    );
+    return Semantics(
+      button: true,
+      label: paused ? 'Play' : 'Pause',
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        child: GestureDetector(
+          onTap: _toggle,
+          child: AnimatedScale(
+            scale: paused ? _LargeArtwork.pausedScale : 1,
+            duration: fx.motion(const Duration(milliseconds: 550)),
+            // A slight overshoot: the cover springs back when playing.
+            curve: paused ? Curves.easeOutCubic : Curves.easeOutBack,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                cover,
+                _PlayPauseFlash(
+                  animation: _flash,
+                  playing: _flashPlaying,
+                  size: widget.size,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The play or pause glyph in a frosted disc, popping in and fading out
+/// over the cover after a tap.
+class _PlayPauseFlash extends StatelessWidget {
+  const _PlayPauseFlash({
+    required this.animation,
+    required this.playing,
+    required this.size,
+  });
+
+  final Animation<double> animation;
+  final bool playing;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final disc = (size * 0.22).clamp(64.0, 120.0);
+    return IgnorePointer(
+      child: AnimatedBuilder(
+        animation: animation,
+        builder: (context, child) {
+          final t = animation.value;
+          if (t == 0 || t == 1) return const SizedBox.shrink();
+          // In fast, hold, then out.
+          final opacity = t < 0.2
+              ? t / 0.2
+              : t < 0.55
+              ? 1.0
+              : 1 - (t - 0.55) / 0.45;
+          final scale =
+              0.7 + 0.3 * Curves.easeOutBack.transform(min(1, t / 0.3));
+          return Opacity(
+            opacity: opacity.clamp(0.0, 1.0),
+            child: Transform.scale(scale: scale, child: child),
+          );
+        },
+        child: Container(
+          width: disc,
+          height: disc,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: Colors.black.withValues(alpha: 0.38),
+          ),
+          child: Icon(
+            playing ? Icons.play_arrow_rounded : Icons.pause_rounded,
+            size: disc * 0.55,
+            color: Colors.white,
+          ),
         ),
       ),
     );
