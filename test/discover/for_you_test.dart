@@ -115,6 +115,27 @@ void main() {
     });
   });
 
+  test('listen again: most played first, taking turns with local', () {
+    final local = [
+      const Track(
+        id: 'local:1',
+        source: MediaSource.local,
+        title: 'L1',
+        uri: 'C:/1.mp3',
+      ),
+    ];
+    final tracks = listenAgain(
+      [
+        YouTubePlay(yt('once'), now.subtract(const Duration(hours: 2))),
+        YouTubePlay(yt('often'), now.subtract(const Duration(hours: 3))),
+        YouTubePlay(yt('often'), now.subtract(const Duration(days: 1))),
+      ],
+      local,
+      now,
+    );
+    expect([for (final t in tracks) t.uri], ['often', 'C:/1.mp3', 'once']);
+  });
+
   test('the play log keeps YouTube songs only, newest first', () async {
     final db = inMemoryDatabase();
     final container = ProviderContainer(

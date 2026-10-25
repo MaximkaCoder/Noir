@@ -198,6 +198,27 @@ class _DiscoverSectionState extends ConsumerState<DiscoverSection> {
   }
 }
 
+/// Home's "Listen again": what the user plays most ([listenAgainProvider]).
+/// Hidden until something was played.
+class ListenAgainSection extends ConsumerWidget {
+  const ListenAgainSection({required this.tileWidth, super.key});
+
+  final double tileWidth;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final tracks = ref.watch(listenAgainProvider).value ?? const [];
+    if (tracks.isEmpty) return const SizedBox.shrink();
+    return _ShelfRow(
+      shelf: YtmShelf(
+        title: 'Listen again',
+        items: [for (final t in tracks) YtmTrackItem(t)],
+      ),
+      tile: tileWidth,
+    );
+  }
+}
+
 /// Home's "For you": recommendations seeded by the user's own plays,
 /// likes and playlists ([forYouProvider]). A sliver; hidden until there is
 /// something to show (no taste yet, or offline).

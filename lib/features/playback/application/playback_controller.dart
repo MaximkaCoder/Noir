@@ -484,10 +484,15 @@ class PlaybackController extends Notifier<PlaybackState> {
 
   void _recordPlay(Track track) {
     final id = track.localId;
-    if (id != null) unawaited(ref.read(historyRepositoryProvider).record(id));
-    if (track.source == MediaSource.youtube) {
-      unawaited(ref.read(youTubePlayLogProvider).record(track));
-    }
+    unawaited(
+      Future.wait([
+        if (id != null) ref.read(historyRepositoryProvider).record(id),
+        if (track.source == MediaSource.youtube)
+          ref.read(youTubePlayLogProvider).record(track),
+      ]).then((_) {
+        if (ref.mounted) ref.invalidate(listenAgainProvider);
+      }),
+    );
   }
 
   void _onEngineEvent(EngineEvent event) {

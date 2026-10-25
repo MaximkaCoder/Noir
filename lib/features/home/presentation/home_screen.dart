@@ -34,6 +34,7 @@ class HomeScreen extends ConsumerWidget {
           const SliverToBoxAdapter(
             child: _Greeting(subtitle: "Here's what's playing today."),
           ),
+          SliverToBoxAdapter(child: ListenAgainSection(tileWidth: tile)),
           SliverToBoxAdapter(child: _PlaylistsRow(tile: tile)),
           ForYouSection(tileWidth: tile),
           DiscoverSection(tileWidth: tile),

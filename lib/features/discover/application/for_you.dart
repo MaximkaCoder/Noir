@@ -4,8 +4,10 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:noir/features/discover/application/discover_providers.dart';
+import 'package:noir/features/home/data/history_repository.dart';
 import 'package:noir/features/settings/data/settings_repository.dart';
 import 'package:noir/features/youtube/data/youtube_repository.dart';
+import 'package:noir/features/youtube/presentation/youtube_cover.dart';
 import 'package:noir/integrations/youtube_music/innertube_client.dart';
 import 'package:noir/integrations/youtube_music/ytm_models.dart';
 import 'package:noir/shared/models/media.dart';
@@ -73,6 +75,7 @@ class YouTubePlayLog {
                 title: t,
                 uri: v,
                 artist: e['a'] as String?,
+                artworkUrl: YouTubeCover.thumbnail(v),
               ),
               playedAt,
             ),
@@ -80,6 +83,42 @@ class YouTubePlayLog {
   }
 
   Future<void> clear() => _settings.delete(storageKey);
+}
+
+// --------------------------------------------------------- listen again --
+
+/// Home's first shelf, like YouTube Music's "Listen again": the songs the
+/// user played most (and most recently) in NOIR, YouTube and local alike.
+/// Rebuilt after each play.
+final listenAgainProvider = FutureProvider<List<Track>>((ref) async {
+  final plays = await ref.read(youTubePlayLogProvider).read();
+  final local = await ref.read(historyRepositoryProvider).recentTracks();
+  return listenAgain(plays, local, DateTime.now());
+});
+
+/// [plays] ranked like [tasteSeeds] does (each play counts, fading over two
+/// weeks), with the recently played local songs taking turns with them.
+List<Track> listenAgain(
+  List<YouTubePlay> plays,
+  List<Track> local,
+  DateTime now, {
+  int length = 20,
+}) {
+  final youTube = [
+    for (final s in tasteSeeds(
+      plays: plays,
+      likes: const [],
+      playlistTracks: const [],
+      now: now,
+    ))
+      s.track,
+  ];
+  return [
+    for (var i = 0; i < max(youTube.length, local.length); i++) ...[
+      if (i < youTube.length) youTube[i],
+      if (i < local.length) local[i],
+    ],
+  ].take(length).toList();
 }
 
 // ---------------------------------------------------------------- seeds --

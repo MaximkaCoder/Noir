@@ -13,7 +13,7 @@ sealed class YtmItem {
 /// A playable song (`isVideo == false`) or music video.
 final class YtmTrackItem extends YtmItem {
   YtmTrackItem(this.track, {this.isVideo = false})
-    : super(title: track.title, thumbnailUrl: track.artworkUrl);
+    : super(title: track.title, thumbnailUrl: track.artwork);
 
   final Track track;
 
