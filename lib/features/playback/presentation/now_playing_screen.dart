@@ -1383,8 +1383,7 @@ class _RenderStage extends RenderBox
 }
 
 /// Every control in one Liquid Glass capsule: shuffle · previous ·
-/// play/pause · next · repeat | volume · lyrics · queue. Hovering the
-/// volume reveals its slider and the capsule widens to make room.
+/// play/pause · next · repeat | lyrics · queue · volume.
 class ControlCapsule extends ConsumerWidget {
   const ControlCapsule({super.key});
 
@@ -1477,132 +1476,13 @@ class ControlCapsule extends ConsumerWidget {
             onPressed: () => unawaited(showQueueSheet(context, ref)),
           ),
           gap,
-          // Last, so its slider slides out at the capsule's end.
-          const _RevealingVolume(),
+          // Last, its slider always shown: a capsule that grew and shrank
+          // under the pointer kept jumping.
+          const VolumeControl(),
         ],
       ),
     );
   }
-}
-
-/// [VolumeControl] showing only its icon until the pointer is over it;
-/// then its slider slides out (and the capsule around it widens), sliding
-/// back a moment after the pointer leaves. The wheel works throughout.
-class _RevealingVolume extends StatefulWidget {
-  const _RevealingVolume();
-
-  /// How long the pointer may be away before the slider hides.
-  static const linger = Duration(milliseconds: 300);
-
-  @override
-  State<_RevealingVolume> createState() => _RevealingVolumeState();
-}
-
-class _RevealingVolumeState extends State<_RevealingVolume>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _reveal = AnimationController(vsync: this);
-  late final CurvedAnimation _curve = CurvedAnimation(
-    parent: _reveal,
-    curve: NoirMotion.standard,
-  );
-  Timer? _hide;
-
-  @override
-  void dispose() {
-    _hide?.cancel();
-    _curve.dispose();
-    _reveal.dispose();
-    super.dispose();
-  }
-
-  void _show({required bool shown}) {
-    _hide?.cancel();
-    final duration = NoirEffects.of(context)
-        .motion(const Duration(milliseconds: 250));
-    if (shown) {
-      _reveal.animateTo(1, duration: duration);
-    } else {
-      _hide = Timer(_RevealingVolume.linger, () {
-        if (mounted) _reveal.animateBack(0, duration: duration);
-      });
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return MouseRegion(
-      onEnter: (_) => _show(shown: true),
-      onExit: (_) => _show(shown: false),
-      child: AnimatedBuilder(
-        animation: _curve,
-        builder: (context, child) => ExcludeFocus(
-          excluding: _reveal.value == 0,
-          child: _ClipEnd(
-            hidden: _volumeSliderWidth * (1 - _curve.value),
-            child: child,
-          ),
-        ),
-        child: const VolumeControl(),
-      ),
-    );
-  }
-}
-
-/// The width of [VolumeControl]'s slider.
-const _volumeSliderWidth = 96.0;
-
-/// Lays [child] out at its natural size but takes [hidden] px less width,
-/// clipping that much off its end.
-class _ClipEnd extends SingleChildRenderObjectWidget {
-  const _ClipEnd({required this.hidden, super.child});
-
-  final double hidden;
-
-  @override
-  _RenderClipEnd createRenderObject(BuildContext context) =>
-      _RenderClipEnd(hidden);
-
-  @override
-  void updateRenderObject(BuildContext context, _RenderClipEnd clip) =>
-      clip.hidden = hidden;
-}
-
-class _RenderClipEnd extends RenderProxyBox {
-  _RenderClipEnd(this._hidden);
-
-  double get hidden => _hidden;
-  double _hidden;
-  set hidden(double value) {
-    if (value == _hidden) return;
-    _hidden = value;
-    markNeedsLayout();
-  }
-
-  @override
-  void performLayout() {
-    final child = this.child!
-      ..layout(constraints.loosen(), parentUsesSize: true);
-    size = constraints.constrain(
-      Size(max(0, child.size.width - _hidden), child.size.height),
-    );
-  }
-
-  @override
-  void paint(PaintingContext context, Offset offset) {
-    if (_hidden <= 0) return super.paint(context, offset);
-    layer = context.pushClipRect(
-      needsCompositing,
-      offset,
-      Offset.zero & size,
-      super.paint,
-      oldLayer: layer as ClipRectLayer?,
-    );
-  }
-
-  @override
-  bool hitTestChildren(BoxHitTestResult result, {required Offset position}) =>
-      (Offset.zero & size).contains(position) &&
-      super.hitTestChildren(result, position: position);
 }
 
 /// The big cover. A tap plays or pauses. As in Apple Music it sits a little

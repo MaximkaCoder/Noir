@@ -902,36 +902,18 @@ void main() {
       expect(inCapsule(find.byTooltip('Hide lyrics')), findsOneWidget);
     });
 
-    testWidgets('hovering the volume widens the capsule for its slider', (
-      tester,
-    ) async {
+    testWidgets('the volume slider is always shown', (tester) async {
       await pumpNowPlaying(tester);
       double width() =>
           tester.getSize(find.byKey(ControlCapsule.glassKey)).width;
-      final collapsed = width();
+      final before = width();
+      expect(inCapsule(find.byType(Slider)), findsOneWidget);
       final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
       addTearDown(mouse.removePointer);
       await mouse.addPointer(location: Offset.zero);
       await mouse.moveTo(tester.getCenter(inCapsule(find.byTooltip('Mute'))));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 100));
-      final mid = width();
       await tester.pumpAndSettle();
-      final expanded = width();
-      expect(expanded, moreOrLessEquals(collapsed + 96, epsilon: 1));
-      expect(mid, inExclusiveRange(collapsed, expanded));
-      // Still centered as it grows.
-      expect(
-        tester.getCenter(find.byKey(ControlCapsule.glassKey)).dx,
-        moreOrLessEquals(1360 / 2, epsilon: 1),
-      );
-
-      // It lingers a moment after the pointer leaves, then collapses.
-      await mouse.moveTo(const Offset(20, 400));
-      await tester.pump(const Duration(milliseconds: 150));
-      expect(width(), expanded);
-      await tester.pumpAndSettle();
-      expect(width(), moreOrLessEquals(collapsed, epsilon: 0.5));
+      expect(width(), before, reason: 'no growing under the pointer');
     });
   });
 

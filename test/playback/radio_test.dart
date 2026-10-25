@@ -92,24 +92,32 @@ void main() {
     expect(state().current!.track.uri, 'r3');
   });
 
-  test('radio is fetched while the last track still plays', () async {
-    ytm.radioPages['y1'] = YtmTrackPage(tracks: [r1, r2]);
-    await controller().playTracks([y1]);
-    engine
-      ..durationValue = const Duration(minutes: 3)
-      ..tick(const Duration(minutes: 2, seconds: 20));
+  test('radio is topped up once few tracks are left', () async {
+    final list = [for (var i = 1; i <= 7; i++) ytTrack('y$i')];
+    ytm.radioPages['y7'] = YtmTrackPage(tracks: [r1, r2]);
+    await controller().playTracks(list, startIndex: 1);
+    engine.tick(const Duration(seconds: 1));
     await pumpEventQueue();
-    expect(radioCalls(), isEmpty);
+    expect(radioCalls(), isEmpty, reason: '5 tracks still ahead');
 
-    engine.tick(const Duration(minutes: 2, seconds: 40));
+    await controller().next();
+    engine.tick(const Duration(seconds: 1));
     await pumpEventQueue();
-    expect(radioCalls(), ['radio y1']);
-    expect(uris(), ['y1', 'r1', 'r2']);
-    expect(state().current!.track.uri, 'y1');
+    expect(radioCalls(), ['radio y7']);
+    expect(uris(), [...list.map((t) => t.uri), 'r1', 'r2']);
+    expect(state().current!.track.uri, 'y3');
 
-    engine.tick(const Duration(minutes: 2, seconds: 45));
+    engine.tick(const Duration(seconds: 2));
     await pumpEventQueue();
     expect(radioCalls(), hasLength(1));
+  });
+
+  test('Next on the last track goes on into radio', () async {
+    ytm.radioPages['y1'] = YtmTrackPage(tracks: [r1, r2]);
+    await controller().playTracks([y1]);
+    await controller().next();
+    expect(state().current!.track.uri, 'r1');
+    expect(uris(), ['y1', 'r1', 'r2']);
   });
 
   test(

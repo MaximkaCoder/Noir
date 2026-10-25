@@ -107,15 +107,16 @@ class PlaybackController extends Notifier<PlaybackState> {
   /// Radio tracks appended per request.
   static const radioBatch = 20;
 
-  /// How long before the last track ends the next radio batch is fetched.
-  static const radioLeadTime = Duration(seconds: 30);
+  /// Radio is topped up once fewer tracks than this follow the current one,
+  /// so the queue never visibly runs out (YouTube Music's endless radio).
+  static const radioRefillAhead = 5;
 
   /// Where the radio left off: continuing after [_RadioCursor.anchorUid]
   /// uses its continuation instead of starting a new radio.
   _RadioCursor? _radio;
   Future<bool>? _radioFetch;
 
-  /// Last queue item a lead-time radio fetch was attempted for, so a failed
+  /// Last queue item a top-up radio fetch was attempted for, so a failed
   /// request is not repeated on every position tick.
   int? _radioTriedUid;
 
@@ -270,6 +271,10 @@ class PlaybackController extends Notifier<PlaybackState> {
       await _startAt(index + 1);
     } else if (state.repeat == RepeatMode.all && state.queue.isNotEmpty) {
       await _startAt(0);
+    } else if (_radioEligible &&
+        await _extendWithRadio() &&
+        index + 1 < state.queue.length) {
+      await _startAt(index + 1);
     }
   }
 
@@ -558,7 +563,7 @@ class PlaybackController extends Notifier<PlaybackState> {
 
   void _onPosition(Duration position) {
     _saveSession();
-    _maybePrefetchRadio(position);
+    _maybePrefetchRadio();
     _maybeTransition(position);
   }
 
@@ -569,17 +574,15 @@ class PlaybackController extends Notifier<PlaybackState> {
       state.repeat == RepeatMode.off &&
       state.queue.any((q) => q.track.source == MediaSource.youtube);
 
-  /// Fetches more radio while the last track still plays, so the next one
-  /// is queued (and crossfades work) before it ends.
-  void _maybePrefetchRadio(Duration position) {
+  /// Fetches more radio while a track near the end of the queue plays, so
+  /// there is always something up next (and crossfades work).
+  void _maybePrefetchRadio() {
     final index = state.index;
     final current = state.current;
-    final duration = _engine.currentDuration;
     if (current == null ||
-        index != state.queue.length - 1 ||
+        index == null ||
+        state.queue.length - 1 - index >= radioRefillAhead ||
         current.uid == _radioTriedUid ||
-        duration == null ||
-        duration - position > radioLeadTime ||
         !_radioEligible) {
       return;
     }
