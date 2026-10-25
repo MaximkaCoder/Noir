@@ -11,6 +11,15 @@ bool get usesCustomWindowChrome => Platform.isWindows || Platform.isLinux;
 /// macOS keeps its native traffic lights top-left; reserve room for them.
 bool get reservesWindowControlsSpace => Platform.isMacOS;
 
+/// The desktop title bar's geometry. Every bar that ends in [WindowControls]
+/// (the shell's top bar, Now Playing's) uses it, so the dots sit at exactly
+/// the same place on every screen: [padding] from the window's top right,
+/// vertically centered in the [height] − vertical padding band.
+abstract final class TitleBarMetrics {
+  static const double height = 60;
+  static const EdgeInsets padding = EdgeInsets.fromLTRB(24, 12, 20, 4);
+}
+
 /// Minimize / maximize / close as three dots in the top-right corner — the
 /// reference design's look with Windows placement (owner decision, see
 /// docs/design/README.md). Colored while the window is focused, grey

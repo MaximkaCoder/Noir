@@ -8,11 +8,13 @@ import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noir/app/app.dart';
 import 'package:noir/app/router.dart';
+import 'package:noir/app/shell/adaptive_shell.dart';
 import 'package:noir/core/database/database_provider.dart';
 import 'package:noir/core/platform/window_controls.dart';
 import 'package:noir/core/widgets/artwork.dart';
 import 'package:noir/core/widgets/buttons.dart';
 import 'package:noir/core/widgets/glass_surface.dart';
+import 'package:noir/core/widgets/liquid_glass.dart';
 import 'package:noir/core/widgets/liquid_press.dart';
 import 'package:noir/features/accounts/domain/account_connection.dart';
 import 'package:noir/features/artwork/application/artwork_providers.dart';
@@ -27,6 +29,8 @@ import 'package:noir/features/lyrics/application/lyrics_providers.dart';
 import 'package:noir/features/lyrics/presentation/karaoke_lyrics.dart';
 import 'package:noir/features/lyrics/presentation/lyrics_view.dart';
 import 'package:noir/features/playback/application/playback_controller.dart';
+import 'package:noir/features/playback/presentation/mini_players.dart';
+import 'package:noir/features/playback/presentation/now_playing_route.dart';
 import 'package:noir/features/playback/presentation/now_playing_screen.dart';
 import 'package:noir/features/playback/presentation/playback_controls.dart';
 import 'package:noir/features/settings/data/settings_repository.dart';
@@ -744,6 +748,134 @@ void main() {
         _inPlayer(find.byType(WindowControls)),
       );
       expect(controls.onImage, isTrue);
+    });
+
+    testWidgets('sit exactly where the shell has them; More shares their '
+        'line', (tester) async {
+      await pumpNowPlaying(tester);
+      List<Rect> dots(Finder within) {
+        final found = find.descendant(
+          of: within,
+          matching: find.byKey(WindowControls.dotKey),
+        );
+        return [
+          for (var i = 0; i < found.evaluate().length; i++)
+            tester.getRect(found.at(i)),
+        ];
+      }
+
+      final shell = dots(find.byType(TopBar));
+      final player = dots(find.byType(NowPlayingScreen));
+      expect(shell, hasLength(3));
+      expect(player, shell);
+      expect(
+        tester.getCenter(_inPlayer(find.byTooltip('More'))).dy,
+        moreOrLessEquals(shell.first.center.dy, epsilon: 0.5),
+      );
+    });
+  });
+
+  group('closing into the island', () {
+    NowPlayingVeilPainter veil(WidgetTester tester) =>
+        tester
+                .widget<CustomPaint>(find.byKey(NowPlayingScreen.veilKey))
+                .painter!
+            as NowPlayingVeilPainter;
+
+    double islandOpacity(WidgetTester tester) {
+      var opacity = 1.0;
+      for (final o in tester.widgetList<Opacity>(
+        find.ancestor(
+          of: find.descendant(
+            of: find.byType(PlayerIsland),
+            matching: find.byType(LiquidGlass),
+          ),
+          matching: find.byType(Opacity),
+        ),
+      )) {
+        opacity *= o.opacity;
+      }
+      return opacity;
+    }
+
+    testWidgets('the shell shows through the shrinking shape, which then '
+        'cross-fades into the island', (tester) async {
+      await pumpNowPlaying(tester);
+      expect(veil(tester).backdropOpacity, 1);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+      final backdrop = <double>[];
+      final island = <double>[];
+      var elapsed = Duration.zero;
+      while (elapsed < NowPlayingTransition.closeDuration) {
+        await tester.pump(const Duration(milliseconds: 16));
+        elapsed += const Duration(milliseconds: 16);
+        if (find.byKey(NowPlayingScreen.veilKey).evaluate().isEmpty) break;
+        backdrop.add(veil(tester).backdropOpacity);
+        island.add(islandOpacity(tester));
+      }
+      await tester.pumpAndSettle();
+      expect(find.byType(NowPlayingScreen), findsNothing);
+      expect(islandOpacity(tester), 1);
+
+      // Mid-collapse the page is see-through: the shell shows through it.
+      final mid = backdrop[backdrop.length ~/ 2];
+      expect(mid, inExclusiveRange(0, 1), reason: '$backdrop');
+      // It fades over the collapse, never stepping, down to nothing.
+      for (var i = 1; i < backdrop.length; i++) {
+        expect(backdrop[i], lessThanOrEqualTo(backdrop[i - 1] + 1e-9));
+        expect(backdrop[i - 1] - backdrop[i], lessThan(0.15));
+      }
+      expect(backdrop.last, lessThan(0.15), reason: '$backdrop');
+      // Near the end the island fades in under the fading shape.
+      final crossing = [
+        for (var i = 0; i < backdrop.length; i++)
+          if (backdrop[i] > 0 && island[i] > 0 && island[i] < 1) i,
+      ];
+      expect(crossing, isNotEmpty, reason: '$backdrop\n$island');
+    });
+  });
+
+  group('without lyrics', () {
+    testWidgets('one centered column: cover, then details, progress and '
+        'controls under it', (tester) async {
+      await pumpNowPlaying(tester);
+      final cover = tester.getRect(find.byKey(NowPlayingScreen.coverKey));
+      expect(cover.center.dx, moreOrLessEquals(1360 / 2, epsilon: 1));
+
+      final title = tester.getRect(_inPlayer(find.text('Ash & Ember')));
+      expect(title.top, greaterThan(cover.bottom));
+      expect(title.center.dx, moreOrLessEquals(1360 / 2, epsilon: 1));
+      final artist = tester.getRect(_inPlayer(find.text('Mara Vale')).first);
+      expect(artist.top, greaterThan(title.bottom - 1));
+      expect(artist.center.dx, moreOrLessEquals(1360 / 2, epsilon: 1));
+      // The heart follows the title.
+      final heart = tester.getRect(
+        _inPlayer(find.byTooltip('Add to favorites (this device)')),
+      );
+      expect(heart.left, greaterThanOrEqualTo(title.right - 1));
+      expect(heart.center.dy, inInclusiveRange(title.top, title.bottom));
+
+      final progress = tester.getRect(_inPlayer(find.byType(ProgressSlider)));
+      expect(progress.top, greaterThan(artist.bottom));
+      expect(progress.width, moreOrLessEquals(cover.width, epsilon: 1));
+      expect(progress.center.dx, moreOrLessEquals(1360 / 2, epsilon: 1));
+      final play = tester.getRect(_inPlayer(find.byTooltip('Pause')));
+      expect(play.top, greaterThan(progress.bottom));
+      expect(play.center.dx, moreOrLessEquals(1360 / 2, epsilon: 1));
+      final lyrics = tester.getRect(_inPlayer(find.byTooltip('Show lyrics')));
+      expect(lyrics.top, greaterThan(play.bottom));
+      // All of it fits the window.
+      expect(lyrics.bottom, lessThanOrEqualTo(860));
+    });
+
+    testWidgets('a short window shrinks the cover to fit', (tester) async {
+      await pumpNowPlaying(tester, size: const Size(1100, 600));
+      final cover = tester.getRect(find.byKey(NowPlayingScreen.coverKey));
+      expect(cover.center.dx, moreOrLessEquals(1100 / 2, epsilon: 1));
+      final lyrics = tester.getRect(_inPlayer(find.byTooltip('Show lyrics')));
+      expect(lyrics.bottom, lessThanOrEqualTo(600));
     });
   });
 

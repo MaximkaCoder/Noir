@@ -8,10 +8,13 @@ import 'package:noir/app/theme/glass_theme.dart';
 /// The container transform between the player island and Now Playing: the
 /// page grows out of the island's capsule — rect and corners morphing to
 /// the full window — and shrinks back into it on close, whichever way it
-/// closes (chevron, Esc, swipe, back button). The island fades out early as
-/// the page's own artwork backdrop takes its place, and Now Playing's
-/// content fades in over it. Without an island on screen (phones, nothing
-/// playing) the page fades and rises from below instead.
+/// closes (chevron, Esc, swipe, back button). Opening, the page's artwork
+/// backdrop cross-fades in over the island, which fades out, and Now
+/// Playing's content fades in over it. Closing, the content fades first,
+/// then the shrinking shape turns see-through — the shell showing through
+/// its artwork tint — and cross-fades into the island's glass as it lands.
+/// Without an island on screen (phones, nothing playing) the page fades and
+/// rises from below instead.
 abstract final class NowPlayingTransition {
   static const openDuration = Duration(milliseconds: 500);
   static const closeDuration = Duration(milliseconds: 400);
@@ -26,20 +29,55 @@ abstract final class NowPlayingTransition {
   /// hides behind it as this rises.
   static final ValueNotifier<double> coverage = ValueNotifier(0);
 
-  /// The morph's easing over the route [animation], both ways.
+  /// The morph's easing over the route [animation]: emphasized on the way
+  /// out of the island; on the way back a symmetric ease, so the page
+  /// visibly shrinks over the whole close instead of snapping small at the
+  /// start, and settles gently onto the island.
   static CurvedAnimation curve(Animation<double> animation) => CurvedAnimation(
     parent: animation,
     curve: NoirMotion.emphasized,
-    reverseCurve: NoirMotion.emphasized.flipped,
+    reverseCurve: Curves.easeInOutCubic,
   );
 
-  /// How visible Now Playing's content (everything over its backdrop) is at
-  /// the morph's eased progress [t]: it fades in once the shape has grown a
-  /// little, and out again early on close. Without an island the whole page
-  /// fades instead, so the content is fully shown.
-  static double contentOpacity(double t) => anchorRect == null
-      ? 1
-      : const Interval(0.2, 0.75).transform(t.clamp(0.0, 1.0));
+  /// The island fades out over route progress 0 → [islandFade] while the
+  /// page opens and back in over the same span while it closes (see
+  /// PlayerIsland, which hides over coverage 0–0.35). The page's material
+  /// cross-fades with it over that span.
+  static const islandFade = 0.35;
+
+  /// How see-through the closing page gets before it hands over to the
+  /// island: it keeps the artwork tint while the shell shows through.
+  static const _closingTint = 0.6;
+
+  /// Route progress above which, closing, the content is still fading out
+  /// (the page stays opaque until then).
+  static const _contentGone = 0.78;
+
+  /// Opening, the content fades in once the shape has grown a little (eased
+  /// morph progress 0.2–0.75); closing, it fades out first, before the
+  /// shape has visibly moved. Values are over the route's raw progress.
+  static CurvedAnimation contentCurve(Animation<double> route) =>
+      CurvedAnimation(
+        parent: route,
+        curve: const _ContentIn(),
+        reverseCurve: const Interval(_contentGone, 1),
+      );
+
+  /// How opaque the page's own material — the artwork backdrop — is.
+  /// Opening, it cross-fades in over the island and is opaque before the
+  /// content shows. Closing, it turns see-through once the content is gone,
+  /// so the shell shows through the shrinking, still tinted shape, and in
+  /// the last [islandFade] it cross-fades into the island's glass.
+  static CurvedAnimation backdropCurve(Animation<double> route) =>
+      CurvedAnimation(
+        parent: route,
+        curve: const Interval(0, 0.12),
+        reverseCurve: const _BackdropOut(),
+      );
+
+  /// Whether the page morphs out of the island (and so fades its content
+  /// and material); without an island it fades as a whole instead.
+  static bool get morphs => anchorRect != null;
 
   /// Registers the island: [rect] gives its on-screen capsule, or null
   /// while it is hidden.
@@ -59,6 +97,30 @@ abstract final class NowPlayingTransition {
   /// Where Now Playing grows from and shrinks back to; read live, so a
   /// window resized while the page is open still closes into the island.
   static Rect? get anchorRect => _anchor?.call();
+}
+
+class _ContentIn extends Curve {
+  const _ContentIn();
+
+  @override
+  double transformInternal(double t) =>
+      const Interval(0.2, 0.75).transform(NoirMotion.emphasized.transform(t));
+}
+
+/// Closing (route progress falling from 1): opaque while the content fades,
+/// then down to the closing tint, then a cross-fade into the island.
+class _BackdropOut extends Curve {
+  const _BackdropOut();
+
+  @override
+  double transformInternal(double t) {
+    const fade = NowPlayingTransition.islandFade;
+    const gone = NowPlayingTransition._contentGone;
+    const tint = NowPlayingTransition._closingTint;
+    if (t >= gone) return 1;
+    if (t >= fade) return tint + (1 - tint) * (t - fade) / (gone - fade);
+    return tint * t / fade;
+  }
 }
 
 /// The '/now-playing' page: transparent, so the shell stays visible around
@@ -183,10 +245,11 @@ class _MorphState extends State<_Morph> {
           );
         }
 
-        // The page itself is the shape's material: its opaque artwork
-        // backdrop grows out of the capsule while the island fades out,
-        // and its content fades in over that backdrop
-        // ([NowPlayingTransition.contentOpacity]). The page is never
+        // The page itself is the shape's material: its artwork backdrop
+        // grows out of the capsule while the island fades out, and its
+        // content fades in over that backdrop; closing, the backdrop is
+        // painted see-through by alpha ([NowPlayingTransition.contentCurve],
+        // [NowPlayingTransition.backdropCurve]). The page is never
         // scaled, blurred or faded as a whole: a scale that changes every
         // frame made the raster thread re-render the whole page each frame
         // (offscreen textures reallocated per frame, frames of 50–190 ms
