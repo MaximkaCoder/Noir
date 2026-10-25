@@ -425,7 +425,7 @@ class _RenderContentGate extends RenderProxyBox {
 /// alpha instead of fading a layer.
 ///
 /// The colours flow like a liquid: copies of the bitmap drift and turn
-/// slowly over one another ([_FlowPainter]), on a 60 s loop. Still with
+/// slowly over one another ([_FlowPainter]), on a 36 s loop. Still with
 /// Animations off and while the app is hidden. It flows in Performance mode
 /// too: it only redraws a tiny bitmap three times a frame.
 class _ArtworkBackdrop extends StatefulWidget {
@@ -459,7 +459,7 @@ class _ArtworkBackdropState extends State<_ArtworkBackdrop>
   /// times per loop, so it never jumps.
   late final AnimationController _flow = AnimationController(
     vsync: this,
-    duration: const Duration(seconds: 60),
+    duration: const Duration(seconds: 36),
   );
   late final AppLifecycleListener _lifecycle;
 
@@ -717,9 +717,9 @@ class _FlowPainter extends CustomPainter {
       ..color = Color.fromRGBO(0, 0, 0, alpha * opacity);
 
     // The whole artwork, covering the window with a little room to drift.
-    final scale = max(w / src.width, h / src.height) * 1.12;
+    final scale = max(w / src.width, h / src.height) * 1.2;
     final base = Rect.fromCenter(
-      center: Offset(w / 2 + sin(a) * w * 0.03, h / 2 + cos(a * 2) * h * 0.03),
+      center: Offset(w / 2 + sin(a) * w * 0.08, h / 2 + cos(a * 2) * h * 0.08),
       width: src.width * scale,
       height: src.height * scale,
     );
@@ -727,16 +727,16 @@ class _FlowPainter extends CustomPainter {
 
     // Two larger copies turning over it; big enough to cover the window at
     // any angle.
-    final side = sqrt(w * w + h * h) * 1.15;
+    final side = sqrt(w * w + h * h) * 1.5;
     for (final (turn, drift, phase, opacity) in const [
-      (1.0, 2.0, 0.0, 0.5),
-      (-1.0, 3.0, pi / 2, 0.4),
+      (1.0, 2.0, 0.0, 0.6),
+      (-1.0, 3.0, pi / 2, 0.5),
     ]) {
       canvas
         ..save()
         ..translate(
-          w / 2 + sin(a * drift + phase) * w * 0.12,
-          h / 2 + cos(a * (drift - 1) + phase) * h * 0.12,
+          w / 2 + sin(a * drift + phase) * w * 0.22,
+          h / 2 + cos(a * (drift - 1) + phase) * h * 0.22,
         )
         ..rotate(a * turn + phase)
         ..drawImageRect(
