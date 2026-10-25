@@ -156,7 +156,12 @@ class _PlayerIslandState extends ConsumerState<PlayerIsland> {
                 // Hidden behind Now Playing: it fades out as the page grows
                 // out of it and back in as the page shrinks into it.
                 final opacity =
-                    shown * (1 - const Interval(0, 0.35).transform(covered));
+                    shown *
+                    (1 -
+                        const Interval(
+                          0,
+                          NowPlayingTransition.islandFade,
+                        ).transform(covered));
                 return Opacity(
                   opacity: opacity,
                   child: _IslandBar(

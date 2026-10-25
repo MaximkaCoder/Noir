@@ -315,9 +315,9 @@ class TopBar extends ConsumerWidget {
     final t = Theme.of(context).textTheme;
     return WindowDragArea(
       child: SizedBox(
-        height: 60,
+        height: TitleBarMetrics.height,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(24, 12, 20, 4),
+          padding: TitleBarMetrics.padding,
           child: Row(
             children: [
               const HistoryButtons(),
