@@ -1276,17 +1276,8 @@ void main() {
           (w) => w is Artwork && w.semanticLabel == 'Artwork for $title',
         ),
       );
-      double label() => tester
-          .widget<AnimatedOpacity>(
-            find
-                .ancestor(
-                  of: find.text('MIXING INTO'),
-                  matching: find.byType(AnimatedOpacity),
-                )
-                .first,
-          )
-          .opacity;
-      expect(label(), 0);
+      final label = _inPlayer(find.text('MIXING INTO'));
+      expect(label, findsNothing);
 
       final from = app.container.read(playbackProvider).current!.track;
       await app.container.read(playbackProvider.notifier).next();
@@ -1305,20 +1296,37 @@ void main() {
             from: from,
           ),
         );
-      await tester.pumpAndSettle();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 600));
       expect(cover('Ash & Ember'), findsOneWidget);
       expect(cover('Quiet Harbor'), findsOneWidget);
       expect(
         find.descendant(of: hero, matching: find.byType(ImageFiltered)),
         findsNWidgets(2),
       );
-      expect(label(), 1);
+      expect(label, findsOneWidget);
+      expect(_inPlayer(find.text('Quiet Harbor')), findsOneWidget);
+
+      // Between the player's (rare) reports the melt keeps moving.
+      double fading() => tester
+          .widget<Opacity>(
+            find
+                .ancestor(
+                  of: cover('Ash & Ember'),
+                  matching: find.byType(Opacity),
+                )
+                .first,
+          )
+          .opacity;
+      final before = fading();
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(fading(), lessThan(before));
 
       status.set(null);
       await tester.pumpAndSettle();
       expect(cover('Ash & Ember'), findsNothing);
       expect(cover('Quiet Harbor'), findsOneWidget);
-      expect(label(), 0);
+      expect(label, findsNothing);
     });
 
     testWidgets('progress glides back to the start', (tester) async {

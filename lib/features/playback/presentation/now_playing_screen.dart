@@ -1735,58 +1735,88 @@ class _TrackDetails extends ConsumerWidget {
       ],
     ];
     Widget line(Widget child) => Align(alignment: align, child: child);
-    final details = Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        _TitleRow(
-          centered: centered,
-          children: [
-            Text(
-              track.title,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              textAlign: textAlign,
-              style: TextStyle.lerp(t.headlineSmall, t.displaySmall, large),
-            ),
-            Row(mainAxisSize: MainAxisSize.min, children: buttons),
-          ],
-        ),
-        const SizedBox(height: 6),
-        line(
-          _ArtistLine(
-            track: track,
-            textAlign: textAlign,
-            style: t.titleMedium?.copyWith(
-              color: c.textSecondary,
-              fontWeight: FontWeight.w400,
-            ),
-          ),
-        ),
-        line(
-          _AlbumLine(
-            track: track,
-            textAlign: textAlign,
-            style: t.bodyLarge?.copyWith(color: c.textTertiary),
-          ),
-        ),
-      ],
+    // While a mix blends into this track: "Mixing into" over its title,
+    // then the usual details once the mix is done.
+    final mixing = ref.watch(
+      transitionStatusProvider.select(
+        (s) =>
+            s != null &&
+            s.isMixing &&
+            s.plan.seconds >= 1 &&
+            s.from != null &&
+            s.from!.id != track.id,
+      ),
     );
+    final title = Text(
+      track.title,
+      maxLines: 2,
+      overflow: TextOverflow.ellipsis,
+      textAlign: textAlign,
+      style: TextStyle.lerp(t.headlineSmall, t.displaySmall, large),
+    );
+    final details = mixing
+        ? Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              line(
+                Text(
+                  'MIXING INTO',
+                  style: t.labelSmall?.copyWith(
+                    color: c.textSecondary,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 1.6,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 6),
+              _TitleRow(
+                centered: centered,
+                children: [
+                  title,
+                  Row(mainAxisSize: MainAxisSize.min, children: buttons),
+                ],
+              ),
+            ],
+          )
+        : Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _TitleRow(
+                centered: centered,
+                children: [
+                  title,
+                  Row(mainAxisSize: MainAxisSize.min, children: buttons),
+                ],
+              ),
+              const SizedBox(height: 6),
+              line(
+                _ArtistLine(
+                  track: track,
+                  textAlign: textAlign,
+                  style: t.titleMedium?.copyWith(
+                    color: c.textSecondary,
+                    fontWeight: FontWeight.w400,
+                  ),
+                ),
+              ),
+              line(
+                _AlbumLine(
+                  track: track,
+                  textAlign: textAlign,
+                  style: t.bodyLarge?.copyWith(color: c.textTertiary),
+                ),
+              ),
+            ],
+          );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
       children: [
-        Stack(
-          clipBehavior: Clip.none,
-          children: [
-            _TrackChange(trackId: track.id, child: details),
-            Positioned(
-              left: 0,
-              right: 0,
-              top: -18,
-              child: _MixingLabel(textAlign: textAlign),
-            ),
-          ],
+        _TrackChange(
+          trackId: mixing ? 'mixing ${track.id}' : track.id,
+          child: details,
         ),
         if (failed) ...[
           const SizedBox(height: 12),
@@ -2076,7 +2106,7 @@ class _CoverSwitcherState extends ConsumerState<_CoverSwitcher> {
                 s.plan.seconds >= 1 &&
                 s.from != null &&
                 s.from!.id != incoming.id
-            ? (from: s.from!, progress: s.progress)
+            ? (from: s.from!, progress: s.progress, seconds: s.plan.seconds)
             : null,
       ),
     );
@@ -2085,6 +2115,7 @@ class _CoverSwitcherState extends ConsumerState<_CoverSwitcher> {
         from: _cover(mix.from),
         to: _cover(incoming),
         progress: mix.progress,
+        seconds: mix.seconds,
       );
     }
     final track = _shown;
@@ -2111,16 +2142,65 @@ class _CoverSwitcherState extends ConsumerState<_CoverSwitcher> {
 
 /// A mix between two tracks on the cover: the outgoing one blurs, swells
 /// and fades away while the incoming one comes into focus, following the
-/// blend's [progress] (0–1).
-class _Melt extends StatelessWidget {
-  const _Melt({required this.from, required this.to, required this.progress});
+/// blend's [progress] (0–1). The player reports progress only a few times
+/// a second, so between reports it runs on at the blend's pace ([seconds]
+/// long), never backwards.
+class _Melt extends StatefulWidget {
+  const _Melt({
+    required this.from,
+    required this.to,
+    required this.progress,
+    required this.seconds,
+  });
 
   final Widget from;
   final Widget to;
   final double progress;
+  final double seconds;
 
   /// Blur at the far ends, as a Gaussian sigma.
-  static const _sigma = 18.0;
+  static const sigma = 18.0;
+
+  @override
+  State<_Melt> createState() => _MeltState();
+}
+
+class _MeltState extends State<_Melt> with SingleTickerProviderStateMixin {
+  late final Ticker _ticker = createTicker(_tick);
+  late double _reported = widget.progress;
+  late double _shown = widget.progress;
+  Duration _now = Duration.zero;
+  Duration _reportedAt = Duration.zero;
+
+  @override
+  void initState() {
+    super.initState();
+    _ticker.start();
+  }
+
+  @override
+  void didUpdateWidget(_Melt old) {
+    super.didUpdateWidget(old);
+    if (widget.progress == old.progress) return;
+    if (widget.progress < _reported - 0.2) _shown = widget.progress;
+    _reported = widget.progress;
+    _reportedAt = _now;
+  }
+
+  void _tick(Duration elapsed) {
+    _now = elapsed;
+    final ahead =
+        (elapsed - _reportedAt).inMicroseconds / 1e6 / max(widget.seconds, 1);
+    final next = max(_shown, min<double>(1, _reported + ahead));
+    if (next != _shown) setState(() => _shown = next);
+    if (next >= 1) _ticker.stop();
+  }
+
+  @override
+  void dispose() {
+    _ticker.dispose();
+    super.dispose();
+  }
 
   static Widget _layer(
     Widget child, {
@@ -2131,69 +2211,38 @@ class _Melt extends StatelessWidget {
     opacity: opacity.clamp(0.0, 1.0),
     child: Transform.scale(
       scale: scale,
-      child: sigma < 0.1
-          ? child
-          : ImageFiltered(
-              imageFilter: ImageFilter.blur(
-                sigmaX: sigma,
-                sigmaY: sigma,
-                tileMode: TileMode.decal,
-              ),
-              child: child,
-            ),
+      // Always in the tree, so the cover is never rebuilt mid-mix.
+      child: ImageFiltered(
+        enabled: sigma >= 0.1,
+        imageFilter: ImageFilter.blur(
+          sigmaX: max(sigma, 0.1),
+          sigmaY: max(sigma, 0.1),
+          tileMode: TileMode.decal,
+        ),
+        child: child,
+      ),
     ),
   );
 
   @override
   Widget build(BuildContext context) {
-    final p = Curves.easeInOut.transform(progress.clamp(0.0, 1.0));
+    final p = Curves.easeInOut.transform(_shown.clamp(0.0, 1.0));
     return Stack(
       alignment: Alignment.center,
       children: [
         _layer(
-          from,
-          sigma: _sigma * p,
+          widget.from,
+          sigma: _Melt.sigma * p,
           scale: 1 + 0.12 * p,
           opacity: 1 - p * p,
         ),
         _layer(
-          to,
-          sigma: _sigma * (1 - p),
+          widget.to,
+          sigma: _Melt.sigma * (1 - p),
           scale: 0.9 + 0.1 * p,
           opacity: 1 - (1 - p) * (1 - p),
         ),
       ],
-    );
-  }
-}
-
-/// "Mixing into" over the title while a transition blends into it. Drawn
-/// in the gap above the details, so it never moves the layout.
-class _MixingLabel extends ConsumerWidget {
-  const _MixingLabel({required this.textAlign});
-
-  final TextAlign textAlign;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final mixing = ref.watch(
-      transitionStatusProvider.select(
-        (s) =>
-            s != null && s.isMixing && s.plan.seconds >= 1 && s.progress < 0.9,
-      ),
-    );
-    return AnimatedOpacity(
-      opacity: mixing ? 1 : 0,
-      duration: NoirEffects.of(context).motion(NoirMotion.slow),
-      child: Text(
-        'MIXING INTO',
-        textAlign: textAlign,
-        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-          color: context.noir.textSecondary,
-          fontWeight: FontWeight.w600,
-          letterSpacing: 1.6,
-        ),
-      ),
     );
   }
 }
