@@ -2259,9 +2259,28 @@ class _MeltState extends State<_Melt> with SingleTickerProviderStateMixin {
     super.dispose();
   }
 
+  /// The melt's position at 0, 1/32, 2/32, … of the blend, measured on
+  /// rendered frames so the picture changes at an even pace (easing in and
+  /// out over the first and last few percent) instead of mostly early on.
+  static const _evenSteps = [
+    0.0, 0.0009, 0.0105, 0.0277, 0.0417, 0.0559, 0.0704, 0.0845, 0.1025, //
+    0.1212, 0.1405, 0.1622, 0.186, 0.2089, 0.2306, 0.2569, 0.286, //
+    0.3194, 0.3543, 0.389, 0.4308, 0.479, 0.5284, 0.5803, 0.6333, //
+    0.6898, 0.7446, 0.7995, 0.8576, 0.907, 0.9492, 0.9922, 1.0,
+  ];
+
+  /// How far into the melt the picture is [t] (0–1) through the blend.
+  static double _pace(double t) {
+    final x = t.clamp(0.0, 1.0) * (_evenSteps.length - 1);
+    final i = min(x.floor(), _evenSteps.length - 2);
+    final from = _evenSteps[i];
+    return from + (_evenSteps[i + 1] - from) * (x - i);
+  }
+
   /// A cover [focus] sharp (1) to fully blurred (0): the sharp cover
-  /// fades out over its blurred copy, which comes in faster so the two
-  /// barely thin out in between. Both stay in the tree for the whole mix.
+  /// fades out over its blurred copy, which comes in a little ahead so
+  /// the two barely thin out in between. Both stay in the tree for the
+  /// whole mix.
   static Widget _layer(
     Widget sharp,
     Widget blurred, {
@@ -2274,7 +2293,7 @@ class _MeltState extends State<_Melt> with SingleTickerProviderStateMixin {
       alignment: Alignment.center,
       children: [
         Opacity(
-          opacity: (3 * (1 - focus)).clamp(0.0, 1.0),
+          opacity: (1 - pow(focus.clamp(0.0, 1.0), 1.5)).toDouble(),
           child: ImageFiltered(
             imageFilter: ImageFilter.blur(
               sigmaX: _Melt.sigma,
@@ -2295,7 +2314,7 @@ class _MeltState extends State<_Melt> with SingleTickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
-    final p = Curves.easeInOut.transform(_shown.clamp(0.0, 1.0));
+    final p = _pace(_shown.clamp(0.0, 1.0));
     return Stack(
       alignment: Alignment.center,
       children: [
@@ -2303,14 +2322,14 @@ class _MeltState extends State<_Melt> with SingleTickerProviderStateMixin {
           widget.from,
           widget.fromBlurred,
           focus: 1 - p,
-          scale: 1 + 0.12 * p,
+          scale: 1 + 0.06 * p,
           opacity: 1 - p * p,
         ),
         _layer(
           widget.to,
           widget.toBlurred,
           focus: p,
-          scale: 0.9 + 0.1 * p,
+          scale: 0.95 + 0.05 * p,
           opacity: 1 - (1 - p) * (1 - p),
         ),
       ],
