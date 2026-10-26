@@ -55,6 +55,14 @@ void main() {
     await pumpEventQueue();
   }
 
+  /// Waits for the next pick (it loads analyses, which may take a while
+  /// under load).
+  Future<void> picked() async {
+    for (var i = 0; i < 50 && state().queue.length <= state().index! + 1; i++) {
+      await pumpEventQueue();
+    }
+  }
+
   test('without a picker: one track ahead at a time, each once', () async {
     await setUpWith();
     await controller().surprise(tracks);
@@ -89,6 +97,7 @@ void main() {
     await controller().surprise(tracks);
     await pumpEventQueue();
     for (var i = 0; i < 4; i++) {
+      await picked();
       final played = titles().sublist(0, state().index! + 1);
       final next = titles().last;
       final now = bpms[titles()[state().index!]]!;
