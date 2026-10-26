@@ -567,7 +567,7 @@ class _LibrarySettings extends ConsumerWidget {
             AsyncData(:final value) => formatBytes(value),
             _ => '…',
           },
-          action: 'Clear',
+          icon: Icons.hide_image_outlined,
           onPressed: () async {
             final ok = await confirm(
               context,
@@ -583,7 +583,7 @@ class _LibrarySettings extends ConsumerWidget {
         _ActionRow(
           title: 'Search history',
           detail: 'Stored on this device',
-          action: 'Clear',
+          icon: Icons.manage_search_rounded,
           onPressed: () async {
             await ref.read(searchHistoryRepositoryProvider).clear();
             if (context.mounted) showToast(context, 'Search history cleared');
@@ -592,7 +592,7 @@ class _LibrarySettings extends ConsumerWidget {
         _ActionRow(
           title: 'Listening history',
           detail: 'Used for Recently played and For you',
-          action: 'Clear',
+          icon: Icons.history_rounded,
           onPressed: () async {
             final ok = await confirm(
               context,
@@ -617,13 +617,13 @@ class _ActionRow extends StatelessWidget {
   const _ActionRow({
     required this.title,
     required this.detail,
-    required this.action,
+    required this.icon,
     required this.onPressed,
   });
 
   final String title;
   final String detail;
-  final String action;
+  final IconData icon;
   final Future<void> Function() onPressed;
 
   @override
@@ -642,12 +642,10 @@ class _ActionRow extends StatelessWidget {
               ],
             ),
           ),
-          TextButton(
+          PillButton(
+            label: 'Clear',
+            icon: icon,
             onPressed: () => unawaited(onPressed()),
-            style: TextButton.styleFrom(
-              foregroundColor: context.noir.textPrimary,
-            ),
-            child: Text(action),
           ),
         ],
       ),
