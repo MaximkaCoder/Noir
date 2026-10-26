@@ -126,6 +126,7 @@ class ArtworkResolver {
 
   Future<void>? _loaded;
   Timer? _saveTimer;
+  Future<void>? _saving;
   bool _dirty = false;
   bool _disposed = false;
 
@@ -169,7 +170,8 @@ class ArtworkResolver {
     _searchTimer?.cancel();
     _saveTimer?.cancel();
     _listeners.clear();
-    if (_dirty) await _save();
+    if (_dirty) unawaited(_save());
+    await _saving;
   }
 
   // ------------------------------------------------------------ batches --
@@ -353,11 +355,12 @@ class ArtworkResolver {
     }
   }
 
-  Future<void> _save() async {
+  /// Queues a save after any running one, so writes never overlap.
+  Future<void> _save() => _saving = (_saving ?? Future.value()).then((_) async {
     final store = _store;
     if (store == null) return;
     await _ensureLoaded();
     _dirty = false;
     await store.save(Map.of(_entries));
-  }
+  });
 }
