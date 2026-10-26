@@ -31,6 +31,8 @@ import 'package:noir/features/lyrics/application/lyrics_providers.dart';
 import 'package:noir/features/lyrics/presentation/karaoke_lyrics.dart';
 import 'package:noir/features/lyrics/presentation/lyrics_view.dart';
 import 'package:noir/features/playback/application/playback_controller.dart';
+import 'package:noir/features/playback/application/transition_status.dart';
+import 'package:noir/features/playback/domain/transition_plan.dart';
 import 'package:noir/features/playback/presentation/mini_players.dart';
 import 'package:noir/features/playback/presentation/now_playing_route.dart';
 import 'package:noir/features/playback/presentation/now_playing_screen.dart';
@@ -1263,6 +1265,60 @@ void main() {
       await tester.pumpAndSettle();
       expect(cover('Ash & Ember'), findsNothing);
       expect(cover('Quiet Harbor'), findsOneWidget);
+    });
+
+    testWidgets('a mix melts the old cover into the new one', (tester) async {
+      final app = await pumpNowPlaying(tester);
+      final hero = _inPlayer(find.byType(Hero));
+      Finder cover(String title) => find.descendant(
+        of: hero,
+        matching: find.byWidgetPredicate(
+          (w) => w is Artwork && w.semanticLabel == 'Artwork for $title',
+        ),
+      );
+      double label() => tester
+          .widget<AnimatedOpacity>(
+            find
+                .ancestor(
+                  of: find.text('MIXING INTO'),
+                  matching: find.byType(AnimatedOpacity),
+                )
+                .first,
+          )
+          .opacity;
+      expect(label(), 0);
+
+      final from = app.container.read(playbackProvider).current!.track;
+      await app.container.read(playbackProvider.notifier).next();
+      final status = app.container.read(transitionStatusProvider.notifier)
+        ..set(
+          TransitionStatus(
+            plan: const TransitionPlan(
+              type: TransitionType.filterFade,
+              startInA: 100,
+              endInA: 110,
+              entryInB: 0,
+              reason: 'test',
+            ),
+            phase: TransitionPhase.mixing,
+            progress: 0.5,
+            from: from,
+          ),
+        );
+      await tester.pumpAndSettle();
+      expect(cover('Ash & Ember'), findsOneWidget);
+      expect(cover('Quiet Harbor'), findsOneWidget);
+      expect(
+        find.descendant(of: hero, matching: find.byType(ImageFiltered)),
+        findsNWidgets(2),
+      );
+      expect(label(), 1);
+
+      status.set(null);
+      await tester.pumpAndSettle();
+      expect(cover('Ash & Ember'), findsNothing);
+      expect(cover('Quiet Harbor'), findsOneWidget);
+      expect(label(), 0);
     });
 
     testWidgets('progress glides back to the start', (tester) async {

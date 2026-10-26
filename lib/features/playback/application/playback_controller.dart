@@ -1022,7 +1022,11 @@ class PlaybackController extends Notifier<PlaybackState> {
         _recordPlay(next.track);
         _hintUpcoming();
         _setTransition(
-          TransitionStatus(plan: plan, phase: TransitionPhase.mixing),
+          TransitionStatus(
+            plan: plan,
+            phase: TransitionPhase.mixing,
+            from: prep.from.track,
+          ),
         );
       },
       onProgress: (t) {
@@ -1032,6 +1036,7 @@ class PlaybackController extends Notifier<PlaybackState> {
             plan: plan,
             phase: TransitionPhase.mixing,
             progress: t,
+            from: prep.from.track,
           ),
         );
       },

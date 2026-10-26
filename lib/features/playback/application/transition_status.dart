@@ -22,10 +22,15 @@ class TransitionStatus {
     required this.plan,
     required this.phase,
     this.progress = 0,
+    this.from,
   });
 
   final TransitionPlan plan;
   final TransitionPhase phase;
+
+  /// The track being mixed out of (the queue has already moved on to the
+  /// incoming one while [isMixing]).
+  final Track? from;
 
   /// 0–1 through the blend (0 while planned).
   final double progress;

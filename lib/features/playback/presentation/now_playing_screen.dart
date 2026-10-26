@@ -30,6 +30,7 @@ import 'package:noir/features/library/application/library_providers.dart';
 import 'package:noir/features/lyrics/application/lyrics_providers.dart';
 import 'package:noir/features/lyrics/presentation/lyrics_view.dart';
 import 'package:noir/features/playback/application/playback_controller.dart';
+import 'package:noir/features/playback/application/transition_status.dart';
 import 'package:noir/features/playback/presentation/now_playing_route.dart';
 import 'package:noir/features/playback/presentation/playback_controls.dart';
 import 'package:noir/features/playback/presentation/playback_shortcuts.dart';
@@ -1775,7 +1776,18 @@ class _TrackDetails extends ConsumerWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
       children: [
-        _TrackChange(trackId: track.id, child: details),
+        Stack(
+          clipBehavior: Clip.none,
+          children: [
+            _TrackChange(trackId: track.id, child: details),
+            Positioned(
+              left: 0,
+              right: 0,
+              top: -18,
+              child: _MixingLabel(textAlign: textAlign),
+            ),
+          ],
+        ),
         if (failed) ...[
           const SizedBox(height: 12),
           Text(
@@ -2041,10 +2053,41 @@ class _CoverSwitcherState extends ConsumerState<_CoverSwitcher> {
     );
   }
 
+  Widget _cover(Track track) {
+    final size = widget.size;
+    return track.source == MediaSource.youtube
+        ? YouTubeCover(videoId: track.uri, size: size)
+        : Artwork(
+            path: track.artwork,
+            size: size,
+            radius: NoirRadii.xl,
+            semanticLabel: 'Artwork for ${track.album ?? track.title}',
+          );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final incoming = widget.track;
+    final mix = ref.watch(
+      transitionStatusProvider.select(
+        (s) =>
+            s != null &&
+                s.isMixing &&
+                s.plan.seconds >= 1 &&
+                s.from != null &&
+                s.from!.id != incoming.id
+            ? (from: s.from!, progress: s.progress)
+            : null,
+      ),
+    );
+    if (mix != null && NoirEffects.of(context).animations) {
+      return _Melt(
+        from: _cover(mix.from),
+        to: _cover(incoming),
+        progress: mix.progress,
+      );
+    }
     final track = _shown;
-    final size = widget.size;
     final key = ValueKey(track.id);
     return AnimatedSwitcher(
       duration: NoirEffects.of(context).motion(NoirMotion.slow),
@@ -2061,16 +2104,95 @@ class _CoverSwitcherState extends ConsumerState<_CoverSwitcher> {
               ),
             )
           : child,
-      child: KeyedSubtree(
-        key: key,
-        child: track.source == MediaSource.youtube
-            ? YouTubeCover(videoId: track.uri, size: size)
-            : Artwork(
-                path: track.artwork,
-                size: size,
-                radius: NoirRadii.xl,
-                semanticLabel: 'Artwork for ${track.album ?? track.title}',
+      child: KeyedSubtree(key: key, child: _cover(track)),
+    );
+  }
+}
+
+/// A mix between two tracks on the cover: the outgoing one blurs, swells
+/// and fades away while the incoming one comes into focus, following the
+/// blend's [progress] (0–1).
+class _Melt extends StatelessWidget {
+  const _Melt({required this.from, required this.to, required this.progress});
+
+  final Widget from;
+  final Widget to;
+  final double progress;
+
+  /// Blur at the far ends, as a Gaussian sigma.
+  static const _sigma = 18.0;
+
+  static Widget _layer(
+    Widget child, {
+    required double sigma,
+    required double scale,
+    required double opacity,
+  }) => Opacity(
+    opacity: opacity.clamp(0.0, 1.0),
+    child: Transform.scale(
+      scale: scale,
+      child: sigma < 0.1
+          ? child
+          : ImageFiltered(
+              imageFilter: ImageFilter.blur(
+                sigmaX: sigma,
+                sigmaY: sigma,
+                tileMode: TileMode.decal,
               ),
+              child: child,
+            ),
+    ),
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    final p = Curves.easeInOut.transform(progress.clamp(0.0, 1.0));
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        _layer(
+          from,
+          sigma: _sigma * p,
+          scale: 1 + 0.12 * p,
+          opacity: 1 - p * p,
+        ),
+        _layer(
+          to,
+          sigma: _sigma * (1 - p),
+          scale: 0.9 + 0.1 * p,
+          opacity: 1 - (1 - p) * (1 - p),
+        ),
+      ],
+    );
+  }
+}
+
+/// "Mixing into" over the title while a transition blends into it. Drawn
+/// in the gap above the details, so it never moves the layout.
+class _MixingLabel extends ConsumerWidget {
+  const _MixingLabel({required this.textAlign});
+
+  final TextAlign textAlign;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final mixing = ref.watch(
+      transitionStatusProvider.select(
+        (s) =>
+            s != null && s.isMixing && s.plan.seconds >= 1 && s.progress < 0.9,
+      ),
+    );
+    return AnimatedOpacity(
+      opacity: mixing ? 1 : 0,
+      duration: NoirEffects.of(context).motion(NoirMotion.slow),
+      child: Text(
+        'MIXING INTO',
+        textAlign: textAlign,
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+          color: context.noir.textSecondary,
+          fontWeight: FontWeight.w600,
+          letterSpacing: 1.6,
+        ),
       ),
     );
   }
