@@ -51,6 +51,11 @@ dev_dependencies:
   mocktail: ^1.0.5
   very_good_analysis: ^11.0.0
 
+dependency_overrides:
+  # The real plugin keeps Windows location in use; see the stub's pubspec.
+  permission_handler_windows:
+    path: tool/permission_handler_windows_noop
+
 flutter:
   uses-material-design: true
   shaders:
