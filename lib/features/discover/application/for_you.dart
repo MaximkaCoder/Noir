@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:noir/features/discover/application/discover_providers.dart';
+import 'package:noir/features/discover/application/dislikes.dart';
 import 'package:noir/features/settings/data/settings_repository.dart';
 import 'package:noir/features/youtube/data/youtube_repository.dart';
 import 'package:noir/features/youtube/presentation/youtube_cover.dart';
@@ -190,10 +191,13 @@ typedef SeedRadio = ({Track seed, List<Track> tracks});
 
 /// "Mixed for you" (every seed's suggestions taking turns) and, for the
 /// first [becauseCount] seeds, "Because you listen to …" shelves. Songs in
-/// [known] (the user's own) and repeats are left out.
+/// [known] (the user's own), repeats and what [dislikes] hides are left
+/// out. Artists with one disliked song move to the back of each radio; two
+/// or more drop them.
 List<YtmShelf> composeForYou(
   List<SeedRadio> radios,
   Set<String> known, {
+  Dislikes dislikes = const Dislikes(),
   int mixLength = 40,
   int becauseCount = 3,
   int shelfLength = 20,
@@ -203,8 +207,17 @@ List<YtmShelf> composeForYou(
       (
         seed: r.seed,
         tracks: [
-          for (final t in r.tracks)
-            if (t.uri != r.seed.uri && !known.contains(t.uri)) t,
+          for (final rarer in [false, true])
+            for (final t in r.tracks)
+              if (t.uri != r.seed.uri &&
+                  !known.contains(t.uri) &&
+                  !dislikes.hides(t) &&
+                  switch (dislikes.strikes(t)) {
+                    0 => !rarer,
+                    1 => rarer,
+                    _ => false,
+                  })
+                t,
         ],
       ),
   ];
@@ -280,13 +293,18 @@ class ForYouController extends AsyncNotifier<ForYouFeed> {
     final plays = await ref.read(youTubePlayLogProvider).read();
     final likes = await repo.likes(musicOnly: true);
     final playlistTracks = await repo.allPlaylistTracks();
+    final dislikes = ref.read(dislikesProvider);
     final seeds = pickSeeds(
-      tasteSeeds(
-        plays: plays,
-        likes: likes,
-        playlistTracks: playlistTracks,
-        now: now,
-      ),
+      [
+        for (final s in tasteSeeds(
+          plays: plays,
+          likes: likes,
+          playlistTracks: playlistTracks,
+          now: now,
+        ))
+          if (!dislikes.hides(s.track))
+            TasteSeed(s.track, s.weight * pow(0.3, dislikes.strikes(s.track))),
+      ],
       seedCount,
       Random(now.year * 10000 + now.month * 100 + now.day + _reshuffles),
     );
@@ -307,7 +325,7 @@ class ForYouController extends AsyncNotifier<ForYouFeed> {
       for (final p in plays.take(50)) p.track.uri,
     };
     return ForYouFeed(
-      shelves: composeForYou([...radios.nonNulls], known),
+      shelves: composeForYou([...radios.nonNulls], known, dislikes: dislikes),
       fetchedAt: DateTime.now(),
     );
   }

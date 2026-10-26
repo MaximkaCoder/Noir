@@ -10,6 +10,7 @@ import 'package:noir/core/widgets/dialogs.dart';
 import 'package:noir/core/widgets/shelf_row.dart';
 import 'package:noir/core/widgets/states.dart';
 import 'package:noir/features/discover/application/discover_providers.dart';
+import 'package:noir/features/discover/application/dislikes.dart';
 import 'package:noir/features/discover/application/for_you.dart';
 import 'package:noir/features/discover/presentation/load_more.dart';
 import 'package:noir/features/discover/presentation/ytm_items.dart';
@@ -285,6 +286,8 @@ class _ForYouSectionState extends ConsumerState<ForYouSection> {
                   key: ValueKey('for-you-$i-${shelf.title}'),
                   shelf: shelf,
                   tile: widget.tileWidth,
+                  // Like Listen again: a song goes on with its radio.
+                  radio: true,
                 ),
             ],
           ),
@@ -386,7 +389,7 @@ class _ChipRow extends StatelessWidget {
   }
 }
 
-class _ShelfRow extends StatelessWidget {
+class _ShelfRow extends ConsumerWidget {
   const _ShelfRow({
     required this.shelf,
     required this.tile,
@@ -399,7 +402,14 @@ class _ShelfRow extends StatelessWidget {
   final bool radio;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    // Songs the user said no to leave at once.
+    final dislikes = ref.watch(dislikesProvider);
+    final items = [
+      for (final item in shelf.items)
+        if (item is! YtmTrackItem || !dislikes.hides(item.track)) item,
+    ];
+    if (items.isEmpty) return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.only(top: 28),
       child: TileRow(
@@ -407,11 +417,11 @@ class _ShelfRow extends StatelessWidget {
         title: shelf.title,
         eyebrow: shelf.strapline,
         children: [
-          for (final (i, item) in shelf.items.indexed)
+          for (final (i, item) in items.indexed)
             YtmTile(
               key: ValueKey('$i-${item.title}'),
               item: item,
-              siblings: shelf.items,
+              siblings: items,
               width: tile,
               radio: radio,
             ),

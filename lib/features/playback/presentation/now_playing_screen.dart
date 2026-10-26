@@ -24,6 +24,7 @@ import 'package:noir/core/widgets/smooth_scroll.dart';
 import 'package:noir/core/widgets/states.dart';
 import 'package:noir/features/artwork/application/artwork_providers.dart';
 import 'package:noir/features/artwork/domain/art_urls.dart';
+import 'package:noir/features/discover/presentation/dislike_actions.dart';
 import 'package:noir/features/discover/presentation/ytm_artist_screen.dart';
 import 'package:noir/features/library/application/library_providers.dart';
 import 'package:noir/features/lyrics/application/lyrics_providers.dart';
@@ -1727,8 +1728,10 @@ class _TrackDetails extends ConsumerWidget {
             ref.read(playbackProvider.notifier).toggleFavorite(track),
           ),
         ),
-      if (track.source == MediaSource.youtube)
+      if (track.source == MediaSource.youtube) ...[
+        DislikeButton(track, size: 22),
         YouTubeSaveButton(track, size: 22),
+      ],
     ];
     Widget line(Widget child) => Align(alignment: align, child: child);
     final details = Column(

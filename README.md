@@ -44,6 +44,11 @@ synced lyrics appear next to the cover, line by line or word by word
 (karaoke). Lyrics come from YouTube Music, with LRCLIB as a fallback. Click
 the cover to pause.
 
+Songs you don't want to hear can be marked "Not interested" (in a song's
+menu or with the thumbs down in Now Playing), and a whole artist can be
+taken out of recommendations. They disappear from For you, Home and radio.
+If NOIR may edit your YouTube account, the song also gets a dislike there.
+
 The queue never runs dry: when fewer than five tracks are left, NOIR appends
 more of the same YouTube Music radio. If YouTube Music only has a song as a
 music video (with intro and skits), NOIR swaps in the plain studio track,

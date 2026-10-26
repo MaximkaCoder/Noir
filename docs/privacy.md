@@ -7,11 +7,13 @@
 - Artwork extracted from your files (app support folder → `artwork/`).
 - Playlists, local favorites, listening history (track + time), search
   history, settings and the last playback session.
+- Songs and artists you marked "Not interested", and which playlists you
+  hid from the sidebar.
 - On Android/iOS: copies of files you import with "Add files" (app documents
   folder → `NOIR Music/`).
 
-Everything can be cleared in Settings → Library (artwork cache, search
-history, listening history) or by removing library folders.
+Everything can be cleared in Settings (Library, Recommendations, Storage)
+or by removing library folders.
 
 ## Sent anywhere
 
@@ -97,7 +99,11 @@ grant the extra permission ("manage your YouTube account") in your browser:
   you typed (default "NOIR Likes", `playlists.insert`).
 - **Liked music** — if you choose it as the heart's target, or tick it in
   "Add to playlist…", NOIR likes the video on YouTube (`videos.rate`).
-  Removing a song from Liked music clears that rating. NOIR never dislikes.
+  Removing a song from Liked music clears that rating.
+- **Not interested** on a YouTube song also dislikes it on YouTube
+  (`videos.rate`), if NOIR has this permission. Allowing the song again in
+  Settings clears the rating. Without the permission the choice stays in
+  NOIR.
 
 NOIR never deletes playlists and never writes anything in the background. On this
 device it remembers which playlist you chose (deleted when you disconnect).

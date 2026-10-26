@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:noir/core/widgets/artwork.dart';
 import 'package:noir/core/widgets/menus.dart';
+import 'package:noir/features/discover/presentation/dislike_actions.dart';
 import 'package:noir/features/discover/presentation/ytm_artist_screen.dart';
 import 'package:noir/features/playback/application/playback_controller.dart';
 import 'package:noir/features/search/application/music_search_controller.dart';
@@ -101,12 +102,22 @@ Future<void> showYtmTrackMenu(
   final action = await showNoirMenu<String>(
     context,
     anchor: position & Size.zero,
-    items: const [
-      NoirMenuItem('radio', 'Start radio', icon: Icons.radio_rounded),
-      NoirMenuItem('next', 'Play next', icon: Icons.playlist_play_rounded),
-      NoirMenuItem('queue', 'Add to queue', icon: Icons.queue_music_rounded),
+    items: [
+      const NoirMenuItem('radio', 'Start radio', icon: Icons.radio_rounded),
+      const NoirMenuItem(
+        'next',
+        'Play next',
+        icon: Icons.playlist_play_rounded,
+      ),
+      const NoirMenuItem(
+        'queue',
+        'Add to queue',
+        icon: Icons.queue_music_rounded,
+      ),
+      ...dislikeMenuItems(item.track),
     ],
   );
+  if (!context.mounted) return;
   switch (action) {
     case 'radio':
       unawaited(playback.startRadio(item.track));
@@ -114,6 +125,8 @@ Future<void> showYtmTrackMenu(
       playback.playNext(item.track);
     case 'queue':
       playback.addToQueue([item.track]);
+    default:
+      await runDislikeAction(context, ref, action, item.track);
   }
 }
 

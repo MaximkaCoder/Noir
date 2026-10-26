@@ -389,7 +389,7 @@ class YouTubeSaveController extends Notifier<YouTubeSaveState> {
     final repo = ref.read(youTubeRepositoryProvider);
     final edits = ref.read(youTubePendingEditsProvider);
     if (like) {
-      await ref.read(youTubeApiProvider).rate(track.uri, like: true);
+      await ref.read(youTubeApiProvider).rate(track.uri, YtRating.like);
       edits.added(
         likedVideosId,
         YtPlaylistEntry(id: track.uri, videoId: track.uri),
@@ -399,7 +399,7 @@ class YouTubeSaveController extends Notifier<YouTubeSaveState> {
     }
     final row = await repo.removeLike(track.uri);
     try {
-      await ref.read(youTubeApiProvider).rate(track.uri, like: false);
+      await ref.read(youTubeApiProvider).rate(track.uri, YtRating.none);
     } on Object {
       if (row != null) await repo.restoreLike(row);
       rethrow;

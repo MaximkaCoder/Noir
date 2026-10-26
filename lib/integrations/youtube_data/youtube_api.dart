@@ -94,6 +94,9 @@ class YouTubeApiException implements Exception {
   String toString() => 'YouTubeApiException(${kind.name})';
 }
 
+/// A rating as `videos.rate` takes it.
+enum YtRating { like, dislike, none }
+
 /// Access to the YouTube Data API v3 for the signed-in user.
 /// Quota costs (default 10,000 units/day): reads cost 1 unit per page; the
 /// few writes (adding or removing a playlist item, creating a playlist,
@@ -173,13 +176,10 @@ class YouTubeApi {
   Future<void> deletePlaylistItem(String itemId) =>
       _write('DELETE', 'playlistItems', {'id': itemId});
 
-  /// Likes [videoId], or clears its rating when [like] is false
-  /// (`videos.rate`, 50 units).
-  Future<void> rate(String videoId, {required bool like}) => _write(
-    'POST',
-    'videos/rate',
-    {'id': videoId, 'rating': like ? 'like' : 'none'},
-  );
+  /// Likes or dislikes [videoId], or clears its rating (`videos.rate`,
+  /// 50 units).
+  Future<void> rate(String videoId, YtRating rating) =>
+      _write('POST', 'videos/rate', {'id': videoId, 'rating': rating.name});
 
   /// Creates a playlist, private unless [privacy] says otherwise
   /// (`playlists.insert`, 50 units).

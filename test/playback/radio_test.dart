@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:noir/core/database/app_database.dart';
 import 'package:noir/core/database/database_provider.dart';
 import 'package:noir/features/discover/application/discover_providers.dart';
+import 'package:noir/features/discover/application/dislikes.dart';
 import 'package:noir/features/library/data/library_repository.dart';
 import 'package:noir/features/playback/application/playback_controller.dart';
 import 'package:noir/features/playback/domain/playback_engine.dart';
@@ -63,6 +64,23 @@ void main() {
   tearDown(() async {
     container.dispose();
     await db.close();
+  });
+
+  test('radio skips songs and artists the user said no to', () async {
+    ytm.radioPages['y1'] = YtmTrackPage(
+      tracks: [
+        y1,
+        r1,
+        ytTrack('b1', artist: 'Blocked'),
+        r2,
+        ytTrack('r4', artist: 'Kept'),
+      ],
+    );
+    final dislikes = container.read(dislikesProvider.notifier);
+    await dislikes.dislikeSong(r2);
+    await dislikes.blockArtist('blocked');
+    await controller().startRadio(y1);
+    expect(uris(), ['y1', 'r1', 'r4']);
   });
 
   test('the end of a YouTube queue continues with radio, deduped', () async {

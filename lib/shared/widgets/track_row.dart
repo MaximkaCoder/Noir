@@ -12,6 +12,7 @@ import 'package:noir/core/widgets/menus.dart';
 import 'package:noir/features/accounts/domain/account_connection.dart';
 import 'package:noir/features/analysis/application/analysis_providers.dart';
 import 'package:noir/features/analysis/presentation/track_analysis_dialog.dart';
+import 'package:noir/features/discover/presentation/dislike_actions.dart';
 import 'package:noir/features/playback/application/playback_controller.dart';
 import 'package:noir/features/playlists/presentation/add_to_playlist.dart';
 import 'package:noir/features/settings/domain/app_settings.dart';
@@ -237,6 +238,7 @@ class _TrackRowState extends ConsumerState<TrackRow> {
             'Show analysis',
             icon: Icons.graphic_eq_rounded,
           ),
+        ...dislikeMenuItems(track),
         if (widget.onRemove != null)
           NoirMenuItem(
             'remove',
@@ -274,6 +276,8 @@ class _TrackRowState extends ConsumerState<TrackRow> {
         unawaited(showTrackAnalysis(context, track));
       case 'remove':
         widget.onRemove?.call();
+      default:
+        await runDislikeAction(context, ref, action, track);
     }
   }
 }

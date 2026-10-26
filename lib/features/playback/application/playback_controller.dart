@@ -5,6 +5,7 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:noir/features/discover/application/discover_providers.dart';
+import 'package:noir/features/discover/application/dislikes.dart';
 import 'package:noir/features/discover/application/for_you.dart';
 import 'package:noir/features/home/data/history_repository.dart';
 import 'package:noir/features/library/application/library_scan_controller.dart';
@@ -636,12 +637,13 @@ class PlaybackController extends Notifier<PlaybackState> {
         seen.add(videoId);
         page = await client.radio(videoId);
       }
+      final dislikes = ref.read(dislikesProvider);
       final fresh = <Track>[];
       // A page may only repeat what is queued; look a little further.
       for (var pages = 1; ; pages++) {
         fresh.addAll(
           page.tracks
-              .where((t) => seen.add(t.uri))
+              .where((t) => !dislikes.hides(t) && seen.add(t.uri))
               .take(radioBatch - fresh.length),
         );
         playlistId = page.playlistId ?? playlistId;
