@@ -12,6 +12,10 @@ import 'package:noir/integrations/google_auth/desktop_oauth_flow.dart';
 import 'package:noir/integrations/youtube_data/youtube_api.dart';
 import 'package:noir/shared/models/media.dart';
 
+/// YouTube's playlist id for the user's likes. As a [SaveTarget] or edit
+/// target it means rating the video, not a playlist item.
+const likedVideosId = 'LL';
+
 /// The YouTube playlist hearted songs are saved to.
 @immutable
 class SaveTarget {
@@ -90,13 +94,22 @@ class SaveTargetController extends Notifier<SaveTarget?> {
 final saveTargetVideoIdsProvider = StreamProvider<Set<String>>((ref) {
   final id = ref.watch(saveTargetProvider.select((t) => t?.id));
   if (id == null) return Stream.value(const {});
-  return ref.watch(youTubeRepositoryProvider).watchPlaylistVideoIds(id);
+  final repo = ref.watch(youTubeRepositoryProvider);
+  return id == likedVideosId
+      ? repo.watchLikedVideoIds()
+      : repo.watchPlaylistVideoIds(id);
 });
+
+/// Ids of the videos the user liked, from the cache.
+final youTubeLikedVideoIdsProvider = StreamProvider<Set<String>>(
+  (ref) => ref.watch(youTubeRepositoryProvider).watchLikedVideoIds(),
+);
 
 /// Display title of the target: the cached playlist's, else the stored one.
 final saveTargetTitleProvider = Provider<String?>((ref) {
   final target = ref.watch(saveTargetProvider);
   if (target == null) return null;
+  if (target.id == likedVideosId) return 'Liked music';
   final playlists = ref.watch(youTubePlaylistsProvider).value ?? const [];
   return playlists.where((p) => p.id == target.id).firstOrNull?.title ??
       target.title;
@@ -185,8 +198,8 @@ final youTubeSaveProvider =
     );
 
 /// The heart for YouTube songs: adds the video to, or removes it from, the
-/// playlist the user chose ([saveTargetProvider]). It never likes or rates
-/// anything on YouTube.
+/// playlist the user chose ([saveTargetProvider]). With [likedVideosId] as
+/// the target it likes the video on YouTube, or clears the rating.
 ///
 /// Each change costs 50 quota units, so a video has at most one request in
 /// flight; taps meanwhile are ignored.
@@ -225,13 +238,18 @@ class YouTubeSaveController extends Notifier<YouTubeSaveState> {
     final repo = ref.read(youTubeRepositoryProvider);
     // Reserve the video before the first await so a second tap is ignored.
     state = state.copyWith(inFlight: {...state.inFlight, videoId});
+    final liked = target.id == likedVideosId;
     final save =
         !(state.overrides[videoId] ??
-            await repo.playlistContains(target.id, videoId));
+            await (liked
+                ? repo.isLiked(videoId)
+                : repo.playlistContains(target.id, videoId)));
     state = state.copyWith(overrides: {...state.overrides, videoId: save});
     final title = ref.read(saveTargetTitleProvider) ?? target.title;
     try {
-      if (save) {
+      if (liked) {
+        await _rate(track, like: save);
+      } else if (save) {
         await _insert(target.id, track);
       } else {
         final ids = await repo.playlistItemIds(target.id, videoId);
@@ -271,7 +289,9 @@ class YouTubeSaveController extends Notifier<YouTubeSaveState> {
     playlistId,
     track,
     add: true,
-    run: () => _insert(playlistId, track),
+    run: () => playlistId == likedVideosId
+        ? _rate(track, like: true)
+        : _insert(playlistId, track),
   );
 
   /// Removes every copy of [track] from [playlistId]. The cached list drops
@@ -283,6 +303,10 @@ class YouTubeSaveController extends Notifier<YouTubeSaveState> {
       track,
       add: false,
       run: () async {
+        if (playlistId == likedVideosId) {
+          await _rate(track, like: false);
+          return;
+        }
         final rows = await repo.removePlaylistItems(playlistId, track.uri);
         try {
           await _delete(playlistId, track.uri, [
@@ -312,12 +336,13 @@ class YouTubeSaveController extends Notifier<YouTubeSaveState> {
     if (!ref.read(accountServiceProvider).current.canSaveToPlaylists) {
       return const SaveOutcome(SaveResult.needsPermission);
     }
-    final title =
-        (ref.read(youTubePlaylistsProvider).value ?? const [])
-            .where((p) => p.id == playlistId)
-            .firstOrNull
-            ?.title ??
-        'the playlist';
+    final title = playlistId == likedVideosId
+        ? 'Liked music'
+        : (ref.read(youTubePlaylistsProvider).value ?? const [])
+                  .where((p) => p.id == playlistId)
+                  .firstOrNull
+                  ?.title ??
+              'the playlist';
     state = state.copyWith(inFlight: {...state.inFlight, key});
     try {
       await run();
@@ -356,6 +381,30 @@ class YouTubeSaveController extends Notifier<YouTubeSaveState> {
     await ref
         .read(youTubeRepositoryProvider)
         .addPlaylistItem(playlistId, itemId, track);
+  }
+
+  /// Likes [track] on YouTube or clears its rating, and updates the cached
+  /// likes (put back if YouTube refuses an unlike).
+  Future<void> _rate(Track track, {required bool like}) async {
+    final repo = ref.read(youTubeRepositoryProvider);
+    final edits = ref.read(youTubePendingEditsProvider);
+    if (like) {
+      await ref.read(youTubeApiProvider).rate(track.uri, like: true);
+      edits.added(
+        likedVideosId,
+        YtPlaylistEntry(id: track.uri, videoId: track.uri),
+      );
+      await repo.addLike(track);
+      return;
+    }
+    final row = await repo.removeLike(track.uri);
+    try {
+      await ref.read(youTubeApiProvider).rate(track.uri, like: false);
+    } on Object {
+      if (row != null) await repo.restoreLike(row);
+      rethrow;
+    }
+    edits.removed(likedVideosId, track.uri);
   }
 
   /// Deletes the items [itemIds] (looked up on YouTube when unknown) of

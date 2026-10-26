@@ -9,6 +9,7 @@ import 'package:noir/core/database/app_database.dart';
 import 'package:noir/core/database/database_provider.dart';
 import 'package:noir/features/accounts/domain/account_connection.dart';
 import 'package:noir/features/settings/data/settings_repository.dart';
+import 'package:noir/features/youtube/application/youtube_pending_edits.dart';
 import 'package:noir/features/youtube/application/youtube_refresh.dart';
 import 'package:noir/features/youtube/application/youtube_save.dart';
 import 'package:noir/features/youtube/application/youtube_sync.dart';
@@ -423,6 +424,74 @@ void main() {
           .read(youTubeRefreshProvider.notifier)
           .refreshPlaylist('PLt');
       expect(await cached('PLt'), ['v3', 'v2']);
+    });
+  });
+
+  group('Liked music', () {
+    Future<List<String>> likes() async => [
+      for (final t in await repo.likes()) t.uri,
+    ];
+
+    setUp(() async {
+      await repo.saveLikes([
+        const YtVideo(id: 'v1', title: 'Song v1', channelTitle: 'Mara Vale'),
+        const YtVideo(id: 'v3', title: 'Song v3', channelTitle: 'Mara Vale'),
+      ]);
+    });
+
+    test('the heart likes the song on YouTube and lists it first', () async {
+      container
+          .read(saveTargetProvider.notifier)
+          .set(const SaveTarget(likedVideosId, 'Liked music'));
+      http.handler = (_) => (status: 204, json: null);
+      final outcome = await ctrl().toggle(ytTrack('v2'));
+      expect(outcome.message, 'Saved to Liked music');
+      final r = http.requests.single;
+      expect((r.method, r.uri.path), ('POST', '/youtube/v3/videos/rate'));
+      expect(r.uri.queryParameters, {'id': 'v2', 'rating': 'like'});
+      expect(await likes(), ['v2', 'v1', 'v3']);
+      await until(() => saved('v2'));
+    });
+
+    test('removing clears the rating', () async {
+      http.handler = (_) => (status: 204, json: null);
+      final outcome = await ctrl().removeFrom(likedVideosId, ytTrack('v1'));
+      expect(outcome.result, SaveResult.removed);
+      expect(http.requests.single.uri.queryParameters, {
+        'id': 'v1',
+        'rating': 'none',
+      });
+      expect(await likes(), ['v3']);
+    });
+
+    test('a refused unlike puts the song back', () async {
+      http.handler = (_) => error(500, {});
+      final outcome = await ctrl().removeFrom(likedVideosId, ytTrack('v1'));
+      expect(outcome.result, SaveResult.failed);
+      expect(await likes(), ['v1', 'v3']);
+    });
+
+    test('a lagging sync does not undo a fresh like or unlike', () async {
+      http.handler = (_) => (status: 204, json: null);
+      await ctrl().addTo(likedVideosId, ytTrack('v2'));
+      await ctrl().removeFrom(likedVideosId, ytTrack('v1'));
+
+      // YouTube still lists the likes as they were before both changes.
+      http.handler = (r) => switch (r.uri.pathSegments.last) {
+        'videos' when r.uri.queryParameters['myRating'] == 'like' => ok({
+          'items': [video('v1'), video('v3')],
+        }),
+        _ => ok({'items': <Object?>[]}),
+      };
+      final fresh = newContainer()..listen(youTubeSyncProvider, (_, _) {});
+      addTearDown(fresh.dispose);
+      fresh.read(youTubePendingEditsProvider)
+        ..added(likedVideosId, const YtPlaylistEntry(id: 'v2', videoId: 'v2'))
+        ..removed(likedVideosId, 'v1');
+      final sync = fresh.read(youTubeSyncProvider.notifier);
+      await sync.sync();
+      await sync.whenIdle();
+      expect(await likes(), ['v2', 'v3']);
     });
   });
 

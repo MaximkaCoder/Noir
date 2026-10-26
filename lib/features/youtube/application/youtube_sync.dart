@@ -179,7 +179,18 @@ class YouTubeSyncController extends Notifier<YouTubeSyncState>
         ifNoneMatch: force ? null : _likesEtag,
       );
       if (likes != null) {
-        await repo.saveLikes(likes.value);
+        final fetched = {for (final v in likes.value) v.id};
+        final kept = [
+          for (final e in edits.apply(likedVideosId, [
+            for (final id in fetched) YtPlaylistEntry(id: id, videoId: id),
+          ]))
+            e.videoId,
+        ];
+        // Likes made here and not listed yet are the newest.
+        await repo.saveLikes(likes.value, [
+          ...kept.where((id) => !fetched.contains(id)),
+          ...kept.where(fetched.contains),
+        ]);
         _likesEtag = likes.etag;
       }
 

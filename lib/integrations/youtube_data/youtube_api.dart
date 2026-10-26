@@ -96,8 +96,8 @@ class YouTubeApiException implements Exception {
 
 /// Access to the YouTube Data API v3 for the signed-in user.
 /// Quota costs (default 10,000 units/day): reads cost 1 unit per page; the
-/// few writes (adding or removing a playlist item, creating a playlist)
-/// cost 50 units each. NOIR never rates videos (`videos.rate`).
+/// few writes (adding or removing a playlist item, creating a playlist,
+/// liking or unliking a video) cost 50 units each.
 class YouTubeApi {
   YouTubeApi({
     required this._dio,
@@ -172,6 +172,14 @@ class YouTubeApi {
   /// Removes one playlist item (`playlistItems.delete`, 50 units).
   Future<void> deletePlaylistItem(String itemId) =>
       _write('DELETE', 'playlistItems', {'id': itemId});
+
+  /// Likes [videoId], or clears its rating when [like] is false
+  /// (`videos.rate`, 50 units).
+  Future<void> rate(String videoId, {required bool like}) => _write(
+    'POST',
+    'videos/rate',
+    {'id': videoId, 'rating': like ? 'like' : 'none'},
+  );
 
   /// Creates a playlist, private unless [privacy] says otherwise
   /// (`playlists.insert`, 50 units).

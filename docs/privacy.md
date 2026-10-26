@@ -95,9 +95,11 @@ grant the extra permission ("manage your YouTube account") in your browser:
   (`playlistItems.delete`). Nothing else in the playlist is touched.
 - **Create new playlist…** — creates one **private** playlist with the name
   you typed (default "NOIR Likes", `playlists.insert`).
+- **Liked music** — if you choose it as the heart's target, or tick it in
+  "Add to playlist…", NOIR likes the video on YouTube (`videos.rate`).
+  Removing a song from Liked music clears that rating. NOIR never dislikes.
 
-NOIR never likes, dislikes or rates videos (`videos.rate` is never called),
-never deletes playlists and never writes anything in the background. On this
+NOIR never deletes playlists and never writes anything in the background. On this
 device it remembers which playlist you chose (deleted when you disconnect).
 You can withdraw the permission at https://myaccount.google.com/permissions
 or by disconnecting in Settings.

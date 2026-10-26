@@ -55,7 +55,8 @@ tracks played through NOIR's own audio player.
 
 Connect a Google account and NOIR syncs your YouTube playlists and liked
 music both ways. Adding a song to a playlist or removing it in NOIR changes
-the playlist on YouTube, and the heart saves to a playlist you choose.
+the playlist on YouTube. The heart saves to a playlist you choose, or to
+Liked music, which likes the song on YouTube.
 
 The rest:
 

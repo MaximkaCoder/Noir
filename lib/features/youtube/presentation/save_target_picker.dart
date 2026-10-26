@@ -26,8 +26,10 @@ Future<SaveTarget?> pickSaveTarget(BuildContext context, WidgetRef ref) async {
   if (choice == null || !context.mounted) return null;
 
   final picked = choice.playlist;
-  if (picked != null) {
-    final target = SaveTarget(picked.id, picked.title);
+  if (choice.liked || picked != null) {
+    final target = picked == null
+        ? const SaveTarget(likedVideosId, 'Liked music')
+        : SaveTarget(picked.id, picked.title);
     ref.read(saveTargetProvider.notifier).set(target);
     return await ensureWriteAccess(context, ref) ? target : null;
   }
@@ -63,11 +65,13 @@ Future<SaveTarget?> pickSaveTarget(BuildContext context, WidgetRef ref) async {
   }
 }
 
-/// Either an existing playlist or "create new".
+/// Liked music, an existing playlist, or "create new".
 class _Choice {
-  const _Choice(this.playlist);
+  const _Choice(this.playlist) : liked = false;
+  const _Choice.liked() : playlist = null, liked = true;
 
   final YouTubePlaylist? playlist;
+  final bool liked;
 }
 
 class _PickerBody extends ConsumerWidget {
@@ -129,34 +133,35 @@ class _PickerBody extends ConsumerWidget {
         const SizedBox(height: NoirSpacing.sm),
         Text(
           'The heart on a YouTube song adds it to this playlist on your '
-          'YouTube account. Nothing is liked or rated.',
+          'YouTube account. With Liked music it likes the song on YouTube.',
           style: t.bodySmall,
         ),
         const SizedBox(height: NoirSpacing.lg),
-        if (playlists.isEmpty)
-          Padding(
-            padding: const EdgeInsets.all(NoirSpacing.sm),
-            child: Text('No playlists synced yet.', style: t.bodySmall),
-          )
-        else
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxHeight: 280),
-            child: ListView(
-              shrinkWrap: true,
-              children: [
-                for (final p in playlists)
-                  row(
-                    icon: Icons.queue_music_rounded,
-                    title: p.title,
-                    subtitle: p.trackCount == 1
-                        ? '1 song'
-                        : '${p.trackCount} songs',
-                    selected: p.id == current,
-                    onTap: () => Navigator.of(context).pop(_Choice(p)),
-                  ),
-              ],
-            ),
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxHeight: 280),
+          child: ListView(
+            shrinkWrap: true,
+            children: [
+              row(
+                icon: Icons.favorite_rounded,
+                title: 'Liked music',
+                subtitle: 'Likes the song on YouTube',
+                selected: current == likedVideosId,
+                onTap: () => Navigator.of(context).pop(const _Choice.liked()),
+              ),
+              for (final p in playlists)
+                row(
+                  icon: Icons.queue_music_rounded,
+                  title: p.title,
+                  subtitle: p.trackCount == 1
+                      ? '1 song'
+                      : '${p.trackCount} songs',
+                  selected: p.id == current,
+                  onTap: () => Navigator.of(context).pop(_Choice(p)),
+                ),
+            ],
           ),
+        ),
         row(
           icon: Icons.add_rounded,
           title: 'Create new playlist…',

@@ -121,8 +121,9 @@ Future<bool> askForWriteAccess(BuildContext context, WidgetRef ref) async {
         'Hearting a YouTube song adds it to a playlist you choose on your '
         'YouTube account. For that, Google asks you once to let NOIR manage '
         'your YouTube account. NOIR only adds and removes songs in that '
-        'playlist (and creates it if you ask) — it never likes, rates or '
-        'deletes anything else. Your browser opens next.',
+        'playlist (and creates it if you ask), or likes and unlikes songs '
+        'when you use Liked music. It never deletes anything else. Your '
+        'browser opens next.',
     confirmLabel: 'Continue',
   );
   if (!ok || !context.mounted) return false;

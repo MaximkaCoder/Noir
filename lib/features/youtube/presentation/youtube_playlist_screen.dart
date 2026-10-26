@@ -19,6 +19,7 @@ import 'package:noir/features/youtube/presentation/save_button.dart';
 import 'package:noir/shared/models/media.dart';
 import 'package:noir/shared/widgets/collection_header.dart';
 import 'package:noir/shared/widgets/page_scaffold.dart';
+import 'package:noir/shared/widgets/track_filter.dart';
 import 'package:noir/shared/widgets/track_row.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -90,20 +91,28 @@ class _YouTubePlaylistScreenState extends ConsumerState<YouTubePlaylistScreen> {
       openUrl: youTubeMusicUrl(playlistId: id),
       emptyMessage:
           'Nothing playable here yet. Deleted and private videos are skipped.',
-      onRemove: (track) => unawaited(_remove(track)),
+      onRemove: (track) =>
+          unawaited(removeFromYouTube(context, ref, widget.id, track)),
     );
   }
+}
 
-  Future<void> _remove(Track track) async {
-    final ctrl = ref.read(youTubeSaveProvider.notifier);
-    var outcome = await ctrl.removeFrom(widget.id, track);
-    if (outcome.result == SaveResult.needsPermission && mounted) {
-      if (!await askForWriteAccess(context, ref) || !mounted) return;
-      outcome = await ctrl.removeFrom(widget.id, track);
-    }
-    if (outcome.result == SaveResult.failed && mounted) {
-      showToast(context, outcome.message!);
-    }
+/// Removes [track] from [playlistId] on YouTube (unlikes it for
+/// [likedVideosId]), asking for the permission first when needed.
+Future<void> removeFromYouTube(
+  BuildContext context,
+  WidgetRef ref,
+  String playlistId,
+  Track track,
+) async {
+  final ctrl = ref.read(youTubeSaveProvider.notifier);
+  var outcome = await ctrl.removeFrom(playlistId, track);
+  if (outcome.result == SaveResult.needsPermission && context.mounted) {
+    if (!await askForWriteAccess(context, ref) || !context.mounted) return;
+    outcome = await ctrl.removeFrom(playlistId, track);
+  }
+  if (outcome.result == SaveResult.failed && context.mounted) {
+    showToast(context, outcome.message!);
   }
 }
 
@@ -157,11 +166,13 @@ class _YouTubeLikesScreenState extends ConsumerState<YouTubeLikesScreen> {
           ? 'No music among your liked videos yet. "All likes" shows '
                 'everything you liked on YouTube.'
           : 'Videos you like on YouTube appear here after a sync.',
+      onRemove: (track) =>
+          unawaited(removeFromYouTube(context, ref, likedVideosId, track)),
     );
   }
 }
 
-class _YouTubeTrackList extends ConsumerWidget {
+class _YouTubeTrackList extends ConsumerStatefulWidget {
   const _YouTubeTrackList({
     required this.tracks,
     required this.title,
@@ -193,7 +204,26 @@ class _YouTubeTrackList extends ConsumerWidget {
   final void Function(Track track)? onRemove;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_YouTubeTrackList> createState() => _YouTubeTrackListState();
+}
+
+class _YouTubeTrackListState extends ConsumerState<_YouTubeTrackList> {
+  String _query = '';
+
+  @override
+  Widget build(BuildContext context) {
+    final _YouTubeTrackList(
+      :tracks,
+      :title,
+      :artwork,
+      :eyebrow,
+      :refreshKey,
+      :pin,
+      :openUrl,
+      :emptyMessage,
+      :filters,
+      :onRemove,
+    ) = widget;
     final playback = ref.read(playbackProvider.notifier);
     final syncing =
         ref.watch(
@@ -215,6 +245,7 @@ class _YouTubeTrackList extends ConsumerWidget {
           ? const ErrorState(message: "These songs couldn't be loaded.")
           : const Padding(padding: EdgeInsets.all(40), child: LoadingState());
     }
+    final shown = matchingTracks(list, _query);
     final total = list.fold(
       Duration.zero,
       (sum, t) => sum + (t.duration ?? Duration.zero),
@@ -247,11 +278,21 @@ class _YouTubeTrackList extends ConsumerWidget {
             ],
           ),
         ),
-        if (filters.isNotEmpty)
+        if (filters.isNotEmpty || list.isNotEmpty)
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.only(bottom: NoirSpacing.md),
-              child: Wrap(spacing: NoirSpacing.xs, children: filters),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Wrap(spacing: NoirSpacing.xs, children: filters),
+                  ),
+                  if (list.isNotEmpty)
+                    TrackFilterField(
+                      onChanged: (q) => setState(() => _query = q),
+                    ),
+                ],
+              ),
             ),
           ),
         if (list.isEmpty)
@@ -262,15 +303,32 @@ class _YouTubeTrackList extends ConsumerWidget {
               compact: true,
             ),
           ),
-        SliverList.builder(
-          itemCount: list.length,
-          itemBuilder: (context, i) => TrackRow(
-            key: ValueKey('${list[i].id}#$i'),
-            track: list[i],
-            number: i + 1,
-            onPlay: () => unawaited(playback.playTracks(list, startIndex: i)),
-            onRemove: onRemove == null ? null : () => onRemove!(list[i]),
+        if (list.isNotEmpty && shown.isEmpty)
+          const SliverToBoxAdapter(
+            child: EmptyState(
+              title: 'Nothing found',
+              message: 'No song in this list matches your search.',
+              compact: true,
+            ),
           ),
+        SliverList.builder(
+          itemCount: shown.length,
+          itemBuilder: (context, n) {
+            final i = shown[n];
+            return TrackRow(
+              key: ValueKey('${list[i].id}#$i'),
+              track: list[i],
+              number: i + 1,
+              onPlay: () => unawaited(
+                _query.isEmpty
+                    ? playback.playTracks(list, startIndex: i)
+                    : playback.playTracks([
+                        for (final j in shown) list[j],
+                      ], startIndex: n),
+              ),
+              onRemove: onRemove == null ? null : () => onRemove(list[i]),
+            );
+          },
         ),
       ],
     );

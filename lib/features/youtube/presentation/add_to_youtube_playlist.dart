@@ -66,6 +66,9 @@ class _Body extends ConsumerWidget {
         ref.watch(youTubePlaylistsWithVideoProvider(track.uri)).value ??
         const <String>{};
     final busy = ref.watch(youTubeSaveProvider.select((s) => s.inFlight));
+    final liked =
+        ref.watch(youTubeLikedVideoIdsProvider).value?.contains(track.uri) ??
+        false;
 
     Future<void> toggle(String playlistId, {required bool contains}) async {
       final ctrl = ref.read(youTubeSaveProvider.notifier);
@@ -115,6 +118,32 @@ class _Body extends ConsumerWidget {
       ),
     );
 
+    Widget entry({
+      required String id,
+      required String title,
+      required String subtitle,
+      required bool contains,
+    }) {
+      final working = busy.contains('$id/${track.uri}');
+      return row(
+        leading: working
+            ? const SizedBox.square(
+                dimension: 16,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : Icon(
+                contains
+                    ? Icons.check_box_rounded
+                    : Icons.check_box_outline_blank_rounded,
+                size: 20,
+                color: contains ? c.textPrimary : c.textSecondary,
+              ),
+        title: title,
+        subtitle: subtitle,
+        onTap: working ? null : () => unawaited(toggle(id, contains: contains)),
+      );
+    }
+
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -126,52 +155,29 @@ class _Body extends ConsumerWidget {
           style: t.bodySmall,
         ),
         const SizedBox(height: NoirSpacing.lg),
-        if (playlists.isEmpty)
-          Padding(
-            padding: const EdgeInsets.all(NoirSpacing.sm),
-            child: Text('No playlists synced yet.', style: t.bodySmall),
-          )
-        else
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxHeight: 320),
-            child: ListView(
-              shrinkWrap: true,
-              children: [
-                for (final p in playlists)
-                  Builder(
-                    builder: (context) {
-                      final contains = containing.contains(p.id);
-                      final working = busy.contains('${p.id}/${track.uri}');
-                      return row(
-                        leading: working
-                            ? const SizedBox.square(
-                                dimension: 16,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              )
-                            : Icon(
-                                contains
-                                    ? Icons.check_box_rounded
-                                    : Icons.check_box_outline_blank_rounded,
-                                size: 20,
-                                color: contains
-                                    ? c.textPrimary
-                                    : c.textSecondary,
-                              ),
-                        title: p.title,
-                        subtitle: p.trackCount == 1
-                            ? '1 song'
-                            : '${p.trackCount} songs',
-                        onTap: working
-                            ? null
-                            : () => unawaited(toggle(p.id, contains: contains)),
-                      );
-                    },
-                  ),
-              ],
-            ),
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxHeight: 320),
+          child: ListView(
+            shrinkWrap: true,
+            children: [
+              entry(
+                id: likedVideosId,
+                title: 'Liked music',
+                subtitle: 'Likes the song on YouTube',
+                contains: liked,
+              ),
+              for (final p in playlists)
+                entry(
+                  id: p.id,
+                  title: p.title,
+                  subtitle: p.trackCount == 1
+                      ? '1 song'
+                      : '${p.trackCount} songs',
+                  contains: containing.contains(p.id),
+                ),
+            ],
           ),
+        ),
         row(
           leading: Icon(Icons.add_rounded, size: 20, color: c.textSecondary),
           title: 'New playlist…',

@@ -236,6 +236,51 @@ class YouTubeRepository {
           .watch()
           .map((rows) => {for (final r in rows) r.playlistId});
 
+  /// Liked video ids, updated as the cache changes.
+  Stream<Set<String>> watchLikedVideoIds() => _db
+      .select(_db.ytLikes)
+      .watch()
+      .map((rows) => {for (final r in rows) r.videoId});
+
+  Future<bool> isLiked(String videoId) async =>
+      await (_db.select(
+        _db.ytLikes,
+      )..where((l) => l.videoId.equals(videoId))).getSingleOrNull() !=
+      null;
+
+  /// Puts a video NOIR just liked on YouTube first in the likes.
+  Future<void> addLike(Track track) => _db.transaction(() async {
+    final min = _db.ytLikes.position.min();
+    final first = await (_db.selectOnly(
+      _db.ytLikes,
+    )..addColumns([min])).map((r) => r.read(min)).getSingle();
+    await _cacheVideo(track);
+    await _db
+        .into(_db.ytLikes)
+        .insert(
+          YtLikesCompanion.insert(
+            videoId: track.uri,
+            position: (first ?? 1) - 1,
+          ),
+          mode: InsertMode.insertOrReplace,
+        );
+  });
+
+  /// Drops [videoId] from the likes and returns its row (for [restoreLike]
+  /// if YouTube refuses), or null when it was not there.
+  Future<YtLike?> removeLike(String videoId) => _db.transaction(() async {
+    final row = await (_db.select(
+      _db.ytLikes,
+    )..where((l) => l.videoId.equals(videoId))).getSingleOrNull();
+    await (_db.delete(
+      _db.ytLikes,
+    )..where((l) => l.videoId.equals(videoId))).go();
+    return row;
+  });
+
+  Future<void> restoreLike(YtLike row) =>
+      _db.into(_db.ytLikes).insert(row, mode: InsertMode.insertOrIgnore);
+
   Future<bool> playlistContains(String playlistId, String videoId) async =>
       (await _itemsOf(playlistId, videoId).get()).isNotEmpty;
 
@@ -259,18 +304,7 @@ class YouTubeRepository {
                   ..where(_db.ytPlaylistItems.playlistId.equals(playlistId)))
                 .map((r) => r.read(max))
                 .getSingle();
-        await _db
-            .into(_db.ytVideos)
-            .insert(
-              YtVideosCompanion.insert(
-                id: track.uri,
-                title: track.title,
-                channelTitle: track.artist ?? '',
-                durationMs: Value(track.duration?.inMilliseconds),
-                syncedAt: DateTime.now(),
-              ),
-              mode: InsertMode.insertOrIgnore,
-            );
+        await _cacheVideo(track);
         await _db
             .into(_db.ytPlaylistItems)
             .insert(
@@ -282,6 +316,20 @@ class YouTubeRepository {
               ),
             );
       });
+
+  /// Caches [track]'s video unless known (the next sync completes it).
+  Future<void> _cacheVideo(Track track) => _db
+      .into(_db.ytVideos)
+      .insert(
+        YtVideosCompanion.insert(
+          id: track.uri,
+          title: track.title,
+          channelTitle: track.artist ?? '',
+          durationMs: Value(track.duration?.inMilliseconds),
+          syncedAt: DateTime.now(),
+        ),
+        mode: InsertMode.insertOrIgnore,
+      );
 
   /// Cached items of [playlistId] in order.
   Future<List<YtPlaylistEntry>> playlistEntries(String playlistId) async {
@@ -369,19 +417,23 @@ class YouTubeRepository {
     });
   }
 
-  Future<void> saveLikes(List<YtVideo> videos) => _db.transaction(() async {
-    await saveVideos(videos);
-    await _db.delete(_db.ytLikes).go();
-    await _db.batch((b) {
-      for (final (index, v) in videos.indexed) {
-        b.insert(
-          _db.ytLikes,
-          YtLikesCompanion.insert(videoId: v.id, position: index),
-          mode: InsertMode.insertOrReplace,
-        );
-      }
-    });
-  });
+  /// Caches [videos] and makes [order] (default: their ids) the likes.
+  /// [order] may name videos already cached.
+  Future<void> saveLikes(List<YtVideo> videos, [List<String>? order]) =>
+      _db.transaction(() async {
+        await saveVideos(videos);
+        await _db.delete(_db.ytLikes).go();
+        await _db.batch((b) {
+          for (final (index, id)
+              in (order ?? [for (final v in videos) v.id]).indexed) {
+            b.insert(
+              _db.ytLikes,
+              YtLikesCompanion.insert(videoId: id, position: index),
+              mode: InsertMode.insertOrReplace,
+            );
+          }
+        });
+      });
 
   /// Ids from [ids] that need details: unknown, older than [refreshAge], or
   /// cached before categories were stored (backfill; 1 unit per 50 videos).
