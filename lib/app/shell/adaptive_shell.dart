@@ -301,7 +301,12 @@ class TopBar extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final onSearch = shell.currentIndex == Branch.search.index;
+    final path = GoRouterState.of(context).uri.path;
+    // Playlist pages search their own songs; a second field would compete.
+    final hideSearch =
+        shell.currentIndex == Branch.search.index ||
+        path.startsWith('/library/playlist/') ||
+        path.startsWith('/library/youtube/');
     final c = context.noir;
     final t = Theme.of(context).textTheme;
     return WindowDragArea(
@@ -313,7 +318,7 @@ class TopBar extends ConsumerWidget {
             children: [
               const HistoryButtons(),
               const Spacer(),
-              if (!onSearch)
+              if (!hideSearch)
                 Semantics(
                   button: true,
                   label: 'Search (Ctrl+K)',

@@ -5,12 +5,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:noir/app/shell/navigation.dart';
+import 'package:noir/app/shell/sidebar_hidden.dart';
 import 'package:noir/app/theme/design_tokens.dart';
 import 'package:noir/app/theme/glass_theme.dart';
 import 'package:noir/core/platform/window_controls.dart';
 import 'package:noir/core/widgets/artwork.dart';
 import 'package:noir/core/widgets/buttons.dart';
+import 'package:noir/core/widgets/dialogs.dart';
 import 'package:noir/core/widgets/glass_surface.dart';
+import 'package:noir/core/widgets/menus.dart';
 import 'package:noir/core/widgets/smooth_scroll.dart';
 import 'package:noir/features/playlists/application/playlist_providers.dart';
 import 'package:noir/features/playlists/presentation/add_to_playlist.dart';
@@ -179,20 +182,49 @@ class _Collections extends ConsumerWidget {
     final playlists = ref.watch(playlistsProvider).value ?? const [];
     final ytPlaylists = ref.watch(youTubePlaylistsProvider).value ?? const [];
     final likes = ref.watch(youTubeLikesProvider).value ?? const [];
+    final hidden = ref.watch(sidebarHiddenProvider);
 
     Widget item({
       required String label,
       required Widget cover,
       required String route,
-    }) => _NavItem(
-      key: ValueKey(route),
-      label: label,
-      leading: cover,
-      labelOpacity: labels,
-      tooltip: rail,
-      selected: location == route,
-      onTap: () => context.go(route),
-    );
+    }) {
+      if (hidden.contains(route)) return const SizedBox.shrink();
+      return _NavItem(
+        key: ValueKey(route),
+        label: label,
+        leading: cover,
+        labelOpacity: labels,
+        tooltip: rail,
+        selected: location == route,
+        onTap: () => context.go(route),
+        onContextMenu: (position) async {
+          final action = await showNoirMenu<String>(
+            context,
+            anchor: position & Size.zero,
+            items: const [
+              NoirMenuItem(
+                'hide',
+                'Hide from sidebar',
+                icon: Icons.visibility_off_outlined,
+              ),
+            ],
+          );
+          if (action == 'hide') {
+            ref
+                .read(sidebarHiddenProvider.notifier)
+                .setHidden(route, hidden: true);
+            if (context.mounted) {
+              showToast(
+                context,
+                '"$label" is still in Library. Settings → Library brings it '
+                'back.',
+              );
+            }
+          }
+        },
+      );
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -330,6 +362,7 @@ class _NavItem extends StatelessWidget {
     this.leading,
     this.labelOpacity = 1,
     this.tooltip = false,
+    this.onContextMenu,
     super.key,
   }) : assert((icon == null) != (leading == null), 'An icon or a cover');
 
@@ -344,6 +377,9 @@ class _NavItem extends StatelessWidget {
 
   /// Shows the label as a tooltip (icon-only rail).
   final bool tooltip;
+
+  /// Right click or long press, at the pointer's global position.
+  final ValueChanged<Offset>? onContextMenu;
 
   @override
   Widget build(BuildContext context) {
@@ -361,6 +397,17 @@ class _NavItem extends StatelessWidget {
           button: true,
           child: InkWell(
             onTap: onTap,
+            onSecondaryTapUp: onContextMenu == null
+                ? null
+                : (d) => onContextMenu!(d.globalPosition),
+            onLongPress: onContextMenu == null
+                ? null
+                : () {
+                    final box = context.findRenderObject()! as RenderBox;
+                    onContextMenu!(
+                      box.localToGlobal(box.size.center(Offset.zero)),
+                    );
+                  },
             borderRadius: NoirRadii.mdAll,
             hoverColor: c.hover,
             hoverDuration: fx.motion(NoirMotion.fast),

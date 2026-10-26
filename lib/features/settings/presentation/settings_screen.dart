@@ -5,6 +5,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:noir/app/shell/sidebar_hidden.dart';
 import 'package:noir/app/theme/design_tokens.dart';
 import 'package:noir/app/theme/glass_theme.dart';
 import 'package:noir/core/widgets/buttons.dart';
@@ -13,16 +14,19 @@ import 'package:noir/core/widgets/glass_surface.dart';
 import 'package:noir/core/widgets/liquid_press.dart';
 import 'package:noir/core/widgets/reveal.dart';
 import 'package:noir/features/accounts/presentation/account_card.dart';
+import 'package:noir/features/discover/application/dislikes.dart';
 import 'package:noir/features/discover/application/for_you.dart';
 import 'package:noir/features/home/data/history_repository.dart';
 import 'package:noir/features/library/application/library_providers.dart';
 import 'package:noir/features/library/application/library_scan_controller.dart';
 import 'package:noir/features/playback/application/transition_status.dart';
+import 'package:noir/features/playlists/application/playlist_providers.dart';
 import 'package:noir/features/search/data/search_history_repository.dart';
 import 'package:noir/features/settings/application/maintenance.dart';
 import 'package:noir/features/settings/domain/app_settings.dart';
 import 'package:noir/features/settings/presentation/privacy_notice.dart';
 import 'package:noir/features/settings/presentation/settings_controller.dart';
+import 'package:noir/features/youtube/application/youtube_providers.dart';
 import 'package:noir/shared/widgets/page_scaffold.dart';
 
 /// Extra settings sections contributed by optional modules, shown after
@@ -184,6 +188,10 @@ class SettingsScreen extends ConsumerWidget {
                 const AccountConnectionCard(),
                 const _Section('Library'),
                 const _LibrarySettings(),
+                const _Section('Recommendations'),
+                const _RecommendationSettings(),
+                const _Section('Storage'),
+                const _StorageSettings(),
                 const _Section('About'),
                 const _About(),
               ],
@@ -488,148 +496,338 @@ class _LibrarySettings extends ConsumerWidget {
     final folders = ref.watch(libraryFoldersProvider).value ?? const [];
     final scan = ref.watch(libraryScanProvider);
     final ctrl = ref.read(libraryScanProvider.notifier);
-    final cache = ref.watch(artworkCacheSizeProvider);
+    final hidden = ref.watch(sidebarHiddenProvider).length;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (LibraryScanController.supportsFolders) ...[
-          Text('Music folders', style: t.bodyMedium),
-          const SizedBox(height: NoirSpacing.xs),
-          if (folders.isEmpty)
-            Text('No folders yet.', style: t.bodySmall)
-          else
-            for (final f in folders)
-              Row(
-                children: [
-                  const Icon(Icons.folder_outlined, size: 18),
-                  const SizedBox(width: NoirSpacing.sm),
-                  Expanded(
-                    child: Text(
-                      f.path,
-                      style: t.bodySmall,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  NoirIconButton(
-                    icon: Icons.close_rounded,
-                    tooltip: 'Remove folder from library',
-                    size: 16,
-                    onPressed: () async {
-                      final ok = await confirm(
-                        context,
-                        title: 'Remove folder?',
-                        message:
-                            'Its songs leave your NOIR library. The files on '
-                            'disk are not deleted.',
-                        confirmLabel: 'Remove',
-                      );
-                      if (ok) await ctrl.removeFolder(f.path);
-                    },
-                  ),
-                ],
-              ),
-          const SizedBox(height: NoirSpacing.md),
-        ],
-        Wrap(
-          spacing: NoirSpacing.sm,
-          runSpacing: NoirSpacing.sm,
-          children: [
-            if (LibraryScanController.supportsFolders)
+        _ActionTile(
+          icon: Icons.folder_outlined,
+          title: 'Your music',
+          subtitle: switch (folders.length) {
+            _ when !LibraryScanController.supportsFolders =>
+              'Add audio files from this device.',
+            0 => 'Add a folder and NOIR keeps it in sync.',
+            1 => '1 folder',
+            final n => '$n folders',
+          },
+          trailing: Wrap(
+            spacing: NoirSpacing.sm,
+            children: [
+              if (LibraryScanController.supportsFolders)
+                PillButton(
+                  label: 'Add folder',
+                  icon: Icons.create_new_folder_outlined,
+                  onPressed: scan is Scanning
+                      ? null
+                      : () => unawaited(ctrl.addFolder()),
+                ),
               PillButton(
-                label: 'Add folder',
-                icon: Icons.create_new_folder_outlined,
+                label: 'Add files',
+                icon: Icons.library_add_outlined,
                 onPressed: scan is Scanning
                     ? null
-                    : () => unawaited(ctrl.addFolder()),
+                    : () => unawaited(ctrl.importFiles()),
               ),
-            PillButton(
-              label: 'Add files',
-              icon: Icons.library_add_outlined,
+            ],
+          ),
+        ),
+        for (final f in folders)
+          Padding(
+            // Lines up with the tile's title.
+            padding: const EdgeInsets.only(left: 52),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    f.path,
+                    style: t.bodySmall,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                NoirIconButton(
+                  icon: Icons.close_rounded,
+                  tooltip: 'Remove folder from library',
+                  size: 16,
+                  onPressed: () async {
+                    final ok = await confirm(
+                      context,
+                      title: 'Remove folder?',
+                      message:
+                          'Its songs leave your library. The files stay on '
+                          'disk.',
+                      confirmLabel: 'Remove',
+                    );
+                    if (ok) await ctrl.removeFolder(f.path);
+                  },
+                ),
+              ],
+            ),
+          ),
+        if (folders.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(left: 52, top: NoirSpacing.xs),
+            child: PillButton(
+              label: scan is Scanning ? 'Scanning…' : 'Rescan',
+              icon: Icons.refresh_rounded,
               onPressed: scan is Scanning
                   ? null
-                  : () => unawaited(ctrl.importFiles()),
+                  : () => unawaited(ctrl.rescanAll()),
             ),
-            if (folders.isNotEmpty)
-              PillButton(
-                label: scan is Scanning ? 'Scanning…' : 'Rescan',
-                icon: Icons.refresh_rounded,
-                onPressed: scan is Scanning
-                    ? null
-                    : () => unawaited(ctrl.rescanAll()),
+          ),
+        _ActionTile(
+          icon: Icons.visibility_off_outlined,
+          title: 'Sidebar',
+          subtitle: hidden == 0
+              ? 'All your playlists are shown. Right-click one to hide it.'
+              : '$hidden hidden from the sidebar, still in Library.',
+          trailing: PillButton(
+            label: 'Choose',
+            onPressed: () => unawaited(
+              showGlassDialog<void>(
+                context,
+                builder: (_) => const _SidebarDialog(),
               ),
-          ],
-        ),
-        const SizedBox(height: NoirSpacing.lg),
-        _ActionRow(
-          title: 'Artwork cache',
-          detail: switch (cache) {
-            AsyncData(:final value) => formatBytes(value),
-            _ => '…',
-          },
-          icon: Icons.hide_image_outlined,
-          onPressed: () async {
-            final ok = await confirm(
-              context,
-              title: 'Clear artwork cache?',
-              message:
-                  'Covers are extracted again from your music folders. This '
-                  'can take a while for large libraries.',
-              confirmLabel: 'Clear',
-            );
-            if (ok) await clearArtworkCache(ref);
-          },
-        ),
-        _ActionRow(
-          title: 'Search history',
-          detail: 'Stored on this device',
-          icon: Icons.manage_search_rounded,
-          onPressed: () async {
-            await ref.read(searchHistoryRepositoryProvider).clear();
-            if (context.mounted) showToast(context, 'Search history cleared');
-          },
-        ),
-        _ActionRow(
-          title: 'Listening history',
-          detail: 'Used for Recently played and For you',
-          icon: Icons.history_rounded,
-          onPressed: () async {
-            final ok = await confirm(
-              context,
-              title: 'Clear listening history?',
-              message:
-                  'Recently played will be empty until you play again, and '
-                  'For you will rely on your likes and playlists only.',
-              confirmLabel: 'Clear',
-              destructive: true,
-            );
-            if (!ok) return;
-            await ref.read(historyRepositoryProvider).clear();
-            await ref.read(youTubePlayLogProvider).clear();
-          },
+            ),
+          ),
         ),
       ],
     );
   }
 }
 
-class _ActionRow extends StatelessWidget {
-  const _ActionRow({
-    required this.title,
-    required this.detail,
+/// Recommendations: what the user said no to, and the listening history
+/// they are built from.
+class _RecommendationSettings extends ConsumerWidget {
+  const _RecommendationSettings();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final dislikes = ref.watch(dislikesProvider);
+    final songs = dislikes.songs.length;
+    final artists = dislikes.artists.length;
+    return Column(
+      children: [
+        _ActionTile(
+          icon: Icons.thumb_down_alt_outlined,
+          title: 'Not interested',
+          subtitle: dislikes.isEmpty
+              ? 'Songs and artists you hide from For you, Home and radio.'
+              : [
+                  if (songs == 1) '1 song' else if (songs > 1) '$songs songs',
+                  if (artists == 1)
+                    '1 artist'
+                  else if (artists > 1)
+                    '$artists artists',
+                ].join(' · '),
+          trailing: PillButton(
+            label: 'Manage',
+            onPressed: dislikes.isEmpty
+                ? null
+                : () => unawaited(
+                    showGlassDialog<void>(
+                      context,
+                      builder: (_) => const _DislikesDialog(),
+                    ),
+                  ),
+          ),
+        ),
+        _ActionTile(
+          icon: Icons.history_rounded,
+          title: 'Listening history',
+          subtitle: 'Used for Recently played, Listen again and For you.',
+          trailing: PillButton(
+            label: 'Clear',
+            onPressed: () async {
+              final ok = await confirm(
+                context,
+                title: 'Clear listening history?',
+                message:
+                    'Recently played will be empty until you play again, and '
+                    'For you will rely on your likes and playlists only.',
+                confirmLabel: 'Clear',
+                destructive: true,
+              );
+              if (!ok) return;
+              await ref.read(historyRepositoryProvider).clear();
+              await ref.read(youTubePlayLogProvider).clear();
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Space NOIR uses on this device, and what it remembers.
+class _StorageSettings extends ConsumerWidget {
+  const _StorageSettings();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final cache = ref.watch(artworkCacheSizeProvider);
+    return Column(
+      children: [
+        _ActionTile(
+          icon: Icons.storage_rounded,
+          title: 'Artwork cache',
+          subtitle: switch (cache) {
+            AsyncData(:final value) => '${formatBytes(value)} of covers',
+            _ => '…',
+          },
+          trailing: PillButton(
+            label: 'Clear',
+            onPressed: () async {
+              final ok = await confirm(
+                context,
+                title: 'Clear artwork cache?',
+                message:
+                    'Covers are extracted again from your music folders. This '
+                    'can take a while for large libraries.',
+                confirmLabel: 'Clear',
+              );
+              if (ok) await clearArtworkCache(ref);
+            },
+          ),
+        ),
+        _ActionTile(
+          icon: Icons.search_rounded,
+          title: 'Search history',
+          subtitle: 'Recent searches, kept on this device.',
+          trailing: PillButton(
+            label: 'Clear',
+            onPressed: () async {
+              await ref.read(searchHistoryRepositoryProvider).clear();
+              if (context.mounted) showToast(context, 'Search history cleared');
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// A setting with an action instead of a switch: same layout as the
+/// toggles, with [trailing] (usually a pill button) on the right.
+class _ActionTile extends StatelessWidget {
+  const _ActionTile({
     required this.icon,
-    required this.onPressed,
+    required this.title,
+    required this.subtitle,
+    required this.trailing,
   });
 
-  final String title;
-  final String detail;
   final IconData icon;
-  final Future<void> Function() onPressed;
+  final String title;
+  final String subtitle;
+  final Widget trailing;
 
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context).textTheme;
     return Padding(
+      padding: const EdgeInsets.symmetric(
+        vertical: NoirSpacing.sm,
+        horizontal: NoirSpacing.xs,
+      ),
+      child: Row(
+        children: [
+          _IconBadge(icon),
+          const SizedBox(width: NoirSpacing.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: t.bodyMedium),
+                const SizedBox(height: 2),
+                Text(subtitle, style: t.bodySmall),
+              ],
+            ),
+          ),
+          const SizedBox(width: NoirSpacing.md),
+          trailing,
+        ],
+      ),
+    );
+  }
+}
+
+/// Checkboxes for every collection the sidebar can show.
+class _SidebarDialog extends ConsumerWidget {
+  const _SidebarDialog();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final t = Theme.of(context).textTheme;
+    final c = context.noir;
+    final hidden = ref.watch(sidebarHiddenProvider);
+    final ctrl = ref.read(sidebarHiddenProvider.notifier);
+    final likes = ref.watch(youTubeLikesProvider).value ?? const [];
+    final playlists = ref.watch(playlistsProvider).value ?? const [];
+    final ytPlaylists = ref.watch(youTubePlaylistsProvider).value ?? const [];
+    final entries = <(String, String)>[
+      ('/library/favorites', 'Favorites'),
+      for (final p in playlists) ('/library/playlist/${p.id}', p.name),
+      if (likes.isNotEmpty)
+        ('/library/youtube/liked', ref.watch(youTubeLikesTitleProvider)),
+      for (final p in ytPlaylists) ('/library/youtube/${p.id}', p.title),
+    ];
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Show in sidebar', style: t.titleMedium),
+        const SizedBox(height: NoirSpacing.sm),
+        Text('Hidden playlists stay in Library.', style: t.bodySmall),
+        const SizedBox(height: NoirSpacing.md),
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxHeight: 360),
+          child: ListView(
+            shrinkWrap: true,
+            children: [
+              for (final (route, label) in entries)
+                CheckboxListTile(
+                  value: !hidden.contains(route),
+                  onChanged: (v) => ctrl.setHidden(route, hidden: v != true),
+                  title: Text(
+                    label,
+                    style: t.bodyMedium,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  controlAffinity: ListTileControlAffinity.leading,
+                ),
+            ],
+          ),
+        ),
+        const SizedBox(height: NoirSpacing.md),
+        Align(
+          alignment: Alignment.centerRight,
+          child: TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            style: TextButton.styleFrom(foregroundColor: c.textSecondary),
+            child: const Text('Done'),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// The songs and artists hidden from recommendations, each with a way back.
+class _DislikesDialog extends ConsumerWidget {
+  const _DislikesDialog();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final t = Theme.of(context).textTheme;
+    final c = context.noir;
+    final dislikes = ref.watch(dislikesProvider);
+    final ctrl = ref.read(dislikesProvider.notifier);
+
+    Widget row(String title, String? subtitle, VoidCallback onUndo) => Padding(
       padding: const EdgeInsets.symmetric(vertical: NoirSpacing.xs),
       child: Row(
         children: [
@@ -637,18 +835,63 @@ class _ActionRow extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title, style: t.bodyMedium),
-                Text(detail, style: t.bodySmall),
+                Text(
+                  title,
+                  style: t.bodyMedium,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                if (subtitle != null) Text(subtitle, style: t.bodySmall),
               ],
             ),
           ),
-          PillButton(
-            label: 'Clear',
-            icon: icon,
-            onPressed: () => unawaited(onPressed()),
+          TextButton(
+            onPressed: onUndo,
+            style: TextButton.styleFrom(foregroundColor: c.textPrimary),
+            child: const Text('Allow'),
           ),
         ],
       ),
+    );
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Not interested', style: t.titleMedium),
+        const SizedBox(height: NoirSpacing.sm),
+        Text(
+          "NOIR doesn't recommend these. Allowing a song also removes its "
+          'dislike on YouTube.',
+          style: t.bodySmall,
+        ),
+        const SizedBox(height: NoirSpacing.md),
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxHeight: 360),
+          child: ListView(
+            shrinkWrap: true,
+            children: [
+              for (final artist in dislikes.artists.values)
+                row(artist, 'Artist', () => ctrl.unblockArtist(artist)),
+              for (final song in dislikes.songs.values.toList().reversed)
+                row(
+                  song.title,
+                  song.artist,
+                  () => unawaited(ctrl.undoSong(song.videoId)),
+                ),
+            ],
+          ),
+        ),
+        const SizedBox(height: NoirSpacing.md),
+        Align(
+          alignment: Alignment.centerRight,
+          child: TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            style: TextButton.styleFrom(foregroundColor: c.textSecondary),
+            child: const Text('Done'),
+          ),
+        ),
+      ],
     );
   }
 }
