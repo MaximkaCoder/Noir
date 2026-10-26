@@ -1281,6 +1281,13 @@ void main() {
 
       final from = app.container.read(playbackProvider).current!.track;
       await app.container.read(playbackProvider.notifier).next();
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      // The incoming cover is never rebuilt from scratch: not when the melt
+      // starts, nor when it ends.
+      final incoming = tester.element(cover('Quiet Harbor'));
+      // Nor does the cover move while the details change underneath it.
+      final place = tester.getRect(hero);
       final status = app.container.read(transitionStatusProvider.notifier)
         ..set(
           TransitionStatus(
@@ -1305,7 +1312,11 @@ void main() {
         findsNWidgets(2),
       );
       expect(label, findsOneWidget);
-      expect(_inPlayer(find.text('Quiet Harbor')), findsOneWidget);
+      // The title shows under the label (the usual details stay laid out,
+      // unseen, below it).
+      expect(_inPlayer(find.text('Quiet Harbor')), findsWidgets);
+      expect(tester.element(cover('Quiet Harbor')), same(incoming));
+      expect(tester.getRect(hero), place);
 
       // Between the player's (rare) reports the melt keeps moving.
       double fading() => tester
@@ -1322,10 +1333,59 @@ void main() {
       await tester.pump(const Duration(milliseconds: 500));
       expect(fading(), lessThan(before));
 
+      // Jittery reports ten times a second never make it jump: frame to
+      // frame it moves about as much as at the blend's own pace.
+      var last = fading();
+      var worst = 0.0;
+      for (var i = 1; i <= 10; i++) {
+        status.set(
+          TransitionStatus(
+            plan: const TransitionPlan(
+              type: TransitionType.filterFade,
+              startInA: 100,
+              endInA: 110,
+              entryInB: 0,
+              reason: 'test',
+            ),
+            phase: TransitionPhase.mixing,
+            progress: 0.55 + i * 0.01 + (i.isEven ? 0.008 : -0.008),
+            from: from,
+          ),
+        );
+        for (var f = 0; f < 6; f++) {
+          await tester.pump(const Duration(milliseconds: 16));
+          final moved = (fading() - last).abs();
+          if (moved > worst) worst = moved;
+          last = fading();
+        }
+      }
+      expect(worst, lessThan(0.006));
+
+      // Blended (the player still eases its speed back): mixed in.
+      status.set(
+        TransitionStatus(
+          plan: const TransitionPlan(
+            type: TransitionType.filterFade,
+            startInA: 100,
+            endInA: 110,
+            entryInB: 0,
+            reason: 'test',
+          ),
+          phase: TransitionPhase.mixing,
+          progress: 1,
+          from: from,
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(cover('Ash & Ember'), findsNothing);
+      expect(label, findsNothing);
+
       status.set(null);
       await tester.pumpAndSettle();
       expect(cover('Ash & Ember'), findsNothing);
       expect(cover('Quiet Harbor'), findsOneWidget);
+      expect(tester.element(cover('Quiet Harbor')), same(incoming));
+      expect(tester.getRect(hero), place);
       expect(label, findsNothing);
     });
 

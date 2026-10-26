@@ -30,6 +30,8 @@ import 'package:noir/features/library/application/library_scan_controller.dart';
 import 'package:noir/features/library/data/library_repository.dart';
 import 'package:noir/features/lyrics/application/lyrics_providers.dart';
 import 'package:noir/features/playback/application/playback_controller.dart';
+import 'package:noir/features/playback/application/transition_status.dart';
+import 'package:noir/features/playback/domain/transition_plan.dart';
 import 'package:noir/features/playback/presentation/now_playing_screen.dart';
 import 'package:noir/features/settings/domain/app_settings.dart';
 import 'package:noir/features/settings/presentation/settings_controller.dart';
@@ -342,6 +344,42 @@ void main() {
       await wait(800);
       container.read(lyricsVisibleProvider.notifier).set(visible: true);
     }
+
+    // A mix: the covers melt while the player reports progress ten times
+    // a second, as the mixer does.
+    await tester.tap(openButton);
+    await wait(1200);
+    final playback = container.read(playbackProvider.notifier);
+    final from = container.read(playbackProvider).current!.track;
+    await playback.next();
+    final status = container.read(transitionStatusProvider.notifier);
+    final melt = _Phase('mix melt');
+    phases.add(melt);
+    await traced('mix_melt', () async {
+      recording = melt;
+      for (var i = 0; i <= 60; i++) {
+        status.set(
+          TransitionStatus(
+            plan: const TransitionPlan(
+              type: TransitionType.filterFade,
+              startInA: 100,
+              endInA: 106,
+              entryInB: 0,
+              reason: 'perf',
+            ),
+            phase: TransitionPhase.mixing,
+            progress: i / 60,
+            from: from,
+          ),
+        );
+        await wait(100);
+      }
+      status.set(null);
+      await wait(900);
+      recording = null;
+    });
+    router.pop();
+    await wait(800);
 
     // The summarizer the integration_test report uses, over every phase.
     await binding.watchPerformance(

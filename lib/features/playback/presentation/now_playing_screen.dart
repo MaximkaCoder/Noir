@@ -1742,6 +1742,7 @@ class _TrackDetails extends ConsumerWidget {
         (s) =>
             s != null &&
             s.isMixing &&
+            s.progress < 1 &&
             s.plan.seconds >= 1 &&
             s.from != null &&
             s.from!.id != track.id,
@@ -1754,62 +1755,77 @@ class _TrackDetails extends ConsumerWidget {
       textAlign: textAlign,
       style: TextStyle.lerp(t.headlineSmall, t.displaySmall, large),
     );
+    final mixingDetails = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        line(
+          Text(
+            'MIXING INTO',
+            style: t.labelSmall?.copyWith(
+              color: c.textSecondary,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 1.6,
+            ),
+          ),
+        ),
+        const SizedBox(height: 6),
+        _TitleRow(
+          centered: centered,
+          children: [
+            title,
+            Row(mainAxisSize: MainAxisSize.min, children: buttons),
+          ],
+        ),
+      ],
+    );
+    final normalDetails = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _TitleRow(
+          centered: centered,
+          children: [
+            title,
+            Row(mainAxisSize: MainAxisSize.min, children: buttons),
+          ],
+        ),
+        const SizedBox(height: 6),
+        line(
+          _ArtistLine(
+            track: track,
+            textAlign: textAlign,
+            style: t.titleMedium?.copyWith(
+              color: c.textSecondary,
+              fontWeight: FontWeight.w400,
+            ),
+          ),
+        ),
+        line(
+          _AlbumLine(
+            track: track,
+            textAlign: textAlign,
+            style: t.bodyLarge?.copyWith(color: c.textTertiary),
+          ),
+        ),
+      ],
+    );
+    // While mixing, the usual details stay laid out (unseen) underneath,
+    // so the block keeps its height and the cover above never moves.
     final details = mixing
-        ? Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            mainAxisSize: MainAxisSize.min,
+        ? Stack(
+            alignment: Alignment.topCenter,
             children: [
-              line(
-                Text(
-                  'MIXING INTO',
-                  style: t.labelSmall?.copyWith(
-                    color: c.textSecondary,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: 1.6,
-                  ),
+              ExcludeSemantics(
+                child: Visibility.maintain(
+                  visible: false,
+                  child: normalDetails,
                 ),
               ),
-              const SizedBox(height: 6),
-              _TitleRow(
-                centered: centered,
-                children: [
-                  title,
-                  Row(mainAxisSize: MainAxisSize.min, children: buttons),
-                ],
-              ),
+              mixingDetails,
             ],
           )
-        : Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _TitleRow(
-                centered: centered,
-                children: [
-                  title,
-                  Row(mainAxisSize: MainAxisSize.min, children: buttons),
-                ],
-              ),
-              const SizedBox(height: 6),
-              line(
-                _ArtistLine(
-                  track: track,
-                  textAlign: textAlign,
-                  style: t.titleMedium?.copyWith(
-                    color: c.textSecondary,
-                    fontWeight: FontWeight.w400,
-                  ),
-                ),
-              ),
-              line(
-                _AlbumLine(
-                  track: track,
-                  textAlign: textAlign,
-                  style: t.bodyLarge?.copyWith(color: c.textTertiary),
-                ),
-              ),
-            ],
-          );
+        : normalDetails;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
@@ -2083,16 +2099,32 @@ class _CoverSwitcherState extends ConsumerState<_CoverSwitcher> {
     );
   }
 
-  Widget _cover(Track track) {
+  /// One key per cover on screen, so a cover moving between the switcher
+  /// and a melt keeps its state and image instead of loading again.
+  final _coverKeys = <String, GlobalKey>{};
+
+  /// The cover of [track]; [copy] is a second, unkeyed one (for a melt's
+  /// blurred layer) that screen readers skip.
+  Widget _cover(Track track, {bool copy = false}) {
     final size = widget.size;
-    return track.source == MediaSource.youtube
-        ? YouTubeCover(videoId: track.uri, size: size)
+    final key = copy ? null : _coverKeys[track.id] ??= GlobalKey();
+    final cover = track.source == MediaSource.youtube
+        ? YouTubeCover(
+            key: key,
+            videoId: track.uri,
+            size: size,
+            semanticLabel: copy ? null : 'Cover art',
+          )
         : Artwork(
+            key: key,
             path: track.artwork,
             size: size,
             radius: NoirRadii.xl,
-            semanticLabel: 'Artwork for ${track.album ?? track.title}',
+            semanticLabel: copy
+                ? null
+                : 'Artwork for ${track.album ?? track.title}',
           );
+    return copy ? ExcludeSemantics(child: cover) : cover;
   }
 
   @override
@@ -2103,6 +2135,7 @@ class _CoverSwitcherState extends ConsumerState<_CoverSwitcher> {
         (s) =>
             s != null &&
                 s.isMixing &&
+                s.progress < 1 &&
                 s.plan.seconds >= 1 &&
                 s.from != null &&
                 s.from!.id != incoming.id
@@ -2110,12 +2143,18 @@ class _CoverSwitcherState extends ConsumerState<_CoverSwitcher> {
             : null,
       ),
     );
-    if (mix != null && NoirEffects.of(context).animations) {
+    final melt = NoirEffects.of(context).animations ? mix : null;
+    _coverKeys.removeWhere(
+      (id, _) => id != _shown.id && id != incoming.id && id != melt?.from.id,
+    );
+    if (melt != null) {
       return _Melt(
-        from: _cover(mix.from),
+        from: _cover(melt.from),
         to: _cover(incoming),
-        progress: mix.progress,
-        seconds: mix.seconds,
+        fromBlurred: _cover(melt.from, copy: true),
+        toBlurred: _cover(incoming, copy: true),
+        progress: melt.progress,
+        seconds: melt.seconds,
       );
     }
     final track = _shown;
@@ -2143,22 +2182,31 @@ class _CoverSwitcherState extends ConsumerState<_CoverSwitcher> {
 /// A mix between two tracks on the cover: the outgoing one blurs, swells
 /// and fades away while the incoming one comes into focus, following the
 /// blend's [progress] (0–1). The player reports progress only a few times
-/// a second, so between reports it runs on at the blend's pace ([seconds]
-/// long), never backwards.
+/// a second and with some jitter, so the melt runs on at the blend's own
+/// pace ([seconds] long) and the reports only steer it gently, never
+/// backwards.
 class _Melt extends StatefulWidget {
   const _Melt({
     required this.from,
     required this.to,
+    required this.fromBlurred,
+    required this.toBlurred,
     required this.progress,
     required this.seconds,
   });
 
   final Widget from;
   final Widget to;
+
+  /// Second copies of the covers, for the blurred layers.
+  final Widget fromBlurred;
+  final Widget toBlurred;
   final double progress;
   final double seconds;
 
-  /// Blur at the far ends, as a Gaussian sigma.
+  /// The blur, as a Gaussian sigma. It never changes: a changing blur
+  /// steps visibly (the renderer rounds its kernel to whole pixels), so
+  /// the cover fades between itself and a blurred copy instead.
   static const sigma = 18.0;
 
   @override
@@ -2187,11 +2235,20 @@ class _MeltState extends State<_Melt> with SingleTickerProviderStateMixin {
     _reportedAt = _now;
   }
 
+  /// Seconds over which a gap between the melt and the reports closes.
+  static const _steer = 0.5;
+
   void _tick(Duration elapsed) {
+    final dt = (elapsed - _now).inMicroseconds / 1e6;
     _now = elapsed;
-    final ahead =
-        (elapsed - _reportedAt).inMicroseconds / 1e6 / max(widget.seconds, 1);
-    final next = max(_shown, min<double>(1, _reported + ahead));
+    final rate = 1 / max(widget.seconds, 1);
+    // Where the last report puts the blend by now.
+    final target = min<double>(
+      1,
+      _reported + (elapsed - _reportedAt).inMicroseconds / 1e6 * rate,
+    );
+    final step = dt * rate + (target - _shown) * min<double>(1, dt / _steer);
+    final next = min<double>(1, _shown + max<double>(0, step));
     if (next != _shown) setState(() => _shown = next);
     if (next >= 1) _ticker.stop();
   }
@@ -2202,25 +2259,37 @@ class _MeltState extends State<_Melt> with SingleTickerProviderStateMixin {
     super.dispose();
   }
 
+  /// A cover [focus] sharp (1) to fully blurred (0): the sharp cover
+  /// fades out over its blurred copy, which comes in faster so the two
+  /// barely thin out in between. Both stay in the tree for the whole mix.
   static Widget _layer(
-    Widget child, {
-    required double sigma,
+    Widget sharp,
+    Widget blurred, {
+    required double focus,
     required double scale,
     required double opacity,
   }) => Opacity(
     opacity: opacity.clamp(0.0, 1.0),
-    child: Transform.scale(
-      scale: scale,
-      // Always in the tree, so the cover is never rebuilt mid-mix.
-      child: ImageFiltered(
-        enabled: sigma >= 0.1,
-        imageFilter: ImageFilter.blur(
-          sigmaX: max(sigma, 0.1),
-          sigmaY: max(sigma, 0.1),
-          tileMode: TileMode.decal,
+    child: Stack(
+      alignment: Alignment.center,
+      children: [
+        Opacity(
+          opacity: (3 * (1 - focus)).clamp(0.0, 1.0),
+          child: ImageFiltered(
+            imageFilter: ImageFilter.blur(
+              sigmaX: _Melt.sigma,
+              sigmaY: _Melt.sigma,
+              tileMode: TileMode.decal,
+            ),
+            // Scaled inside the filter, so the blur itself stays fixed.
+            child: Transform.scale(scale: scale, child: blurred),
+          ),
         ),
-        child: child,
-      ),
+        Opacity(
+          opacity: focus.clamp(0.0, 1.0),
+          child: Transform.scale(scale: scale, child: sharp),
+        ),
+      ],
     ),
   );
 
@@ -2232,13 +2301,15 @@ class _MeltState extends State<_Melt> with SingleTickerProviderStateMixin {
       children: [
         _layer(
           widget.from,
-          sigma: _Melt.sigma * p,
+          widget.fromBlurred,
+          focus: 1 - p,
           scale: 1 + 0.12 * p,
           opacity: 1 - p * p,
         ),
         _layer(
           widget.to,
-          sigma: _Melt.sigma * (1 - p),
+          widget.toBlurred,
+          focus: p,
           scale: 0.9 + 0.1 * p,
           opacity: 1 - (1 - p) * (1 - p),
         ),
