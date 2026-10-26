@@ -97,6 +97,22 @@ class PlaybackController extends Notifier<PlaybackState> {
   /// The smart transition being prepared for the current -> next pair.
   _SmartPrep? _smart;
 
+  /// Where the current track started playing (a mix may enter mid-way).
+  double _playedFrom = 0;
+
+  /// Tracks of a Surprise me session not queued yet; null when none runs.
+  List<Track>? _surprisePool;
+  bool _surprisePicking = false;
+
+  /// Candidates whose audio is fetched ahead so they can be analysed.
+  final List<Track> _surpriseFetch = [];
+
+  /// Candidates weighed for each Surprise me pick.
+  static const surpriseSample = 40;
+
+  /// Unanalysed candidates fetched ahead at most.
+  static const surpriseFetchAhead = 5;
+
   /// Why the current track can't hand over with a transition, for the log.
   String? _whyNot;
   DateTime _lastSessionSave = DateTime.fromMillisecondsSinceEpoch(0);
@@ -158,6 +174,7 @@ class PlaybackController extends Notifier<PlaybackState> {
         ? 0
         : startIndex;
     _unshuffledUids = null;
+    _endSurprise();
     state = state.copyWith(
       queue: [for (final t in selection) _item(t)],
       index: start,
@@ -172,6 +189,7 @@ class PlaybackController extends Notifier<PlaybackState> {
     if (tracks.isEmpty) return;
     final shuffled = [...tracks]..shuffle(_random);
     _unshuffledUids = null;
+    _endSurprise();
     state = state.copyWith(
       queue: [for (final t in shuffled) _item(t)],
       index: 0,
@@ -181,11 +199,92 @@ class PlaybackController extends Notifier<PlaybackState> {
     await _loadCurrent(autoplay: true);
   }
 
+  /// Surprise me: starts [tracks] at a random one, then each next track is
+  /// the one of them that mixes best into the one playing.
+  Future<void> surprise(List<Track> tracks) async {
+    if (tracks.isEmpty) return;
+    final pool = [...tracks]..shuffle(_random);
+    final first = pool.removeLast();
+    _unshuffledUids = null;
+    _endSurprise();
+    _surprisePool = pool;
+    state = state.copyWith(
+      queue: [_item(first)],
+      index: 0,
+      shuffle: false,
+      message: null,
+    );
+    await _loadCurrent(autoplay: true);
+  }
+
+  void _endSurprise() {
+    _surprisePool = null;
+    _surpriseFetch.clear();
+  }
+
+  /// Queues the next Surprise me track once the current one is the last.
+  Future<void> _maybePickSurprise() async {
+    final pool = _surprisePool;
+    final current = state.current;
+    if (pool == null ||
+        pool.isEmpty ||
+        current == null ||
+        _surprisePicking ||
+        state.index != state.queue.length - 1) {
+      return;
+    }
+    _surprisePicking = true;
+    try {
+      final pick = await _pickSurprise(current.track, pool);
+      if (!ref.mounted ||
+          !identical(pool, _surprisePool) ||
+          state.current?.uid != current.uid ||
+          state.index != state.queue.length - 1) {
+        return;
+      }
+      pool.remove(pick);
+      _surpriseFetch.remove(pick);
+      _setQueue([...state.queue, _item(pick)]);
+    } finally {
+      _surprisePicking = false;
+    }
+  }
+
+  /// The candidate that mixes best into [current]; random without a picker
+  /// or analyses. Unanalysed candidates get their audio fetched ahead.
+  Future<Track> _pickSurprise(Track current, List<Track> pool) async {
+    final sample = pool.length <= surpriseSample
+        ? [...pool]
+        : ([...pool]..shuffle(_random)).sublist(0, surpriseSample);
+    final picker = ref.read(nextTrackPickerProvider);
+    if (picker == null) return sample.first;
+    final load = ref.read(transitionSideLoaderProvider);
+    final sides = await Future.wait([for (final t in sample) load(t)]);
+    final from = await load(current);
+    final analysed = [
+      for (final (i, s) in sides.indexed)
+        if (s.analysis != null) i,
+    ];
+    _surpriseFetch
+      ..removeWhere((t) => !pool.contains(t))
+      ..removeWhere((t) => analysed.any((i) => sample[i] == t));
+    for (final (i, s) in sides.indexed) {
+      if (_surpriseFetch.length >= surpriseFetchAhead) break;
+      if (s.analysis == null && !_surpriseFetch.contains(sample[i])) {
+        _surpriseFetch.add(sample[i]);
+      }
+    }
+    if (from.analysis == null || analysed.isEmpty) return sample.first;
+    final best = picker(from, [for (final i in analysed) sides[i]]);
+    return best == null ? sample.first : sample[analysed[best]];
+  }
+
   /// Plays [seed], then YouTube Music radio based on it. A local seed is
   /// matched to a YouTube Music song by artist and title; without a match
   /// only the seed plays. Works regardless of [autoplayRadio].
   Future<void> startRadio(Track seed) async {
     _unshuffledUids = null;
+    _endSurprise();
     _radio = null;
     state = state.copyWith(
       queue: [_item(seed)],
@@ -222,6 +321,7 @@ class PlaybackController extends Notifier<PlaybackState> {
     );
     _unshuffledUids?.removeWhere((uid) => !queue.any((q) => q.uid == uid));
     _saveSession();
+    unawaited(_maybePickSurprise());
   }
 
   /// Moves the item at [oldIndex] so it ends up at [newIndex].
@@ -245,6 +345,7 @@ class PlaybackController extends Notifier<PlaybackState> {
   void clearUpcoming() {
     final current = state.current;
     _unshuffledUids = null;
+    _endSurprise();
     state = state.copyWith(
       queue: current == null ? const [] : [current],
       index: current == null ? null : 0,
@@ -463,6 +564,7 @@ class PlaybackController extends Notifier<PlaybackState> {
   /// Tells the audio file provider what is likely to play next.
   void _hintUpcoming() {
     if (state.index == null) return;
+    unawaited(_maybePickSurprise());
     final next = state.upcoming.take(2).toList();
     if (next.isEmpty) return;
     // Song twins first, so the audio fetched ahead is the one that plays.
@@ -471,6 +573,7 @@ class PlaybackController extends Notifier<PlaybackState> {
         if (!ref.mounted) return;
         ref.read(audioFilesProvider).prefetch([
           for (final q in items) ?q?.track,
+          ..._surpriseFetch,
         ]);
       }),
     );
@@ -503,6 +606,7 @@ class PlaybackController extends Notifier<PlaybackState> {
     if (item == null || state.current?.uid != item.uid) return; // Superseded.
     _crossfading = false;
     _whyNot = null;
+    _playedFrom = 0;
     if (_smart != null) {
       _smart = null;
       _setTransition(null);
@@ -577,6 +681,7 @@ class PlaybackController extends Notifier<PlaybackState> {
 
   bool get _radioEligible =>
       autoplayRadio &&
+      (_surprisePool?.isEmpty ?? true) &&
       state.repeat == RepeatMode.off &&
       state.queue.any((q) => q.track.source == MediaSource.youtube);
 
@@ -707,11 +812,21 @@ class PlaybackController extends Notifier<PlaybackState> {
     }
     final next = state.queue[nextIndex];
     if (next.uid == _noFadeUid) return;
-    final planner = ref.read(transitionPlannerProvider);
-    if (mode == TransitionMode.smart &&
+    final disco = mode == TransitionMode.disco
+        ? ref.read(discoPlannerProvider)
+        : null;
+    final planner = disco ?? ref.read(transitionPlannerProvider);
+    if ((mode == TransitionMode.smart || mode == TransitionMode.disco) &&
         planner != null &&
         _engine is MixingEngine) {
-      _maybeSmart(planner, position, duration, index, next);
+      _maybeSmart(
+        planner,
+        position,
+        duration,
+        index,
+        next,
+        early: disco != null,
+      );
       return;
     }
 
@@ -747,8 +862,9 @@ class PlaybackController extends Notifier<PlaybackState> {
     Duration position,
     Duration duration,
     int index,
-    QueueItem next,
-  ) {
+    QueueItem next, {
+    bool early = false,
+  }) {
     final current = state.queue[index];
     final at = position.inMicroseconds / 1e6;
     final remaining = (duration - position).inMicroseconds / 1e6;
@@ -770,7 +886,9 @@ class PlaybackController extends Notifier<PlaybackState> {
     }
     if (prep.plan == null) {
       var sides = prep.sides;
-      if (remaining > _smartPlanAt.inSeconds) return;
+      // Disco may hand over mid-track: it plans once everything is known.
+      final ready = early && sides != null && prep.lyricsDone;
+      if (!ready && remaining > _smartPlanAt.inSeconds) return;
       if (sides == null) {
         if (remaining > _lastCall) {
           _whyNot = 'analyses not loaded yet';
@@ -780,7 +898,7 @@ class PlaybackController extends Notifier<PlaybackState> {
         _log('${_pair(prep)}: analyses not loaded in time, plain fade');
       }
       final plan = prep.plan = planner(
-        sides.$1.withLyrics(prep.vocalsA),
+        sides.$1.withLyrics(prep.vocalsA).withPlayedFrom(_playedFrom),
         sides.$2.withLyrics(prep.vocalsB),
         fadeSeconds: _settings.crossfadeSeconds.toDouble(),
         earliestStart: at + (remaining > _shortOnTime ? transitionLead : 1.0),
@@ -813,7 +931,7 @@ class PlaybackController extends Notifier<PlaybackState> {
         'position jumped to ${_s(at)}; planning again',
       );
       prep.plan = null;
-      _maybeSmart(planner, position, duration, index, next);
+      _maybeSmart(planner, position, duration, index, next, early: early);
       return;
     }
     if (at < plan.startInA - _smartPrepare) return;
@@ -900,6 +1018,7 @@ class PlaybackController extends Notifier<PlaybackState> {
           nextIndex = queue.indexWhere((q) => q.uid == next.uid);
         }
         state = state.copyWith(index: nextIndex, message: null);
+        _playedFrom = plan.entryInB;
         _recordPlay(next.track);
         _hintUpcoming();
         _setTransition(

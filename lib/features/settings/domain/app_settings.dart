@@ -38,6 +38,10 @@ enum TransitionMode {
   /// Planned from the tracks' analyses: beat-matched blends, gapless album
   /// tracks, vocal-aware timing.
   smart,
+
+  /// Like a DJ set: each track plays a few minutes and hands over on a
+  /// drop.
+  disco,
 }
 
 @freezed

@@ -43,9 +43,14 @@ class SettingsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final s = ref.watch(settingsProvider);
     final smart = ref.watch(transitionPlannerProvider) != null;
-    final transitionMode = !smart && s.transitionMode == TransitionMode.smart
-        ? TransitionMode.crossfade
-        : s.transitionMode;
+    final disco = ref.watch(discoPlannerProvider) != null;
+    // A mode without its planner plays as the next simpler one.
+    final transitionMode = switch (s.transitionMode) {
+      TransitionMode.disco when !disco =>
+        smart ? TransitionMode.smart : TransitionMode.crossfade,
+      TransitionMode.smart when !smart => TransitionMode.crossfade,
+      final m => m,
+    };
     final ctrl = ref.read(settingsProvider.notifier);
     void set(AppSettings Function(AppSettings) f) => ctrl.update(f);
 
@@ -132,6 +137,7 @@ class SettingsScreen extends ConsumerWidget {
                     TransitionMode.off: 'Off',
                     TransitionMode.crossfade: 'Crossfade',
                     if (smart) TransitionMode.smart: 'Smart',
+                    if (disco) TransitionMode.disco: 'Disco',
                   },
                   onChanged: (m) => set((s) => s.copyWith(transitionMode: m)),
                 ),

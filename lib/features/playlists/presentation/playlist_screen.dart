@@ -72,6 +72,9 @@ class _PlaylistScreenState extends ConsumerState<PlaylistScreen> {
             onShuffle: tracks.isEmpty
                 ? null
                 : () => unawaited(playback.shuffleTracks(tracks)),
+            onSurprise: tracks.length < 2
+                ? null
+                : () => unawaited(playback.surprise(tracks)),
             actions: [
               PinButton(PinnedRef(PinKind.local, '${p.id}')),
               NoirMenuButton<String>(

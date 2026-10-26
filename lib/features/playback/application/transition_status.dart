@@ -85,6 +85,13 @@ final vocalTimingLoaderProvider =
 /// Smart setting is hidden and transitions are plain crossfades).
 final transitionPlannerProvider = Provider<TransitionPlanner?>((ref) => null);
 
+/// Plans Disco transitions; null when no planner is installed (then the
+/// Disco setting is hidden).
+final discoPlannerProvider = Provider<TransitionPlanner?>((ref) => null);
+
+/// Chooses the next track of Surprise me; null picks at random.
+final nextTrackPickerProvider = Provider<NextTrackPicker?>((ref) => null);
+
 Future<T?> _orNull<T>(Future<T?> future) async {
   try {
     return await future;

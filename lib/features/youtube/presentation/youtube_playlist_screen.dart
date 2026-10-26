@@ -266,6 +266,9 @@ class _YouTubeTrackListState extends ConsumerState<_YouTubeTrackList> {
             onShuffle: list.isEmpty
                 ? null
                 : () => unawaited(playback.shuffleTracks(list)),
+            onSurprise: list.length < 2
+                ? null
+                : () => unawaited(playback.surprise(list)),
             actions: [
               PinButton(pin),
               NoirIconButton(

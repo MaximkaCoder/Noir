@@ -55,8 +55,14 @@ music video (with intro and skits), NOIR swaps in the plain studio track,
 like YouTube Music does in song mode.
 
 Between tracks NOIR can do a plain crossfade or a "smart" transition that
-picks the moment and the type of blend for each pair of songs. Both work on
-tracks played through NOIR's own audio player.
+picks the moment and the type of blend for each pair of songs. Disco goes
+further, like a DJ set: each song plays for two or three minutes and the
+next one comes in on its drop. All three work on tracks played through
+NOIR's own audio player.
+
+Surprise me, next to Shuffle on a playlist, starts on a random song and then
+keeps choosing whichever song from that playlist mixes best into the one
+playing.
 
 Connect a Google account and NOIR syncs your YouTube playlists and liked
 music both ways. Adding a song to a playlist or removing it in NOIR changes

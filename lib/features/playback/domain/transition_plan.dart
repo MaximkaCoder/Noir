@@ -243,10 +243,13 @@ class TransitionPlan {
 /// null: the lyrics say the track is instrumental. Lyrics, when present,
 /// override the audio estimate.
 class VocalTiming {
-  const VocalTiming({this.firstStart, this.lastEnd});
+  const VocalTiming({this.firstStart, this.lastEnd, this.lines = const []});
 
   final double? firstStart;
   final double? lastEnd;
+
+  /// Each sung lead line, in order (empty when unknown).
+  final List<VocalSpan> lines;
 }
 
 /// One side of a transition, as the planner sees it.
@@ -258,6 +261,7 @@ class TransitionSide {
     this.artist,
     this.trackNumber,
     this.lyrics,
+    this.playedFrom = 0,
   });
 
   final TrackAnalysis? analysis;
@@ -269,6 +273,9 @@ class TransitionSide {
   final int? trackNumber;
   final VocalTiming? lyrics;
 
+  /// Where the track started playing, seconds (a mix may enter mid-way).
+  final double playedFrom;
+
   TransitionSide withLyrics(VocalTiming? lyrics) => TransitionSide(
     analysis: analysis,
     duration: duration,
@@ -276,8 +283,26 @@ class TransitionSide {
     artist: artist,
     trackNumber: trackNumber,
     lyrics: lyrics,
+    playedFrom: playedFrom,
+  );
+
+  TransitionSide withPlayedFrom(double seconds) => TransitionSide(
+    analysis: analysis,
+    duration: duration,
+    album: album,
+    artist: artist,
+    trackNumber: trackNumber,
+    lyrics: lyrics,
+    playedFrom: seconds,
   );
 }
+
+/// Picks which of [candidates] should follow [current] for the best mix:
+/// an index into [candidates], or null for no preference.
+typedef NextTrackPicker = int? Function(
+  TransitionSide current,
+  List<TransitionSide> candidates,
+);
 
 /// Planned transitions start at least this long after "now" (the next
 /// track must load and lock first). The caller adds it to `earliestStart`.
