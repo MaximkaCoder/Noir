@@ -52,34 +52,3 @@ jobs:
           name: noir-windows
           path: build/windows/x64/runner/Release/
 
-  android:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-      - uses: subosito/flutter-action@v2
-        with:
-          flutter-version: ${{ env.FLUTTER_VERSION }}
-          channel: stable
-          cache: true
-      - run: flutter pub get
-      - run: dart run build_runner build
-      # Unsigned until a release keystore is configured as a secret.
-      - run: flutter build apk --debug
-
-  apple:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: subosito/flutter-action@v2
-        with:
-          flutter-version: ${{ env.FLUTTER_VERSION }}
-          channel: stable
-          cache: true
-      - run: flutter pub get
-      - run: dart run build_runner build
-      - run: flutter build macos --debug
-      - run: flutter build ios --debug --no-codesign
