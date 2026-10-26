@@ -1,6 +1,17 @@
-# NOIR
+<div align="center">
+
+# <img src="docs/logo.svg" width="40" alt=""> NOIR
+
+[![Build](https://img.shields.io/github/actions/workflow/status/MaximkaCoder/Noir/ci.yml?branch=main&style=for-the-badge&label=build)](https://github.com/MaximkaCoder/Noir/actions/workflows/ci.yml)
+[![Platform](https://img.shields.io/badge/platform-windows-0078D4?style=for-the-badge)](#platforms)
+[![Flutter](https://img.shields.io/badge/flutter-3.47.8-02569B?style=for-the-badge)](https://flutter.dev)
+[![Code style](https://img.shields.io/badge/code_style-very__good__analysis-4DD0C7?style=for-the-badge)](https://pub.dev/packages/very_good_analysis)
+
+[![Secrets](https://img.shields.io/badge/gitleaks-scanned-8A3FFC)](https://github.com/gitleaks/gitleaks)
 
 **Less interface. More music.**
+
+</div>
 
 YouTube Music has no desktop app. What Google offers on Windows is the
 website in a window: it takes a while to start, stutters when you scroll a
