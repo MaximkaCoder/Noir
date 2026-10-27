@@ -10,9 +10,10 @@ import 'package:noir/app/theme/glass_theme.dart';
 import 'package:noir/core/formatters.dart';
 import 'package:noir/core/widgets/buttons.dart';
 import 'package:noir/features/playback/application/playback_controller.dart';
+import 'package:noir/features/playback/presentation/mix_mode_button.dart';
 import 'package:noir/shared/models/playback.dart';
 
-/// Shuffle · previous · play/pause · next · repeat. Controls the active
+/// Shuffle · previous · play/pause · next · repeat · transitions. Controls the active
 /// engine cannot honor are not rendered at all.
 class PlaybackControls extends ConsumerWidget {
   const PlaybackControls({
@@ -23,7 +24,7 @@ class PlaybackControls extends ConsumerWidget {
 
   final bool large;
 
-  /// Shuffle and repeat.
+  /// Shuffle, repeat and transitions.
   final bool showModes;
 
   @override
@@ -89,6 +90,7 @@ class PlaybackControls extends ConsumerWidget {
             onPressed: hasItem ? ctrl.cycleRepeat : null,
           ),
         ],
+        if (showModes) ...[gap, MixModeButton(size: icon - 4)],
       ],
     );
   }

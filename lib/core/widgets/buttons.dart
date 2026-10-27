@@ -9,16 +9,20 @@ import 'package:noir/core/widgets/liquid_press.dart';
 /// [LiquidPressScope] it answers presses with [LiquidPress].
 class NoirIconButton extends StatelessWidget {
   const NoirIconButton({
-    required this.icon,
     required this.tooltip,
     required this.onPressed,
+    this.icon,
+    this.glyph,
     this.size = 20,
     this.active = false,
     this.color,
     super.key,
-  });
+  }) : assert(icon != null || glyph != null, 'Give an icon or a glyph');
 
-  final IconData icon;
+  final IconData? icon;
+
+  /// Drawn instead of [icon]; it takes the button's color from [IconTheme].
+  final Widget? glyph;
   final String tooltip;
   final VoidCallback? onPressed;
   final double size;
@@ -38,7 +42,7 @@ class NoirIconButton extends StatelessWidget {
       ),
       duration: NoirEffects.of(context).motion(NoirMotion.fast),
       builder: (context, animated, _) => IconButton(
-        icon: Icon(icon, size: size),
+        icon: glyph ?? Icon(icon, size: size),
         tooltip: tooltip,
         onPressed: onPressed,
         color: animated,

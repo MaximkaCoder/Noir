@@ -32,7 +32,31 @@ Future<T?> showNoirMenu<T>(
   return Navigator.of(context, rootNavigator: true).push(
     _MenuRoute<T>(
       anchor: anchor,
-      items: items,
+      panel: _MenuPanel<T>(items: items),
+      duration: fx.motion(NoirMotion.medium),
+      reverseDuration: fx.motion(NoirMotion.fast),
+    ),
+  );
+}
+
+/// A panel of any [child] shown next to [anchor] the way [showNoirMenu]
+/// shows a menu, on the same glass. Pop the route to close it.
+Future<void> showNoirPopover(
+  BuildContext context, {
+  required Rect anchor,
+  required Widget child,
+}) {
+  final fx = NoirEffects.of(context);
+  return Navigator.of(context, rootNavigator: true).push(
+    _MenuRoute<void>(
+      anchor: anchor,
+      panel: GlassSurface(
+        borderRadius: NoirRadii.mdAll,
+        floating: true,
+        shadow: 0.6,
+        fillOpacity: 4,
+        child: Material(type: MaterialType.transparency, child: child),
+      ),
       duration: fx.motion(NoirMotion.medium),
       reverseDuration: fx.motion(NoirMotion.fast),
     ),
@@ -76,13 +100,13 @@ class NoirMenuButton<T> extends StatelessWidget {
 class _MenuRoute<T> extends PopupRoute<T> {
   _MenuRoute({
     required this.anchor,
-    required this.items,
+    required this.panel,
     required this.duration,
     required this.reverseDuration,
   });
 
   final Rect anchor;
-  final List<NoirMenuItem<T>> items;
+  final Widget panel;
   final Duration duration;
   final Duration reverseDuration;
 
@@ -120,7 +144,7 @@ class _MenuRoute<T> extends PopupRoute<T> {
             GlassFade(opacity: curved.value, child: child!),
         child: ScaleTransition(
           scale: Tween<double>(begin: 0.94, end: 1).animate(curved),
-          child: _MenuPanel<T>(items: items),
+          child: panel,
         ),
       ),
     );

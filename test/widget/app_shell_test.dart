@@ -14,6 +14,7 @@ import 'package:noir/core/widgets/liquid_glass.dart';
 import 'package:noir/features/library/data/library_repository.dart';
 import 'package:noir/features/playback/application/playback_controller.dart';
 import 'package:noir/features/playback/presentation/mini_players.dart';
+import 'package:noir/features/playback/presentation/mix_mode_button.dart';
 import 'package:noir/features/playback/presentation/playback_controls.dart';
 import 'package:noir/features/playlists/data/playlist_repository.dart';
 import 'package:noir/features/queue/presentation/queue_panel.dart';
@@ -752,28 +753,34 @@ void main() {
       expect(Theme.of(context), before);
     });
 
-    testWidgets('crossfade length slides in instead of popping', (
-      tester,
-    ) async {
-      await TestApp.pump(tester);
+    testWidgets('the player button switches transitions', (tester) async {
+      final app = await TestApp.pump(tester);
+      await _play(app);
+      await tester.pumpAndSettle();
+      TransitionMode mode() =>
+          app.container.read(settingsProvider).transitionMode;
+
+      await tester.tap(find.byType(MixModeButton).first);
+      await tester.pumpAndSettle();
+      expect(find.text('TRANSITIONS'), findsOneWidget);
+      expect(find.text('Length'), findsNothing);
+
+      // Crossfade keeps the panel open and reveals its length.
+      await tester.tap(find.text('Crossfade'));
+      await tester.pumpAndSettle();
+      expect(mode(), TransitionMode.crossfade);
+      expect(find.text('Length'), findsOneWidget);
+
+      await tester.tap(find.text('Off'));
+      await tester.pumpAndSettle();
+      expect(mode(), TransitionMode.off);
+      expect(find.text('TRANSITIONS'), findsNothing);
+      expect(find.byTooltip('Transitions: Off'), findsWidgets);
+
+      // The player is the only place for it now.
       await tester.tap(find.byTooltip('Settings & account'));
       await tester.pumpAndSettle();
       expect(find.text('Crossfade length'), findsNothing);
-      await tester.ensureVisible(find.text('Crossfade'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Crossfade'));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 80));
-      final reveal = find.ancestor(
-        of: find.text('Crossfade length'),
-        matching: find.byType(SizeTransition),
-      );
-      final mid = tester.getSize(reveal).height;
-      await tester.pumpAndSettle();
-      final full = tester.getSize(reveal).height;
-      expect(mid, greaterThan(0));
-      expect(mid, lessThan(full));
-      expect(find.text('Crossfade length'), findsOneWidget);
     });
 
     testWidgets('light theme applies immediately', (tester) async {

@@ -12,14 +12,12 @@ import 'package:noir/core/widgets/buttons.dart';
 import 'package:noir/core/widgets/dialogs.dart';
 import 'package:noir/core/widgets/glass_surface.dart';
 import 'package:noir/core/widgets/liquid_press.dart';
-import 'package:noir/core/widgets/reveal.dart';
 import 'package:noir/features/accounts/presentation/account_card.dart';
 import 'package:noir/features/discover/application/dislikes.dart';
 import 'package:noir/features/discover/application/for_you.dart';
 import 'package:noir/features/home/data/history_repository.dart';
 import 'package:noir/features/library/application/library_providers.dart';
 import 'package:noir/features/library/application/library_scan_controller.dart';
-import 'package:noir/features/playback/application/transition_status.dart';
 import 'package:noir/features/playlists/application/playlist_providers.dart';
 import 'package:noir/features/search/data/search_history_repository.dart';
 import 'package:noir/features/settings/application/maintenance.dart';
@@ -42,15 +40,6 @@ class SettingsScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final s = ref.watch(settingsProvider);
-    final smart = ref.watch(transitionPlannerProvider) != null;
-    final disco = ref.watch(discoPlannerProvider) != null;
-    // A mode without its planner plays as the next simpler one.
-    final transitionMode = switch (s.transitionMode) {
-      TransitionMode.disco when !disco =>
-        smart ? TransitionMode.smart : TransitionMode.crossfade,
-      TransitionMode.smart when !smart => TransitionMode.crossfade,
-      final m => m,
-    };
     final ctrl = ref.read(settingsProvider.notifier);
     void set(AppSettings Function(AppSettings) f) => ctrl.update(f);
 
@@ -126,34 +115,6 @@ class SettingsScreen extends ConsumerWidget {
                   ),
                 ),
                 const _Section('Sound'),
-                // Without a smart planner, Smart plays as a crossfade.
-                _ChoiceTile<TransitionMode>(
-                  icon: Icons.graphic_eq_rounded,
-                  title: 'Transitions',
-                  subtitle:
-                      "Tracks played through NOIR's player (local and cached).",
-                  value: transitionMode,
-                  options: {
-                    TransitionMode.off: 'Off',
-                    TransitionMode.crossfade: 'Crossfade',
-                    if (smart) TransitionMode.smart: 'Smart',
-                    if (disco) TransitionMode.disco: 'Disco',
-                  },
-                  onChanged: (m) => set((s) => s.copyWith(transitionMode: m)),
-                ),
-                Reveal(
-                  visible: transitionMode == TransitionMode.crossfade,
-                  child: _SliderTile(
-                    label: 'Crossfade length',
-                    value: s.crossfadeSeconds.toDouble(),
-                    min: 1,
-                    max: 12,
-                    divisions: 11,
-                    display: '${s.crossfadeSeconds} s',
-                    onChanged: (v) =>
-                        set((s) => s.copyWith(crossfadeSeconds: v.round())),
-                  ),
-                ),
                 _SliderTile(
                   label: 'Volume at startup',
                   value: s.defaultVolume,
@@ -441,9 +402,7 @@ class _SliderTile extends StatelessWidget {
     required this.value,
     required this.display,
     required this.onChanged,
-    this.min = 0,
     this.max = 1,
-    this.divisions,
   });
 
   final String label;
@@ -452,9 +411,7 @@ class _SliderTile extends StatelessWidget {
 
   /// Null disables the slider.
   final ValueChanged<double>? onChanged;
-  final double min;
   final double max;
-  final int? divisions;
 
   @override
   Widget build(BuildContext context) {
@@ -475,9 +432,7 @@ class _SliderTile extends StatelessWidget {
           Expanded(
             child: Slider(
               value: value,
-              min: min,
               max: max,
-              divisions: divisions,
               label: display,
               semanticFormatterCallback: (_) => display,
               onChanged: onChanged,

@@ -31,6 +31,7 @@ import 'package:noir/features/lyrics/application/lyrics_providers.dart';
 import 'package:noir/features/lyrics/presentation/lyrics_view.dart';
 import 'package:noir/features/playback/application/playback_controller.dart';
 import 'package:noir/features/playback/application/transition_status.dart';
+import 'package:noir/features/playback/presentation/mix_mode_button.dart';
 import 'package:noir/features/playback/presentation/now_playing_route.dart';
 import 'package:noir/features/playback/presentation/playback_controls.dart';
 import 'package:noir/features/playback/presentation/playback_shortcuts.dart';
@@ -1458,6 +1459,8 @@ class ControlCapsule extends ConsumerWidget {
               onPressed: hasItem ? ctrl.cycleRepeat : null,
             ),
           ],
+          gap,
+          const MixModeButton(),
           Container(
             width: 1,
             height: 24,
