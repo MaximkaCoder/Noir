@@ -2,9 +2,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:noir/app/router.dart';
 import 'package:noir/features/youtube/data/youtube_repository.dart';
 import 'package:noir/integrations/youtube_data/youtube_api.dart';
+import 'package:noir/shared/models/media.dart';
 import 'package:noir/shared/widgets/collection_header.dart';
 
 import '../helpers/pump_app.dart';
+import '../helpers/test_database.dart';
 
 const _likes = [
   YtVideo(
@@ -52,5 +54,23 @@ void main() {
     expect(find.textContaining('2 songs · 7m'), findsOneWidget);
     expect(find.text('All likes'), findsNothing);
     expect(find.byTooltip('Open in YouTube Music'), findsNothing);
+  });
+
+  test('musicOnly drops videos that are not music', () async {
+    final db = inMemoryDatabase();
+    addTearDown(db.close);
+    final repo = YouTubeRepository(db);
+    await repo.saveLikes(_likes);
+    const unknown = Track(
+      id: 'yt:ytm1',
+      source: MediaSource.youtube,
+      title: 'Not synced',
+      uri: 'ytm1',
+    );
+    final tracks = [...await repo.likes(), unknown];
+
+    final music = await repo.musicOnly(tracks);
+
+    expect([for (final t in music) t.uri], ['m1', 'm2', 'ytm1']);
   });
 }

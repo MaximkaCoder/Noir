@@ -122,6 +122,34 @@ class YouTubeRepository {
         r.toTrack(),
   ];
 
+  /// The [tracks] that [isMusicVideo] accepts; tracks that are not cached
+  /// YouTube videos are kept.
+  Future<List<Track>> musicOnly(List<Track> tracks) async {
+    final ids = {
+      for (final t in tracks)
+        if (t.source == MediaSource.youtube) t.uri,
+    }.toList();
+    final notMusic = <String>{};
+    for (var i = 0; i < ids.length; i += 500) {
+      final chunk = ids.sublist(i, (i + 500).clamp(0, ids.length));
+      final rows = await (_db.select(
+        _db.ytVideos,
+      )..where((v) => v.id.isIn(chunk))).get();
+      notMusic.addAll([
+        for (final r in rows)
+          if (!isMusicVideo(
+            categoryId: r.categoryId,
+            channelTitle: r.channelTitle,
+          ))
+            r.id,
+      ]);
+    }
+    return [
+      for (final t in tracks)
+        if (t.source != MediaSource.youtube || !notMusic.contains(t.uri)) t,
+    ];
+  }
+
   /// Every song in the user's playlists (repeats included).
   Future<List<Track>> allPlaylistTracks() async {
     final i = _db.ytPlaylistItems;
