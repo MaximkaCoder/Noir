@@ -127,13 +127,6 @@ class DislikesController extends Notifier<Dislikes> {
     if (playing != null) await _skipIfPlaying(playing);
   }
 
-  void unblockArtist(String artist) => _set(
-    Dislikes(
-      songs: state.songs,
-      artists: {...state.artists}..remove(Dislikes._key(artist)),
-    ),
-  );
-
   void _set(Dislikes next) {
     _changed = true;
     state = next;

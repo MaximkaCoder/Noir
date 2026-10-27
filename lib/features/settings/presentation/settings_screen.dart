@@ -13,7 +13,6 @@ import 'package:noir/core/widgets/dialogs.dart';
 import 'package:noir/core/widgets/glass_surface.dart';
 import 'package:noir/core/widgets/liquid_press.dart';
 import 'package:noir/features/accounts/presentation/account_card.dart';
-import 'package:noir/features/discover/application/dislikes.dart';
 import 'package:noir/features/discover/application/for_you.dart';
 import 'package:noir/features/home/data/history_repository.dart';
 import 'package:noir/features/library/application/library_providers.dart';
@@ -557,42 +556,14 @@ class _LibrarySettings extends ConsumerWidget {
   }
 }
 
-/// Recommendations: what the user said no to, and the listening history
-/// they are built from.
+/// Recommendations: the listening history they are built from.
 class _RecommendationSettings extends ConsumerWidget {
   const _RecommendationSettings();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final dislikes = ref.watch(dislikesProvider);
-    final songs = dislikes.songs.length;
-    final artists = dislikes.artists.length;
     return Column(
       children: [
-        _ActionTile(
-          icon: Icons.thumb_down_alt_outlined,
-          title: 'Not interested',
-          subtitle: dislikes.isEmpty
-              ? 'Songs and artists you hide from For you, Home and radio.'
-              : [
-                  if (songs == 1) '1 song' else if (songs > 1) '$songs songs',
-                  if (artists == 1)
-                    '1 artist'
-                  else if (artists > 1)
-                    '$artists artists',
-                ].join(' · '),
-          trailing: PillButton(
-            label: 'Manage',
-            onPressed: dislikes.isEmpty
-                ? null
-                : () => unawaited(
-                    showGlassDialog<void>(
-                      context,
-                      builder: (_) => const _DislikesDialog(),
-                    ),
-                  ),
-          ),
-        ),
         _ActionTile(
           icon: Icons.history_rounded,
           title: 'Listening history',
@@ -758,86 +729,6 @@ class _SidebarDialog extends ConsumerWidget {
                   dense: true,
                   contentPadding: EdgeInsets.zero,
                   controlAffinity: ListTileControlAffinity.leading,
-                ),
-            ],
-          ),
-        ),
-        const SizedBox(height: NoirSpacing.md),
-        Align(
-          alignment: Alignment.centerRight,
-          child: TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            style: TextButton.styleFrom(foregroundColor: c.textSecondary),
-            child: const Text('Done'),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-/// The songs and artists hidden from recommendations, each with a way back.
-class _DislikesDialog extends ConsumerWidget {
-  const _DislikesDialog();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final t = Theme.of(context).textTheme;
-    final c = context.noir;
-    final dislikes = ref.watch(dislikesProvider);
-    final ctrl = ref.read(dislikesProvider.notifier);
-
-    Widget row(String title, String? subtitle, VoidCallback onUndo) => Padding(
-      padding: const EdgeInsets.symmetric(vertical: NoirSpacing.xs),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: t.bodyMedium,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                if (subtitle != null) Text(subtitle, style: t.bodySmall),
-              ],
-            ),
-          ),
-          TextButton(
-            onPressed: onUndo,
-            style: TextButton.styleFrom(foregroundColor: c.textPrimary),
-            child: const Text('Allow'),
-          ),
-        ],
-      ),
-    );
-
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text('Not interested', style: t.titleMedium),
-        const SizedBox(height: NoirSpacing.sm),
-        Text(
-          "NOIR doesn't recommend these. Allowing a song also removes its "
-          'dislike on YouTube.',
-          style: t.bodySmall,
-        ),
-        const SizedBox(height: NoirSpacing.md),
-        ConstrainedBox(
-          constraints: const BoxConstraints(maxHeight: 360),
-          child: ListView(
-            shrinkWrap: true,
-            children: [
-              for (final artist in dislikes.artists.values)
-                row(artist, 'Artist', () => ctrl.unblockArtist(artist)),
-              for (final song in dislikes.songs.values.toList().reversed)
-                row(
-                  song.title,
-                  song.artist,
-                  () => unawaited(ctrl.undoSong(song.videoId)),
                 ),
             ],
           ),
