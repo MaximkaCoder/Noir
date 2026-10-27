@@ -52,6 +52,7 @@ class YouTubeEmbedEngine implements PlaybackEngine {
   Duration _currentPosition = Duration.zero;
   Duration? _currentDuration;
   PlaybackStatus? _lastStatus;
+  Track? _track;
   double _volume = 1;
 
   @override
@@ -149,7 +150,13 @@ class YouTubeEmbedEngine implements PlaybackEngine {
               : EngineStatusChanged(status),
         );
       case 'error':
-        _events.add(EngineFailed(_errorMessage(m['data'])));
+        final code = m['data'];
+        _events.add(
+          EngineFailed(
+            _errorMessage(code),
+            unplayable: const {2, 100, 101, 150}.contains(code) ? _track : null,
+          ),
+        );
     }
   }
 
@@ -185,6 +192,7 @@ class YouTubeEmbedEngine implements PlaybackEngine {
       return false;
     }
     _lastStatus = null;
+    _track = track;
     _currentPosition = start;
     _currentDuration = track.duration;
     // Only video ids from the YouTube API reach here; encode defensively.

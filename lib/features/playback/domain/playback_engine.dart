@@ -18,10 +18,14 @@ final class EngineCompleted extends EngineEvent {
 }
 
 final class EngineFailed extends EngineEvent {
-  const EngineFailed(this.message);
+  const EngineFailed(this.message, {this.unplayable});
 
   /// User-facing explanation, free of diagnostic details.
   final String message;
+
+  /// Set when the fault is this track's own (removed, or not allowed here),
+  /// so trying it again won't help.
+  final Track? unplayable;
 }
 
 /// One way of producing sound for one media source. The controller owns the

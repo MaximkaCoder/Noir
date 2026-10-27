@@ -14,6 +14,7 @@ import 'package:noir/features/analysis/application/analysis_providers.dart';
 import 'package:noir/features/analysis/presentation/track_analysis_dialog.dart';
 import 'package:noir/features/discover/presentation/dislike_actions.dart';
 import 'package:noir/features/playback/application/playback_controller.dart';
+import 'package:noir/features/playback/application/unplayable_tracks.dart';
 import 'package:noir/features/playlists/presentation/add_to_playlist.dart';
 import 'package:noir/features/settings/domain/app_settings.dart';
 import 'package:noir/features/settings/presentation/settings_controller.dart';
@@ -69,10 +70,16 @@ class _TrackRowState extends ConsumerState<TrackRow> {
     );
     final track = widget.track;
     final art = compact ? 36.0 : 44.0;
+    final unplayable = ref.watch(
+      unplayableTracksProvider.select((u) => u.reasonFor(track)),
+    );
 
-    return Semantics(
+    final row = Semantics(
       button: true,
-      label: '${track.title}, ${track.artistOrUnknown}',
+      label: [
+        '${track.title}, ${track.artistOrUnknown}',
+        ?unplayable,
+      ].join('. '),
       hint: 'Double tap to play',
       child: MouseRegion(
         onEnter: (_) => setState(() => _hovered = true),
@@ -179,6 +186,13 @@ class _TrackRowState extends ConsumerState<TrackRow> {
           ),
         ),
       ),
+    );
+    if (unplayable == null) return row;
+    // Greyed out; hovering tells why it won't play.
+    return Tooltip(
+      message: unplayable,
+      excludeFromSemantics: true,
+      child: Opacity(opacity: 0.4, child: row),
     );
   }
 

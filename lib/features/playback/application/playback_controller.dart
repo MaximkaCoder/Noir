@@ -13,6 +13,7 @@ import 'package:noir/features/library/data/library_repository.dart';
 import 'package:noir/features/playback/application/song_versions.dart';
 import 'package:noir/features/playback/application/transition_log.dart';
 import 'package:noir/features/playback/application/transition_status.dart';
+import 'package:noir/features/playback/application/unplayable_tracks.dart';
 import 'package:noir/features/playback/domain/audio_source_provider.dart';
 import 'package:noir/features/playback/domain/playback_engine.dart';
 import 'package:noir/features/playback/domain/routing_engine.dart';
@@ -374,15 +375,27 @@ class PlaybackController extends Notifier<PlaybackState> {
   Future<void> next() async {
     final index = state.index;
     if (index == null) return;
-    if (index + 1 < state.queue.length) {
-      await _startAt(index + 1);
-    } else if (state.repeat == RepeatMode.all && state.queue.isNotEmpty) {
-      await _startAt(0);
-    } else if (_radioEligible &&
-        await _extendWithRadio() &&
-        index + 1 < state.queue.length) {
-      await _startAt(index + 1);
+    final after = _nextPlayable(index);
+    if (after != null) {
+      await _startAt(after);
+    } else if (_radioEligible && await _extendWithRadio()) {
+      final added = _nextPlayable(index);
+      if (added != null) await _startAt(added);
     }
+  }
+
+  /// The item that plays after [index]: tracks known not to play here are
+  /// passed over, and repeat-all wraps around. Null at the end.
+  int? _nextPlayable(int index) {
+    final unplayable = ref.read(unplayableTracksProvider);
+    final length = state.queue.length;
+    for (var i = index + 1; i <= index + length; i++) {
+      if (i >= length && state.repeat != RepeatMode.all) return null;
+      if (unplayable.reasonFor(state.queue[i % length].track) == null) {
+        return i % length;
+      }
+    }
+    return null;
   }
 
   /// Restarts the current item when past a few seconds, like most players.
@@ -642,9 +655,18 @@ class PlaybackController extends Notifier<PlaybackState> {
         state = state.copyWith(status: status);
       case EngineCompleted():
         unawaited(_onCompleted());
-      case EngineFailed(:final message):
+      case EngineFailed(:final message, :final unplayable):
         state = state.copyWith(status: PlaybackStatus.error, message: message);
+        if (unplayable != null) unawaited(_skipUnplayable(unplayable, message));
     }
+  }
+
+  /// Remembers [track] as one that won't play here and moves on, so the
+  /// queue doesn't stop on it.
+  Future<void> _skipUnplayable(Track track, String message) async {
+    ref.read(unplayableTracksProvider.notifier).add(track, message);
+    if (state.current?.track.uri != track.uri) return;
+    await next();
   }
 
   Future<void> _onCompleted() async {
@@ -803,9 +825,7 @@ class PlaybackController extends Notifier<PlaybackState> {
           '(${state.queue[index].track.source.name}, not cached)';
       return;
     }
-    final nextIndex = index + 1 < state.queue.length
-        ? index + 1
-        : (state.repeat == RepeatMode.all ? 0 : null);
+    final nextIndex = _nextPlayable(index);
     if (nextIndex == null) {
       _whyNot = 'nothing queued after it';
       return;

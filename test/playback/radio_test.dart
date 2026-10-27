@@ -6,6 +6,7 @@ import 'package:noir/features/discover/application/discover_providers.dart';
 import 'package:noir/features/discover/application/dislikes.dart';
 import 'package:noir/features/library/data/library_repository.dart';
 import 'package:noir/features/playback/application/playback_controller.dart';
+import 'package:noir/features/playback/application/unplayable_tracks.dart';
 import 'package:noir/features/playback/domain/playback_engine.dart';
 import 'package:noir/integrations/youtube_music/innertube_client.dart';
 import 'package:noir/integrations/youtube_music/ytm_models.dart';
@@ -206,5 +207,33 @@ void main() {
     expect(radioCalls(), ['search Mara Vale A songs', 'radio m1']);
     // The match is the same song as the seed, so it is not queued again.
     expect(uris(), [local.single.uri, 'r1']);
+  });
+
+  test("a video YouTube won't play here is remembered and skipped", () async {
+    await controller().playTracks([y1, y2, r1]);
+    engine.emit(EngineFailed('Owner says no', unplayable: y1));
+    await pumpEventQueue();
+
+    expect(state().current!.track.uri, 'y2');
+    final unplayable = container.read(unplayableTracksProvider);
+    expect(unplayable.reasonFor(y1), 'Owner says no');
+    expect(unplayable.reasonFor(y2), isNull);
+  });
+
+  test('next passes over videos known not to play', () async {
+    container.read(unplayableTracksProvider.notifier).add(y2, 'Owner says no');
+    await controller().playTracks([y1, y2, r1]);
+
+    await controller().next();
+    expect(state().current!.track.uri, 'r1');
+  });
+
+  test("a failure that is not the video's own stops on it", () async {
+    await controller().playTracks([y1, y2]);
+    engine.emit(const EngineFailed('Offline'));
+    await pumpEventQueue();
+
+    expect(state().current!.track.uri, 'y1');
+    expect(state().status, PlaybackStatus.error);
   });
 }
