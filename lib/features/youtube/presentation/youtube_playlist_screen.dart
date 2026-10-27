@@ -16,6 +16,7 @@ import 'package:noir/features/youtube/application/youtube_save.dart';
 import 'package:noir/features/youtube/application/youtube_sync.dart';
 import 'package:noir/features/youtube/presentation/save_button.dart';
 import 'package:noir/shared/models/media.dart';
+import 'package:noir/shared/widgets/collection_extras.dart';
 import 'package:noir/shared/widgets/collection_header.dart';
 import 'package:noir/shared/widgets/page_scaffold.dart';
 import 'package:noir/shared/widgets/track_filter.dart';
@@ -239,6 +240,10 @@ class _YouTubeTrackListState extends ConsumerState<_YouTubeTrackList> {
             onSurprise: list.length < 2
                 ? null
                 : () => unawaited(playback.surprise(list)),
+            extras: ref.watch(collectionExtrasProvider)(
+              'youtube:$refreshKey',
+              list,
+            ),
             actions: [PinButton(pin)],
           ),
         ),

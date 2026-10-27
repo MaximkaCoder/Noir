@@ -13,6 +13,7 @@ class CollectionHeader extends StatelessWidget {
     required this.onShuffle,
     this.eyebrow,
     this.onSurprise,
+    this.extras = const [],
     this.actions = const [],
     super.key,
   });
@@ -27,6 +28,9 @@ class CollectionHeader extends StatelessWidget {
   /// Surprise me (shown when set): a random start, then the tracks that
   /// mix best.
   final VoidCallback? onSurprise;
+
+  /// Right after Play (see `collectionExtrasProvider`).
+  final List<Widget> extras;
   final List<Widget> actions;
 
   @override
@@ -60,6 +64,7 @@ class CollectionHeader extends StatelessWidget {
           children: [
             PrimaryPlayButton(playing: false, onPressed: onPlay, size: 44),
             const SizedBox(width: NoirSpacing.sm),
+            ...extras,
             NoirIconButton(
               icon: Icons.shuffle_rounded,
               tooltip: 'Shuffle play',

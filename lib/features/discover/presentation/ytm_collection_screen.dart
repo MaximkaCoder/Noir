@@ -12,6 +12,7 @@ import 'package:noir/features/playback/application/playback_controller.dart';
 import 'package:noir/features/youtube/application/youtube_providers.dart';
 import 'package:noir/integrations/youtube_music/innertube_client.dart';
 import 'package:noir/integrations/youtube_music/ytm_models.dart';
+import 'package:noir/shared/widgets/collection_extras.dart';
 import 'package:noir/shared/widgets/collection_header.dart';
 import 'package:noir/shared/widgets/page_scaffold.dart';
 import 'package:noir/shared/widgets/track_row.dart';
@@ -82,6 +83,7 @@ class YtmCollectionScreen extends ConsumerWidget {
             onShuffle: tracks.isEmpty
                 ? null
                 : () => unawaited(playback.shuffleTracks(tracks)),
+            extras: ref.watch(collectionExtrasProvider)('ytm:$id', tracks),
             actions: [
               NoirIconButton(
                 icon: Icons.open_in_new_rounded,
