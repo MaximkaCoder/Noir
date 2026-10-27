@@ -289,7 +289,7 @@ class _Collections extends ConsumerWidget {
                   ),
                   if (likes.isNotEmpty)
                     item(
-                      label: ref.watch(youTubeLikesTitleProvider),
+                      label: likedMusicTitle,
                       route: '/library/youtube/liked',
                       cover: Artwork(
                         path: likes.first.artworkUrl,

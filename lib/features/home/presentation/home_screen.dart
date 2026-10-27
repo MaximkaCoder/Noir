@@ -91,10 +91,9 @@ class _PlaylistsRow extends ConsumerWidget {
         ref.watch(youTubePlaylistsProvider).value ?? const <YouTubePlaylist>[];
     final likes = ref.watch(youTubeLikesProvider).value ?? const <Track>[];
     final favorites = ref.watch(favoritesProvider).value ?? const <Track>[];
-    final likesTitle = ref.watch(youTubeLikesTitleProvider);
 
     _Collection liked() => (
-      title: likesTitle,
+      title: likedMusicTitle,
       subtitle: 'YouTube · ${songCount(likes.length)}',
       artwork: (s) => Artwork(
         path: likes.firstOrNull?.artwork,

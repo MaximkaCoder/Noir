@@ -1,15 +1,10 @@
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noir/app/router.dart';
-import 'package:noir/core/database/database_provider.dart';
-import 'package:noir/features/settings/data/settings_repository.dart';
-import 'package:noir/features/youtube/application/youtube_providers.dart';
 import 'package:noir/features/youtube/data/youtube_repository.dart';
 import 'package:noir/integrations/youtube_data/youtube_api.dart';
 import 'package:noir/shared/widgets/collection_header.dart';
 
 import '../helpers/pump_app.dart';
-import '../helpers/test_database.dart';
 
 const _likes = [
   YtVideo(
@@ -42,7 +37,7 @@ Finder _title(String text) => find.descendant(
 );
 
 void main() {
-  testWidgets('Liked music hides non-music likes until "All likes"', (
+  testWidgets('Liked music shows only the music among liked videos', (
     tester,
   ) async {
     final app = await TestApp.pump(tester, withMusic: false);
@@ -55,51 +50,7 @@ void main() {
     expect(find.text('Signal (Live)'), findsOneWidget);
     expect(find.text('How to fix a bike chain'), findsNothing);
     expect(find.textContaining('2 songs · 7m'), findsOneWidget);
-
-    await tester.tap(find.text('All likes'));
-    await tester.pumpAndSettle();
-
-    expect(_title('Liked videos'), findsOneWidget);
-    expect(find.text('How to fix a bike chain'), findsOneWidget);
-    expect(find.textContaining('3 songs · 17m'), findsOneWidget);
-    final saved = await app.container
-        .read(settingsRepositoryProvider)
-        .readJson('youtube_likes_filter');
-    expect(saved, {'musicOnly': false});
-  });
-
-  test('the "All likes" choice survives a restart', () async {
-    final db = inMemoryDatabase();
-    addTearDown(db.close);
-    await YouTubeRepository(db).saveLikes(_likes);
-
-    var container = ProviderContainer(
-      overrides: [databaseProvider.overrideWithValue(db)],
-    );
-    expect(container.read(likesMusicOnlyProvider), isTrue, reason: 'default');
-    expect(container.read(youTubeLikesTitleProvider), 'Liked music');
-    container.read(likesMusicOnlyProvider.notifier).set(musicOnly: false);
-    await pumpEventQueue();
-    container.dispose();
-
-    container = ProviderContainer(
-      overrides: [databaseProvider.overrideWithValue(db)],
-    );
-    addTearDown(container.dispose);
-    final sub = container.listen(youTubeLikesProvider, (_, _) {});
-    addTearDown(sub.close);
-    container.read(likesMusicOnlyProvider);
-    await pumpEventQueue();
-    expect(container.read(likesMusicOnlyProvider), isFalse);
-    expect(container.read(youTubeLikesTitleProvider), 'Liked videos');
-    await pumpEventQueue();
-    expect(container.read(youTubeLikesProvider).value, hasLength(3));
-
-    container.read(likesMusicOnlyProvider.notifier).set(musicOnly: true);
-    await pumpEventQueue();
-    expect(
-      [for (final t in container.read(youTubeLikesProvider).value!) t.uri],
-      ['m1', 'm2'],
-    );
+    expect(find.text('All likes'), findsNothing);
+    expect(find.byTooltip('Open in YouTube Music'), findsNothing);
   });
 }

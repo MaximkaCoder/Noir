@@ -247,7 +247,6 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
         if (_matches(p.title)) p,
     ];
     final likes = ref.watch(youTubeLikesProvider).value ?? const <Track>[];
-    final likesTitle = ref.watch(youTubeLikesTitleProvider);
     final connected =
         ref.watch(accountConnectionProvider).value?.isConnected ?? false;
     if (!connected && playlists.isEmpty) return const [];
@@ -258,10 +257,10 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
           child: SectionHeader('From YouTube'),
         ),
       ),
-      if (likes.isNotEmpty && _matches(likesTitle))
+      if (likes.isNotEmpty && _matches(likedMusicTitle))
         SliverToBoxAdapter(
           child: CollectionRow(
-            title: likesTitle,
+            title: likedMusicTitle,
             subtitle: songCount(likes.length),
             leading: Artwork(
               path: likes.first.artworkUrl,

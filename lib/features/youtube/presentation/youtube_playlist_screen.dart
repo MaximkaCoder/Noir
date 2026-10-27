@@ -5,7 +5,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:noir/app/theme/design_tokens.dart';
 import 'package:noir/core/formatters.dart';
 import 'package:noir/core/widgets/artwork.dart';
-import 'package:noir/core/widgets/buttons.dart';
 import 'package:noir/core/widgets/dialogs.dart';
 import 'package:noir/core/widgets/states.dart';
 import 'package:noir/features/home/application/pinned_playlists.dart';
@@ -21,7 +20,6 @@ import 'package:noir/shared/widgets/collection_header.dart';
 import 'package:noir/shared/widgets/page_scaffold.dart';
 import 'package:noir/shared/widgets/track_filter.dart';
 import 'package:noir/shared/widgets/track_row.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 /// A playlist from the connected YouTube account. Opening it — or coming
 /// back to NOIR while it is open — fetches changes made on YouTube in the
@@ -88,7 +86,6 @@ class _YouTubePlaylistScreenState extends ConsumerState<YouTubePlaylistScreen> {
       eyebrow: 'YouTube playlist',
       refreshKey: id,
       pin: PinnedRef(PinKind.youtube, id),
-      openUrl: youTubeMusicUrl(playlistId: id),
       emptyMessage:
           'Nothing playable here yet. Deleted and private videos are skipped.',
       onRemove: (track) =>
@@ -116,8 +113,8 @@ Future<void> removeFromYouTube(
   }
 }
 
-/// Videos the user liked on YouTube; music only unless "All likes" is
-/// chosen. Opening it fetches new likes in the background.
+/// Music among the videos the user liked on YouTube. Opening it fetches new
+/// likes in the background.
 class YouTubeLikesScreen extends ConsumerStatefulWidget {
   const YouTubeLikesScreen({super.key});
 
@@ -139,33 +136,14 @@ class _YouTubeLikesScreenState extends ConsumerState<YouTubeLikesScreen> {
   @override
   Widget build(BuildContext context) {
     final tracks = ref.watch(youTubeLikesProvider);
-    final musicOnly = ref.watch(likesMusicOnlyProvider);
-    void show({required bool musicOnly}) =>
-        ref.read(likesMusicOnlyProvider.notifier).set(musicOnly: musicOnly);
     return _YouTubeTrackList(
       tracks: tracks,
-      title: ref.watch(youTubeLikesTitleProvider),
+      title: likedMusicTitle,
       artwork: tracks.value?.firstOrNull?.artworkUrl,
       eyebrow: 'YouTube',
       refreshKey: YouTubeRefreshController.likesKey,
       pin: PinnedRef.youtubeLiked,
-      openUrl: youTubeMusicUrl(playlistId: 'LL'),
-      filters: [
-        PillChip(
-          label: 'Music',
-          selected: musicOnly,
-          onSelected: () => show(musicOnly: true),
-        ),
-        PillChip(
-          label: 'All likes',
-          selected: !musicOnly,
-          onSelected: () => show(musicOnly: false),
-        ),
-      ],
-      emptyMessage: musicOnly
-          ? 'No music among your liked videos yet. "All likes" shows '
-                'everything you liked on YouTube.'
-          : 'Videos you like on YouTube appear here after a sync.',
+      emptyMessage: 'No music among your liked videos yet.',
       onRemove: (track) =>
           unawaited(removeFromYouTube(context, ref, likedVideosId, track)),
     );
@@ -180,9 +158,7 @@ class _YouTubeTrackList extends ConsumerStatefulWidget {
     required this.eyebrow,
     required this.refreshKey,
     required this.pin,
-    required this.openUrl,
     required this.emptyMessage,
-    this.filters = const [],
     this.onRemove,
   });
 
@@ -194,11 +170,7 @@ class _YouTubeTrackList extends ConsumerStatefulWidget {
   /// Key of this page in [youTubeRefreshProvider].
   final String refreshKey;
   final PinnedRef pin;
-  final Uri openUrl;
   final String emptyMessage;
-
-  /// Chips shown under the header.
-  final List<Widget> filters;
 
   /// Adds "Remove from playlist" to each song's menu.
   final void Function(Track track)? onRemove;
@@ -219,9 +191,7 @@ class _YouTubeTrackListState extends ConsumerState<_YouTubeTrackList> {
       :eyebrow,
       :refreshKey,
       :pin,
-      :openUrl,
       :emptyMessage,
-      :filters,
       :onRemove,
     ) = widget;
     final playback = ref.read(playbackProvider.notifier);
@@ -269,32 +239,18 @@ class _YouTubeTrackListState extends ConsumerState<_YouTubeTrackList> {
             onSurprise: list.length < 2
                 ? null
                 : () => unawaited(playback.surprise(list)),
-            actions: [
-              PinButton(pin),
-              NoirIconButton(
-                icon: Icons.open_in_new_rounded,
-                tooltip: 'Open in YouTube Music',
-                onPressed: () => unawaited(
-                  launchUrl(openUrl, mode: LaunchMode.externalApplication),
-                ),
-              ),
-            ],
+            actions: [PinButton(pin)],
           ),
         ),
-        if (filters.isNotEmpty || list.isNotEmpty)
+        if (list.isNotEmpty)
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.only(bottom: NoirSpacing.md),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Wrap(spacing: NoirSpacing.xs, children: filters),
-                  ),
-                  if (list.isNotEmpty)
-                    TrackFilterField(
-                      onChanged: (q) => setState(() => _query = q),
-                    ),
-                ],
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: TrackFilterField(
+                  onChanged: (q) => setState(() => _query = q),
+                ),
               ),
             ),
           ),

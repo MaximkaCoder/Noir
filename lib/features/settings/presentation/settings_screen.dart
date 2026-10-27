@@ -774,8 +774,7 @@ class _SidebarDialog extends ConsumerWidget {
     final entries = <(String, String)>[
       ('/library/favorites', 'Favorites'),
       for (final p in playlists) ('/library/playlist/${p.id}', p.name),
-      if (likes.isNotEmpty)
-        ('/library/youtube/liked', ref.watch(youTubeLikesTitleProvider)),
+      if (likes.isNotEmpty) ('/library/youtube/liked', likedMusicTitle),
       for (final p in ytPlaylists) ('/library/youtube/${p.id}', p.title),
     ];
     return Column(
