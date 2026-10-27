@@ -854,8 +854,13 @@ class PlaybackController extends Notifier<PlaybackState> {
   static const _lastCall = 12.0;
 
   /// A next track found not to be on the mixing player is checked again
-  /// after this much playback (its audio may get cached meanwhile).
+  /// after this much playback (its audio may get cached meanwhile); so are
+  /// missing analyses (a just-cached track is analysed shortly after).
   static const _recheckEvery = 5.0;
+
+  /// With an analysis still missing, planning waits until this little is
+  /// left.
+  static const _analysisWait = 30.0;
 
   void _maybeSmart(
     TransitionPlanner planner,
@@ -886,9 +891,19 @@ class PlaybackController extends Notifier<PlaybackState> {
     }
     if (prep.plan == null) {
       var sides = prep.sides;
+      if (prep.missingAnalysis &&
+          !prep.loadingSides &&
+          at - prep.sidesAt >= _recheckEvery) {
+        unawaited(_loadSides(prep, at));
+      }
       // Disco may hand over mid-track: it plans once everything is known.
-      final ready = early && sides != null && prep.lyricsDone;
+      final ready =
+          early && sides != null && !prep.missingAnalysis && prep.lyricsDone;
       if (!ready && remaining > _smartPlanAt.inSeconds) return;
+      if (prep.missingAnalysis && remaining > _analysisWait) {
+        _whyNot = 'waiting for an analysis';
+        return;
+      }
       if (sides == null) {
         if (remaining > _lastCall) {
           _whyNot = 'analyses not loaded yet';
@@ -954,13 +969,8 @@ class PlaybackController extends Notifier<PlaybackState> {
   /// if there is still time).
   Future<void> _gatherSmart(_SmartPrep prep, double at) async {
     await _checkMixable(prep, at);
-    final load = ref.read(transitionSideLoaderProvider);
-    final sides = await Future.wait([
-      load(prep.from.track),
-      load(prep.to.track),
-    ]);
+    await _loadSides(prep, at);
     if (!ref.mounted || !identical(_smart, prep)) return;
-    prep.sides = (sides[0], sides[1]);
     final vocals = ref.read(vocalTimingLoaderProvider);
     final timings = await Future.wait([
       vocals(prep.from.track),
@@ -973,6 +983,28 @@ class PlaybackController extends Notifier<PlaybackState> {
       ..lyricsDone = true;
     if (prep.plan != null && !prep.handedOver && !prep.plannedWithLyrics) {
       prep.plan = null; // Plan again with the vocal timing.
+    }
+  }
+
+  /// Loads the stored analyses of both sides.
+  Future<void> _loadSides(_SmartPrep prep, double at) async {
+    prep
+      ..loadingSides = true
+      ..sidesAt = at;
+    final load = ref.read(transitionSideLoaderProvider);
+    try {
+      final sides = await Future.wait([
+        load(prep.from.track),
+        load(prep.to.track),
+      ]);
+      if (!ref.mounted || !identical(_smart, prep)) return;
+      final had = prep.sides;
+      prep.sides = (sides[0], sides[1]);
+      if (had != null && !prep.missingAnalysis) {
+        _log('${_pair(prep)}: analyses ready');
+      }
+    } finally {
+      prep.loadingSides = false;
     }
   }
 
@@ -1149,6 +1181,16 @@ class _SmartPrep {
 
   /// Planner inputs without lyrics (outgoing, incoming), once loaded.
   (TransitionSide, TransitionSide)? sides;
+
+  /// Outgoing position when [sides] were last loaded.
+  double sidesAt = 0;
+  bool loadingSides = false;
+
+  /// [sides] are loaded but one has no analysis yet.
+  bool get missingAnalysis => switch (sides) {
+    (final a, final b) => a.analysis == null || b.analysis == null,
+    null => false,
+  };
 
   /// Vocal timing from lyrics, once [lyricsDone].
   VocalTiming? vocalsA;
