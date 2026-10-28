@@ -38,6 +38,10 @@ constexpr UINT kSnapInterval = 10;
 constexpr ULONGLONG kSnapDuration = 420;
 constexpr UINT_PTR kDesktopTimer = 4;
 constexpr UINT kDesktopInterval = 250;
+constexpr UINT_PTR kToneTimer = 5;
+constexpr UINT kToneInterval = 400;
+// How much of the screen beside the player is measured, logical pixels.
+constexpr double kToneReach = 24;
 
 bool IsSide(const std::string& side) {
   return side == "left" || side == "right" || side == "top" ||
@@ -287,6 +291,7 @@ bool EdgePlayer::Create() {
   CheckFullscreen();
   ::SetTimer(window_, kFullscreenTimer, kFullscreenInterval, nullptr);
   ::SetTimer(window_, kDesktopTimer, kDesktopInterval, nullptr);
+  ::SetTimer(window_, kToneTimer, kToneInterval, nullptr);
   return true;
 }
 
@@ -325,6 +330,7 @@ void EdgePlayer::FollowDesktop() {
   ApplyRegion();
   ::SetTimer(window_, kFullscreenTimer, kFullscreenInterval, nullptr);
   ::SetTimer(window_, kDesktopTimer, kDesktopInterval, nullptr);
+  ::SetTimer(window_, kToneTimer, kToneInterval, nullptr);
   if (!::IsRectEmpty(&region_) && !capturable_) {
     ::SetTimer(window_, kBackdropTimer, kBackdropInterval, nullptr);
   }
@@ -342,6 +348,7 @@ void EdgePlayer::Destroy() {
   desktops_ = nullptr;
   view_ready_ = false;
   region_ = {};
+  tone_ = -1;
   dragging_ = false;
   snapping_ = false;
   if (window_) {
@@ -540,6 +547,71 @@ void EdgePlayer::SendBackdrop() {
       }));
 }
 
+void EdgePlayer::SendTone() {
+  if (!view_ready_ || ::IsRectEmpty(&region_) || !::IsWindowVisible(window_)) {
+    return;
+  }
+  // The strip of screen just inside the player's region, outside the
+  // window's visible part, so the player itself is never measured.
+  RECT rect = {
+      origin_.x + static_cast<LONG>(std::floor(region_.left * scale_)),
+      origin_.y + static_cast<LONG>(std::floor(region_.top * scale_)),
+      origin_.x + static_cast<LONG>(std::ceil(region_.right * scale_)),
+      origin_.y + static_cast<LONG>(std::ceil(region_.bottom * scale_)),
+  };
+  const LONG reach = std::lround(kToneReach * scale_);
+  if (side_ == "right") {
+    rect = {rect.left - reach, rect.top, rect.left, rect.bottom};
+  } else if (side_ == "left") {
+    rect = {rect.right, rect.top, rect.right + reach, rect.bottom};
+  } else if (side_ == "bottom") {
+    rect = {rect.left, rect.top - reach, rect.right, rect.top};
+  } else {
+    rect = {rect.left, rect.bottom, rect.right, rect.bottom + reach};
+  }
+  const RECT bounds = Bounds();
+  RECT sample = {};
+  if (!::IntersectRect(&sample, &rect, &bounds)) return;
+
+  // HALFTONE averages the whole strip into the one pixel.
+  BITMAPINFO info = {};
+  info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+  info.bmiHeader.biWidth = 1;
+  info.bmiHeader.biHeight = -1;
+  info.bmiHeader.biPlanes = 1;
+  info.bmiHeader.biBitCount = 32;
+  info.bmiHeader.biCompression = BI_RGB;
+  HDC screen = ::GetDC(nullptr);
+  HDC memory = ::CreateCompatibleDC(screen);
+  void* bits = nullptr;
+  HBITMAP bitmap =
+      ::CreateDIBSection(memory, &info, DIB_RGB_COLORS, &bits, nullptr, 0);
+  double luminance = -1;
+  if (bitmap) {
+    HGDIOBJ old = ::SelectObject(memory, bitmap);
+    ::SetStretchBltMode(memory, HALFTONE);
+    ::SetBrushOrgEx(memory, 0, 0, nullptr);
+    if (::StretchBlt(memory, 0, 0, 1, 1, screen, sample.left, sample.top,
+                     sample.right - sample.left, sample.bottom - sample.top,
+                     SRCCOPY)) {
+      ::GdiFlush();
+      const auto* pixel = static_cast<const uint8_t*>(bits);
+      luminance =
+          (0.0722 * pixel[0] + 0.7152 * pixel[1] + 0.2126 * pixel[2]) / 255;
+    }
+    ::SelectObject(memory, old);
+    ::DeleteObject(bitmap);
+  }
+  ::DeleteDC(memory);
+  ::ReleaseDC(nullptr, screen);
+  if (luminance < 0 || std::abs(luminance - tone_) < 0.02) return;
+  tone_ = luminance;
+  view_channel_->InvokeMethod(
+      "tone", std::make_unique<EncodableValue>(EncodableMap{
+                  {EncodableValue("luminance"), EncodableValue(luminance)},
+              }));
+}
+
 void EdgePlayer::DragEnd(double center_x, double center_y, double depth) {
   dragging_ = false;
   POINT cursor;
@@ -657,6 +729,7 @@ LRESULT EdgePlayer::HandleMessage(HWND window, UINT message, WPARAM wparam,
       if (wparam == kBackdropTimer) SendBackdrop();
       if (wparam == kSnapTimer) StepSnap();
       if (wparam == kDesktopTimer) FollowDesktop();
+      if (wparam == kToneTimer) SendTone();
       return 0;
     case WM_DPICHANGED:
       if (dragging_ || snapping_) {

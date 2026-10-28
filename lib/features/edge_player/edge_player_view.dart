@@ -166,6 +166,9 @@ class _EdgePlayerViewState extends State<EdgePlayerView>
   /// The region last sent, to skip repeats.
   Rect? _sentRegion;
 
+  /// The screen beside the player is light: the line is drawn dark.
+  bool _onLight = false;
+
   @override
   void initState() {
     super.initState();
@@ -223,6 +226,11 @@ class _EdgePlayerViewState extends State<EdgePlayerView>
         WidgetsBinding.instance.addPostFrameCallback((_) => _sendRegion());
       case 'backdrop' when args is Map:
         await _setBackdrop(args);
+      case 'tone' when args is Map:
+        final luminance = (args['luminance'] as num? ?? 0).toDouble();
+        // A gap between the two, so a mid-grey screen doesn't flicker it.
+        final onLight = _onLight ? luminance > 0.45 : luminance > 0.6;
+        if (onLight != _onLight) setState(() => _onLight = onLight);
     }
   }
 
@@ -481,6 +489,7 @@ class _EdgePlayerViewState extends State<EdgePlayerView>
                     attach: 1 - _detach.value,
                   ),
                   handle: t.clamp(0.0, 1.0),
+                  onLight: _onLight,
                   amount: glass,
                   backdrop: _backdrop,
                   art: _art,
@@ -667,14 +676,16 @@ class EdgeOutline {
   int get hashCode => Object.hash(box, side, radius, attach);
 }
 
-/// The outline drawn. As the thin line ([handle] 0–1) it is a faint bar; as
-/// the player ([amount] 0–1) it is glass: the blurred screen behind, the
+/// The outline drawn. As the thin line ([handle] 0–1) it is a bar that
+/// stands out from the screen beside it (dark [onLight], light otherwise);
+/// as the player ([amount] 0–1) it is glass: the blurred screen behind, the
 /// track's artwork flowing over it as in Now Playing, a dark wash, a
 /// hairline of light along its inner sides and a soft shadow.
 class _Glass extends StatelessWidget {
   const _Glass({
     required this.outline,
     required this.handle,
+    required this.onLight,
     required this.amount,
     required this.backdrop,
     required this.art,
@@ -685,6 +696,7 @@ class _Glass extends StatelessWidget {
 
   final EdgeOutline outline;
   final double handle;
+  final bool onLight;
   final double amount;
   final _Backdrop? backdrop;
   final ui.Image? art;
@@ -713,13 +725,16 @@ class _Glass extends StatelessWidget {
             children: [
               // The line, before the glass takes over.
               Positioned.fill(
-                child: ColoredBox(
-                  color: Color.fromRGBO(
-                    255,
-                    255,
-                    255,
-                    0.3 * handle * (1 - amount),
-                  ),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 300),
+                  color: onLight
+                      ? Color.fromRGBO(0, 0, 0, 0.6 * handle * (1 - amount))
+                      : Color.fromRGBO(
+                          255,
+                          255,
+                          255,
+                          0.5 * handle * (1 - amount),
+                        ),
                 ),
               ),
               if (backdrop != null && amount > 0)

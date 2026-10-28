@@ -31,7 +31,8 @@
 // rectangle to clip the window to, logical pixels; empty when the player has
 // slid away); "dragStart", "dragUpdate", "dragEnd" {centerX, centerY, depth}
 // (the player's middle in window coordinates and how deep it is).
-// Native -> view: "update", "layout" {side, overhang}, "backdrop".
+// Native -> view: "update", "layout" {side, overhang}, "backdrop", "tone"
+// {luminance} (the screen beside the player).
 //
 // Outside the region clicks reach the windows underneath. While the player
 // shows, the screen behind it is captured, scaled down, and sent to the view
@@ -83,6 +84,9 @@ class EdgePlayer {
   RECT Bounds() const;
   void CheckFullscreen();
   void SendBackdrop();
+  // How light the screen is just inside the player, 0-1, for the view to
+  // pick a line that stands out.
+  void SendTone();
   void DragEnd(double center_x, double center_y, double depth);
   void StepSnap();
 
@@ -113,6 +117,7 @@ class EdgePlayer {
   double scale_ = 1;
   // Asked for by the view, logical pixels in window coordinates.
   RECT region_ = {};
+  double tone_ = -1;
 
   bool dragging_ = false;
   POINT grab_ = {};  // Cursor offset from |origin_| while dragging.

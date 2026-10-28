@@ -237,6 +237,28 @@ void main() {
     expect(pause.dx, greaterThan(title.dx));
   });
 
+  testWidgets('the line turns dark over a light screen', (tester) async {
+    await pump(tester);
+    Color line() {
+      final box = tester.widget<AnimatedContainer>(
+        find.byType(AnimatedContainer).first,
+      );
+      return (box.decoration! as BoxDecoration).color!;
+    }
+
+    expect(line().computeLuminance(), greaterThan(0.5));
+    await deliver(tester, 'tone', {'luminance': 0.9});
+    await tester.pumpAndSettle();
+    expect(line().computeLuminance(), lessThan(0.1));
+    // Mid-grey keeps it as it is; only a dark screen turns it back.
+    await deliver(tester, 'tone', {'luminance': 0.5});
+    await tester.pumpAndSettle();
+    expect(line().computeLuminance(), lessThan(0.1));
+    await deliver(tester, 'tone', {'luminance': 0.2});
+    await tester.pumpAndSettle();
+    expect(line().computeLuminance(), greaterThan(0.5));
+  });
+
   group('outline', () {
     const box = Rect.fromLTWH(100, 50, 60, 276);
 
