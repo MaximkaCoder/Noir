@@ -146,7 +146,8 @@ class SettingsScreen extends ConsumerWidget {
                   _ChoiceTile<EdgePlayerSide>(
                     icon: Icons.view_sidebar_rounded,
                     title: 'Player at the screen edge',
-                    subtitle: 'Point at the edge to show it.',
+                    subtitle:
+                        'Shows while NOIR is minimized. Drag it to move it.',
                     value: s.edgePlayer,
                     options: const {
                       EdgePlayerSide.off: 'Off',
