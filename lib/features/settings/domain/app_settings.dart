@@ -44,6 +44,10 @@ enum TransitionMode {
   disco,
 }
 
+/// Where the edge player docks on Windows: a small player that comes out
+/// from behind the screen edge when the pointer reaches it.
+enum EdgePlayerSide { off, left, right }
+
 @freezed
 abstract class AppSettings with _$AppSettings {
   const factory AppSettings({
@@ -74,6 +78,9 @@ abstract class AppSettings with _$AppSettings {
     @JsonKey(unknownEnumValue: LyricsMode.lines)
     @Default(LyricsMode.lines)
     LyricsMode lyricsMode,
+    @JsonKey(unknownEnumValue: EdgePlayerSide.right)
+    @Default(EdgePlayerSide.right)
+    EdgePlayerSide edgePlayer,
 
     /// Plays YouTube without a visible player and keeps playing when the
     /// window is hidden (owner decision; YouTube API Services policies

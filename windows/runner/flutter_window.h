@@ -6,6 +6,7 @@
 
 #include <memory>
 
+#include "edge_player.h"
 #include "smtc_bridge.h"
 #include "win32_window.h"
 
@@ -32,6 +33,9 @@ class FlutterWindow : public Win32Window {
 
   // System media controls (flyout + media keys); driven from Dart.
   std::unique_ptr<SmtcBridge> smtc_;
+
+  // The player docked to the screen edge; driven from Dart.
+  std::unique_ptr<EdgePlayer> edge_;
 };
 
 #endif  // RUNNER_FLUTTER_WINDOW_H_

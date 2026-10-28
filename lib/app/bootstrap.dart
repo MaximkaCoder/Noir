@@ -12,6 +12,7 @@ import 'package:noir/core/database/app_database.dart';
 import 'package:noir/core/database/database_provider.dart';
 import 'package:noir/core/platform/profile_paths.dart';
 import 'package:noir/features/analysis/application/analysis_providers.dart';
+import 'package:noir/features/edge_player/edge_player_bridge.dart';
 import 'package:noir/features/library/application/library_scan_controller.dart';
 import 'package:noir/features/playback/application/playback_controller.dart';
 import 'package:noir/features/playback/presentation/media_session.dart';
@@ -59,7 +60,10 @@ Future<void> bootstrap({List<Override> overrides = const []}) async {
   if (Platform.isAndroid || Platform.isIOS || Platform.isMacOS) {
     await startMediaSession(container);
   }
-  if (Platform.isWindows) startWindowsMediaControls(container);
+  if (Platform.isWindows) {
+    startWindowsMediaControls(container);
+    startEdgePlayer(container);
+  }
   unawaited(container.read(playbackProvider.notifier).restoreSession());
   // Keeps YouTube sync alive for the app's lifetime (Riverpod pauses
   // providers nobody listens to).

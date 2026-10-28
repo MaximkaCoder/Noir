@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -141,6 +142,19 @@ class SettingsScreen extends ConsumerWidget {
                   },
                   onChanged: (m) => set((s) => s.copyWith(lyricsMode: m)),
                 ),
+                if (Platform.isWindows)
+                  _ChoiceTile<EdgePlayerSide>(
+                    icon: Icons.view_sidebar_rounded,
+                    title: 'Player at the screen edge',
+                    subtitle: 'Point at the edge to show it.',
+                    value: s.edgePlayer,
+                    options: const {
+                      EdgePlayerSide.off: 'Off',
+                      EdgePlayerSide.left: 'Left',
+                      EdgePlayerSide.right: 'Right',
+                    },
+                    onChanged: (e) => set((s) => s.copyWith(edgePlayer: e)),
+                  ),
                 for (final section in ref.watch(settingsExtensionsProvider))
                   Builder(builder: section),
                 const _Section('Accounts'),
