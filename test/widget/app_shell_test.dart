@@ -422,7 +422,8 @@ void main() {
       );
       await tester.sendEventToBinding(pointer.scroll(const Offset(0, -50)));
       await tester.pumpAndSettle();
-      expect(volume(), closeTo(0.45, 1e-9));
+      expect(volume(), closeTo(0.45, 1e-9));      // The remembered volume is saved once it settles.
+      await tester.pump(const Duration(seconds: 1));
     });
 
     testWidgets('the wheel over the volume does not scroll the page', (
@@ -467,6 +468,8 @@ void main() {
       await tester.pumpAndSettle();
       expect(scroll.offset, greaterThan(0));
       expect(volume(), closeTo(0.55, 1e-9));
+      // The remembered volume is saved once it settles.
+      await tester.pump(const Duration(seconds: 1));
     });
 
     testWidgets('the capsule shrinks with the window', (tester) async {

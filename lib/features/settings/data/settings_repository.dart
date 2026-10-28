@@ -32,16 +32,20 @@ class SettingsRepository {
   }
 
   /// Settings saved before transitions had a mode used `crossfadeSeconds`
-  /// = 0 for "off".
+  /// = 0 for "off"; before the volume was remembered, a "volume at startup"
+  /// was set instead.
   @visibleForTesting
   static Map<String, Object?> migrateSettingsJson(Map<String, Object?> json) {
-    if (json.containsKey('transitionMode')) return json;
     final seconds = json['crossfadeSeconds'];
     final fading = seconds is int && seconds > 0;
     return {
       ...json,
-      'transitionMode': fading ? 'crossfade' : 'off',
-      'crossfadeSeconds': fading ? seconds : 6,
+      if (!json.containsKey('transitionMode')) ...{
+        'transitionMode': fading ? 'crossfade' : 'off',
+        'crossfadeSeconds': fading ? seconds : 6,
+      },
+      if (!json.containsKey('volume') && json.containsKey('defaultVolume'))
+        'volume': json['defaultVolume'],
     };
   }
 

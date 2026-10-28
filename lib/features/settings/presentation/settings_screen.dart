@@ -113,13 +113,6 @@ class SettingsScreen extends ConsumerWidget {
                     ),
                   ),
                 ),
-                const _Section('Sound'),
-                _SliderTile(
-                  label: 'Volume at startup',
-                  value: s.defaultVolume,
-                  display: '${(s.defaultVolume * 100).round()}%',
-                  onChanged: (v) => set((s) => s.copyWith(defaultVolume: v)),
-                ),
                 const _Section('Playback'),
                 _ToggleTile(
                   icon: Icons.history_rounded,

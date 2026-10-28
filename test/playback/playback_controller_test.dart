@@ -55,6 +55,18 @@ void main() {
     await db.close();
   });
 
+  test('starts at the remembered volume and remembers a new one', () async {
+    await setUpWith(const AppSettings(volume: 0.3));
+    expect(state().volume, 0.3);
+    expect(engine.calls, contains('volume 0.3'));
+
+    await controller().setVolume(0.5);
+    await controller().setVolume(0.6);
+    expect(container.read(settingsProvider).volume, 0.3);
+    await Future<void>.delayed(const Duration(milliseconds: 600));
+    expect(container.read(settingsProvider).volume, 0.6);
+  });
+
   group('queue', () {
     setUp(setUpWith);
 

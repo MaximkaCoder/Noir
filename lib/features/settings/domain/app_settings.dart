@@ -65,7 +65,9 @@ abstract class AppSettings with _$AppSettings {
 
     /// Length of a plain crossfade, 1–12 s.
     @Default(6) int crossfadeSeconds,
-    @Default(0.8) double defaultVolume,
+
+    /// The last volume set, restored at startup.
+    @Default(0.8) double volume,
     @Default(true) bool resumeSession,
     @Default(PlayBehavior.playContext) PlayBehavior playBehavior,
     @Default(false) bool sidebarCollapsed,

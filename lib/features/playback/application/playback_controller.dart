@@ -145,6 +145,9 @@ class PlaybackController extends Notifier<PlaybackState> {
 
   AppSettings get _settings => ref.read(settingsProvider);
 
+  static const _volumeSaveDelay = Duration(milliseconds: 500);
+  Timer? _volumeSave;
+
   @override
   PlaybackState build() {
     _engine = ref.watch(playbackEngineProvider);
@@ -157,7 +160,8 @@ class PlaybackController extends Notifier<PlaybackState> {
       }
       _subs.clear();
     });
-    final volume = _settings.defaultVolume;
+    ref.onDispose(() => _volumeSave?.cancel());
+    final volume = _settings.volume;
     unawaited(_engine.setVolume(volume));
     return PlaybackState(volume: volume, capabilities: _engine.capabilities);
   }
@@ -415,8 +419,17 @@ class PlaybackController extends Notifier<PlaybackState> {
     return _engine.seek(position);
   }
 
+  /// Sets the volume and remembers it for the next start.
   Future<void> setVolume(double volume) async {
     state = state.copyWith(volume: volume.clamp(0, 1));
+    // Once the slider settles, not on every step of a drag.
+    _volumeSave?.cancel();
+    _volumeSave = Timer(_volumeSaveDelay, () {
+      final volume = state.volume;
+      ref
+          .read(settingsProvider.notifier)
+          .update((s) => s.copyWith(volume: volume));
+    });
     await _engine.setVolume(state.volume);
   }
 

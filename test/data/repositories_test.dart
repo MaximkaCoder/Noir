@@ -186,6 +186,20 @@ void main() {
       expect(current.crossfadeSeconds, 3);
     });
 
+    test('keeps the old startup volume as the remembered volume', () async {
+      Future<AppSettings> load(String json) async {
+        await db
+            .into(db.keyValues)
+            .insertOnConflictUpdate(
+              KeyValuesCompanion.insert(key: 'app_settings', value: json),
+            );
+        return await SettingsRepository(db).loadSettings();
+      }
+
+      expect((await load('{"defaultVolume":0.3}')).volume, 0.3);
+      expect((await load('{"defaultVolume":0.3,"volume":0.6}')).volume, 0.6);
+    });
+
     test('falls back to defaults on corrupted data', () async {
       await db
           .into(db.keyValues)
