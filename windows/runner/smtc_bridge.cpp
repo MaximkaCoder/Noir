@@ -162,6 +162,7 @@ SmtcBridge::SmtcBridge(flutter::BinaryMessenger* messenger, HWND window)
     : channel_(std::make_unique<flutter::MethodChannel<EncodableValue>>(
           messenger, "noir/smtc",
           &flutter::StandardMethodCodec::GetInstance())),
+      taskbar_(window),
       impl_(std::make_shared<Impl>(window)) {
   channel_->SetMethodCallHandler([this](const auto& call, auto result) {
     HandleMethodCall(call, std::move(result));
@@ -181,6 +182,14 @@ SmtcBridge::~SmtcBridge() {
 }
 
 bool SmtcBridge::HandleWindowMessage(UINT message, WPARAM wparam) {
+  const char* pressed = nullptr;
+  if (taskbar_.HandleWindowMessage(message, wparam, &pressed)) {
+    if (pressed) {
+      channel_->InvokeMethod("button",
+                             std::make_unique<EncodableValue>(pressed));
+    }
+    return true;
+  }
   if (message == kButtonMessage) {
     const char* name = nullptr;
     switch (wparam) {
@@ -259,6 +268,9 @@ void SmtcBridge::HandleMethodCall(
       }
       updater.Update();
     } else if (method == "playback") {
+      // Before SMTC, which may throw.
+      taskbar_.Update(true, GetString(args, "status") == "playing",
+                      GetBool(args, "canPrevious"), GetBool(args, "canNext"));
       auto& smtc = impl_->Controls();
       smtc.IsPlayEnabled(GetBool(args, "canPlay"));
       smtc.IsPauseEnabled(GetBool(args, "canPause"));
@@ -279,6 +291,7 @@ void SmtcBridge::HandleMethodCall(
       timeline.Position(position);
       smtc.UpdateTimelineProperties(timeline);
     } else if (method == "clear") {
+      taskbar_.Update(false, false, false, false);
       impl_->NextArtworkGeneration();
       if (impl_->smtc) {
         impl_->smtc.DisplayUpdater().ClearAll();
