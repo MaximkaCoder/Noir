@@ -9,20 +9,28 @@
 #include <flutter/method_channel.h>
 
 #include <memory>
+#include <optional>
 #include <string>
 
 // The edge player: a small always-on-top window docked to the left or right
-// edge of the primary monitor. Its outer side reaches past the screen edge,
-// so the player seems to come out from behind it. It runs its own Flutter
-// engine ("edgePlayerMain" in lib/main.dart) and only relays: the app sends
-// the playback state over "noir/edge" ("update"), the edge view sends
-// commands back ("command"), which are passed to the app unchanged.
+// edge of a monitor while NOIR is minimized. Its outer side reaches past the
+// screen edge, so the player seems to come out from behind it. It runs its
+// own Flutter engine ("edgePlayerMain" in lib/main.dart).
 //
-// The window is clipped to the region the view asks for ("region"), so
-// outside the drawn player clicks reach the windows underneath. While the
-// player is open, the screen behind it is captured, scaled down, and sent to
-// the view ("backdrop") to draw blurred glass; the window itself is excluded
-// from screen capture so it never sees itself.
+// App -> native ("noir/edge"): "update" with the playback state, the side
+// and where the player was last dropped; forwarded to the view.
+// Native -> app: "command" (from the view, unchanged) and "moved" after a
+// drag ({side, anchorX, anchorY} in physical screen pixels).
+//
+// View -> native ("noir/edge_view"): "ready"; "command"; "region" (the
+// rectangle to clip the window to, logical pixels; empty when the player has
+// slid away); "dragStart", "dragUpdate", "dragEnd" {depth}. Native -> view:
+// "update", "layout" {side, overhang}, "backdrop".
+//
+// Outside the region clicks reach the windows underneath. While the player
+// shows, the screen behind it is captured, scaled down, and sent to the view
+// to draw blurred glass; the window is excluded from screen capture so it
+// never sees itself.
 class EdgePlayer {
  public:
   explicit EdgePlayer(flutter::BinaryMessenger* app_messenger);
@@ -48,13 +56,23 @@ class EdgePlayer {
 
   bool Create();
   void Destroy();
-  // Docks the window to |side_| of the primary monitor.
+  // Where the docked window goes: the monitor nearest the anchor (the
+  // primary one without it), its |side_|, centered on the anchor's height.
+  // Updates |monitor_| and |scale_|.
+  POINT Target();
+  // Moves the window to |Target()|.
   void Place();
+  SIZE WindowSize() const;
   void SendLayout();
   void ApplyVisibility();
   void ApplyRegion();
+  // The screen area the window may show on: its monitor's work area while
+  // docked, every monitor while it is dragged or snapping.
+  RECT Bounds() const;
   void CheckFullscreen();
   void SendBackdrop();
+  void DragEnd(double depth);
+  void StepSnap();
 
   std::unique_ptr<Channel> app_channel_;
 
@@ -66,18 +84,25 @@ class EdgePlayer {
   // The latest "update" from the app, replayed when the view starts.
   std::unique_ptr<flutter::EncodableValue> state_;
   std::string side_ = "right";
-  // Something is loaded to play.
+  // Where the player was last dropped, physical screen pixels.
+  std::optional<POINT> anchor_;
+  // NOIR is minimized and something is loaded to play.
   bool wanted_ = false;
   // Another app fills the screen (a game, a video, a presentation).
   bool fullscreen_ = false;
-  // The capsule or the panel is out, not just the edge handle.
-  bool open_ = false;
 
-  RECT monitor_ = {};  // Physical pixels.
+  RECT monitor_ = {};  // Work area, physical pixels.
   POINT origin_ = {};  // Window position, physical pixels.
   double scale_ = 1;
   // Asked for by the view, logical pixels in window coordinates.
   RECT region_ = {};
+
+  bool dragging_ = false;
+  POINT grab_ = {};  // Cursor offset from |origin_| while dragging.
+  bool snapping_ = false;
+  POINT snap_from_ = {};
+  POINT snap_to_ = {};
+  ULONGLONG snap_start_ = 0;
 };
 
 #endif  // RUNNER_EDGE_PLAYER_H_

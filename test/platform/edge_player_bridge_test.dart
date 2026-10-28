@@ -65,6 +65,7 @@ void main() {
     ]);
     tracks = await library.watchTracks().first;
     bridge = EdgePlayerBridge(container, clock: () => now)..start();
+    container.read(mainWindowMinimizedProvider.notifier).minimized = true;
     await pumpEventQueue();
   });
 
@@ -88,6 +89,43 @@ void main() {
     expect(s.playing, isTrue);
     expect(s.canNext, isTrue);
     expect(s.canLike, isTrue);
+  });
+
+  test('shows only while NOIR is minimized', () async {
+    await controller().playTracks(tracks);
+    await pumpEventQueue();
+    expect(sent.last.visible, isTrue);
+
+    bridge.onWindowRestore();
+    await pumpEventQueue();
+    expect(sent.last.visible, isFalse);
+    expect(sent.last.side, 'right');
+
+    bridge.onWindowMinimize();
+    await pumpEventQueue();
+    expect(sent.last.visible, isTrue);
+  });
+
+  test('remembers where it was dropped', () async {
+    await controller().playTracks(tracks);
+    await pumpEventQueue();
+    await messenger.handlePlatformMessage(
+      edgeChannel.name,
+      edgeChannel.codec.encodeMethodCall(
+        const MethodCall('moved', {
+          'side': 'left',
+          'anchorX': 2600,
+          'anchorY': 400,
+        }),
+      ),
+      (_) {},
+    );
+    await pumpEventQueue();
+    final settings = container.read(settingsProvider);
+    expect(settings.edgePlayer, EdgePlayerSide.left);
+    expect((settings.edgePlayerX, settings.edgePlayerY), (2600, 400));
+    expect(sent.last.side, 'left');
+    expect((sent.last.anchorX, sent.last.anchorY), (2600, 400));
   });
 
   test('follows the setting, off included', () async {

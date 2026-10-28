@@ -19,6 +19,8 @@ class EdgeSnapshot {
     this.volume = 1,
     this.canLike = false,
     this.liked = false,
+    this.anchorX,
+    this.anchorY,
   });
 
   factory EdgeSnapshot.fromMap(Map<Object?, Object?> map) => EdgeSnapshot(
@@ -39,12 +41,15 @@ class EdgeSnapshot {
     volume: (map['volume'] as num? ?? 1).toDouble(),
     canLike: map['canLike'] as bool? ?? false,
     liked: map['liked'] as bool? ?? false,
+    anchorX: map['anchorX'] as int?,
+    anchorY: map['anchorY'] as int?,
   );
 
   /// "left", "right", or "off" (no edge player).
   final String side;
 
-  /// Something is loaded; without it the player stays hidden.
+  /// NOIR is minimized and something is loaded; otherwise the player slides
+  /// away.
   final bool visible;
   final String title;
   final String artist;
@@ -62,6 +67,10 @@ class EdgeSnapshot {
   final double volume;
   final bool canLike;
   final bool liked;
+
+  /// Where the player was last dropped, physical screen pixels.
+  final int? anchorX;
+  final int? anchorY;
 
   /// The position now, moved on from [position] while playing.
   Duration positionAt(DateTime now) {
@@ -88,6 +97,8 @@ class EdgeSnapshot {
     'volume': volume,
     'canLike': canLike,
     'liked': liked,
+    'anchorX': anchorX,
+    'anchorY': anchorY,
   };
 }
 

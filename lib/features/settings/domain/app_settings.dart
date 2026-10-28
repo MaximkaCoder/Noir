@@ -45,7 +45,7 @@ enum TransitionMode {
 }
 
 /// Where the edge player docks on Windows: a small player that comes out
-/// from behind the screen edge when the pointer reaches it.
+/// from behind the screen edge while NOIR is minimized.
 enum EdgePlayerSide { off, left, right }
 
 @freezed
@@ -81,6 +81,12 @@ abstract class AppSettings with _$AppSettings {
     @JsonKey(unknownEnumValue: EdgePlayerSide.right)
     @Default(EdgePlayerSide.right)
     EdgePlayerSide edgePlayer,
+
+    /// Where the edge player was last dropped, in physical screen pixels:
+    /// it docks to that monitor at that height. Unset: the primary monitor,
+    /// centered.
+    int? edgePlayerX,
+    int? edgePlayerY,
 
     /// Plays YouTube without a visible player and keeps playing when the
     /// window is hidden (owner decision; YouTube API Services policies

@@ -37,13 +37,13 @@ class EdgePlayerApp extends StatelessWidget {
 
 /// How far the player is out.
 enum EdgePhase {
-  /// A thin line at the edge, to point at.
-  handle,
+  /// Behind the screen edge: NOIR is open, or nothing is loaded.
+  away,
 
-  /// Artwork and play/pause.
+  /// The strip: artwork, title, transport, heart.
   capsule,
 
-  /// Everything: title, progress, controls, heart and volume.
+  /// Everything: larger artwork, progress, volume and a way back to NOIR.
   panel,
 }
 
@@ -53,14 +53,14 @@ class EdgeShape {
   const EdgeShape(this.depth, this.height, this.radius);
 
   factory EdgeShape.of(EdgePhase phase) => switch (phase) {
-    EdgePhase.handle => handle,
+    EdgePhase.away => away,
     EdgePhase.capsule => capsule,
     EdgePhase.panel => panel,
   };
 
-  /// Between the phases: [t] runs 0 (handle) → 1 (capsule) → 2 (panel).
+  /// Between the phases: [t] runs 0 (away) → 1 (capsule) → 2 (panel).
   factory EdgeShape.at(double t) {
-    final (a, b, f) = t <= 1 ? (handle, capsule, t) : (capsule, panel, t - 1);
+    final (a, b, f) = t <= 1 ? (away, capsule, t) : (capsule, panel, t - 1);
     return EdgeShape(
       ui.lerpDouble(a.depth, b.depth, f)!,
       ui.lerpDouble(a.height, b.height, f)!,
@@ -68,9 +68,9 @@ class EdgeShape {
     );
   }
 
-  static const handle = EdgeShape(5, 96, 3);
-  static const capsule = EdgeShape(64, 140, 32);
-  static const panel = EdgeShape(264, 364, 36);
+  static const away = EdgeShape(0, 276, 16);
+  static const capsule = EdgeShape(60, 276, 16);
+  static const panel = EdgeShape(264, 364, 32);
 
   /// How far it reaches into the screen.
   final double depth;
@@ -78,25 +78,20 @@ class EdgeShape {
   final double radius;
 }
 
-/// The player that comes out from behind the screen edge: a thin handle
-/// until pointed at, then a capsule, then — after a moment over it — the
-/// full panel. It slides back when the pointer leaves.
+/// The player that comes out from behind the screen edge while NOIR is
+/// minimized: a strip with the essentials that opens into the full panel
+/// when pointed at for a moment (or when its artwork or "more" is
+/// clicked), and closes back when the pointer leaves. Dragged anywhere, it
+/// docks to the nearest side edge where it is dropped.
 class EdgePlayerView extends StatefulWidget {
-  const EdgePlayerView({
-    this.channel = edgeViewChannel,
-    this.initialPhase = EdgePhase.handle,
-    super.key,
-  });
+  const EdgePlayerView({this.channel = edgeViewChannel, super.key});
 
   final MethodChannel channel;
 
-  /// For tests and previews.
-  final EdgePhase initialPhase;
+  /// How long the pointer stays on the strip before the panel opens.
+  static const dwell = Duration(milliseconds: 700);
 
-  /// How long the pointer stays on the capsule before the panel opens.
-  static const dwell = Duration(milliseconds: 350);
-
-  /// How long the pointer may be away before the player slides back.
+  /// How long the pointer may be away before the panel closes.
   static const grace = Duration(milliseconds: 400);
 
   /// Room around the outline for its shadow.
@@ -107,24 +102,31 @@ class EdgePlayerView extends StatefulWidget {
 }
 
 class _EdgePlayerViewState extends State<EdgePlayerView>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   late final AnimationController _t = AnimationController(
     vsync: this,
     upperBound: 2,
-    value: widget.initialPhase.index.toDouble(),
   );
 
+  /// 1 while dragged: the outline leaves the edge and rounds all corners.
+  late final AnimationController _detach = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 180),
+    reverseDuration: const Duration(milliseconds: 240),
+  );
+
+  /// What is shown; kept while the player slides away.
   EdgeSnapshot _snapshot = const EdgeSnapshot(side: 'right');
   String _side = 'right';
   double _overhang = 48;
-  late EdgePhase _phase = widget.initialPhase;
+  EdgePhase _phase = EdgePhase.away;
+  bool _dragging = false;
   Timer? _dwell;
   Timer? _grace;
   _Backdrop? _backdrop;
 
   /// The region last sent, to skip repeats.
   Rect? _sentRegion;
-  bool _sentOpen = false;
 
   bool get _left => _side == 'left';
 
@@ -133,7 +135,6 @@ class _EdgePlayerViewState extends State<EdgePlayerView>
     super.initState();
     widget.channel.setMethodCallHandler(_onNativeCall);
     unawaited(_call('ready'));
-    WidgetsBinding.instance.addPostFrameCallback((_) => _sendRegion());
   }
 
   @override
@@ -143,6 +144,7 @@ class _EdgePlayerViewState extends State<EdgePlayerView>
     _grace?.cancel();
     _backdrop?.image.dispose();
     _t.dispose();
+    _detach.dispose();
     super.dispose();
   }
 
@@ -158,15 +160,14 @@ class _EdgePlayerViewState extends State<EdgePlayerView>
     final args = call.arguments;
     switch (call.method) {
       case 'update' when args is Map:
-        final snapshot = EdgeSnapshot.fromMap(args);
-        setState(() => _snapshot = snapshot);
-        // Hidden with nothing to play; it comes back as the handle.
-        if (!snapshot.visible && _phase != EdgePhase.handle) {
+        final next = EdgeSnapshot.fromMap(args);
+        if (next.visible) {
+          setState(() => _snapshot = next);
+          if (_phase == EdgePhase.away) unawaited(_go(EdgePhase.capsule));
+        } else if (_phase != EdgePhase.away) {
           _dwell?.cancel();
           _grace?.cancel();
-          _t.value = 0;
-          setState(() => _phase = EdgePhase.handle);
-          _sendRegion();
+          unawaited(_go(EdgePhase.away));
         }
       case 'layout' when args is Map:
         setState(() {
@@ -215,20 +216,24 @@ class _EdgePlayerViewState extends State<EdgePlayerView>
 
   // ---------------------------------------------------------------- shape --
 
-  /// The outline's rectangle in window coordinates. It runs [_overhang]
-  /// past the screen edge, so its outer corners are never seen.
-  Rect _rectFor(EdgeShape shape, Size window) {
+  /// The outline's rectangle in window coordinates. Docked, it runs
+  /// [_overhang] past the screen edge, so its outer corners are never seen;
+  /// [detach] 1 pulls it back to its visible part (while dragged).
+  Rect _rectFor(EdgeShape shape, Size window, {double detach = 0}) {
     final top = (window.height - shape.height) / 2;
-    final width = shape.depth + _overhang;
-    final left = _left ? 0.0 : window.width - width;
+    final width = shape.depth + _overhang * (1 - detach);
+    final left = _left
+        ? _overhang * detach
+        : window.width - _overhang - shape.depth;
     return Rect.fromLTWH(left, top, width, shape.height);
   }
 
-  /// Where the pointer is caught for [phase]: the outline plus room for its
-  /// shadow (a little more around the thin handle, to be easy to hit).
+  /// Where clicks are caught in [phase]: the outline plus room for its
+  /// shadow. Empty once the player is away.
   Rect _regionFor(EdgePhase phase, Size window) {
+    if (phase == EdgePhase.away) return Rect.zero;
     final rect = _rectFor(EdgeShape.of(phase), window);
-    final room = phase == EdgePhase.handle ? 4.0 : EdgePlayerView.shadowRoom;
+    const room = EdgePlayerView.shadowRoom;
     return Rect.fromLTRB(
       _left ? rect.left : rect.left - room,
       rect.top - room,
@@ -237,21 +242,17 @@ class _EdgePlayerViewState extends State<EdgePlayerView>
     );
   }
 
-  void _sendRegion({EdgePhase? phase}) {
+  void _sendRegion() {
     if (!mounted) return;
-    final window = MediaQuery.sizeOf(context);
-    final region = _regionFor(phase ?? _phase, window);
-    final open = (phase ?? _phase) != EdgePhase.handle;
-    if (region == _sentRegion && open == _sentOpen) return;
+    final region = _regionFor(_phase, MediaQuery.sizeOf(context));
+    if (region == _sentRegion) return;
     _sentRegion = region;
-    _sentOpen = open;
     unawaited(
       _call('region', {
         'left': region.left,
         'top': region.top,
         'right': region.right,
         'bottom': region.bottom,
-        'open': open,
       }),
     );
   }
@@ -270,19 +271,18 @@ class _EdgePlayerViewState extends State<EdgePlayerView>
         phase.index.toDouble(),
         duration: growing
             ? const Duration(milliseconds: 460)
-            : const Duration(milliseconds: 320),
+            : const Duration(milliseconds: 340),
         curve: growing ? Curves.easeOutQuint : Curves.easeInOutCubic,
       );
     }
     if (!growing && mounted && _phase == phase) _sendRegion();
   }
 
-  // ---------------------------------------------------------------- hover --
+  // ------------------------------------------------------- hover and drag --
 
   void _onEnter() {
     _grace?.cancel();
-    if (_phase == EdgePhase.handle) unawaited(_go(EdgePhase.capsule));
-    if (_phase != EdgePhase.panel) {
+    if (_phase == EdgePhase.capsule && !_dragging) {
       _dwell?.cancel();
       _dwell = Timer(EdgePlayerView.dwell, () => _go(EdgePhase.panel));
     }
@@ -290,8 +290,29 @@ class _EdgePlayerViewState extends State<EdgePlayerView>
 
   void _onExit() {
     _dwell?.cancel();
+    if (_phase != EdgePhase.panel || _dragging) return;
     _grace?.cancel();
-    _grace = Timer(EdgePlayerView.grace, () => _go(EdgePhase.handle));
+    _grace = Timer(EdgePlayerView.grace, () => _go(EdgePhase.capsule));
+  }
+
+  void _onDragStart() {
+    if (_phase == EdgePhase.away) return;
+    _dwell?.cancel();
+    _grace?.cancel();
+    _dragging = true;
+    _detach.forward();
+    unawaited(_call('dragStart'));
+  }
+
+  void _onDragUpdate() {
+    if (_dragging) unawaited(_call('dragUpdate'));
+  }
+
+  void _onDragEnd() {
+    if (!_dragging) return;
+    _dragging = false;
+    _detach.reverse();
+    unawaited(_call('dragEnd', {'depth': EdgeShape.at(_t.value).depth}));
   }
 
   void _command(EdgeCommand command, [num? value]) =>
@@ -308,76 +329,80 @@ class _EdgePlayerViewState extends State<EdgePlayerView>
       opaque: false,
       onEnter: (_) => _onEnter(),
       onExit: (_) => _onExit(),
-      child: AnimatedBuilder(
-        animation: _t,
-        builder: (context, _) {
-          final t = _t.value;
-          final shape = EdgeShape.at(t);
-          final rect = _rectFor(shape, window);
-          // The content's own box: the outline minus the part past the edge.
-          final inner = _left
-              ? Rect.fromLTRB(
-                  rect.left + _overhang,
-                  rect.top,
-                  rect.right,
-                  rect.bottom,
-                )
-              : Rect.fromLTRB(
-                  rect.left,
-                  rect.top,
-                  rect.right - _overhang,
-                  rect.bottom,
-                );
-          final glass = t.clamp(0.0, 0.6) / 0.6;
-          final capsule =
-              (1 - (t - 1).abs() * 2.2).clamp(0.0, 1.0) *
-              ((t - 0.45) / 0.45).clamp(0.0, 1.0);
-          final panel = ((t - 1.45) / 0.55).clamp(0.0, 1.0);
-          return Stack(
-            children: [
-              _Glass(
-                rect: rect,
-                radius: shape.radius,
-                amount: glass,
-                backdrop: _backdrop,
-              ),
-              if (capsule > 0)
-                Positioned.fromRect(
-                  rect: Rect.fromCenter(
+      child: GestureDetector(
+        onPanStart: (_) => _onDragStart(),
+        onPanUpdate: (_) => _onDragUpdate(),
+        onPanEnd: (_) => _onDragEnd(),
+        onPanCancel: _onDragEnd,
+        child: AnimatedBuilder(
+          animation: Listenable.merge([_t, _detach]),
+          builder: (context, _) {
+            final t = _t.value;
+            final shape = EdgeShape.at(t);
+            final rect = _rectFor(shape, window, detach: _detach.value);
+            // The visible box, whether docked or dragged.
+            final inner = _rectFor(shape, window, detach: 1);
+            final glass = (t / 0.25).clamp(0.0, 1.0);
+            final capsule =
+                ((t - 0.3) / 0.7).clamp(0.0, 1.0) *
+                (1 - ((t - 1) / 0.4).clamp(0.0, 1.0));
+            final panel = ((t - 1.45) / 0.55).clamp(0.0, 1.0);
+            // Coming out, the strip's contents ride along with its inner
+            // edge, as if pulled from behind the screen.
+            final capsuleBox = t <= 1
+                ? Rect.fromLTWH(
+                    _left ? inner.right - EdgeShape.capsule.depth : inner.left,
+                    inner.top,
+                    EdgeShape.capsule.depth,
+                    EdgeShape.capsule.height,
+                  )
+                : Rect.fromCenter(
                     center: inner.center,
                     width: EdgeShape.capsule.depth,
                     height: EdgeShape.capsule.height,
-                  ),
-                  child: Opacity(
-                    opacity: capsule,
-                    child: _CapsuleContent(
-                      snapshot: _snapshot,
-                      onOpen: () => _go(EdgePhase.panel),
-                      onCommand: _command,
-                    ),
-                  ),
+                  );
+            return Stack(
+              children: [
+                _Glass(
+                  rect: rect,
+                  radius: shape.radius,
+                  amount: glass,
+                  backdrop: _backdrop,
                 ),
-              if (panel > 0)
-                Positioned.fromRect(
-                  rect: Rect.fromCenter(
-                    center: inner.center,
-                    width: EdgeShape.panel.depth,
-                    height: EdgeShape.panel.height,
-                  ),
-                  child: Opacity(
-                    opacity: panel,
-                    child: Transform.scale(
-                      scale: ui.lerpDouble(0.94, 1, panel),
-                      child: _PanelContent(
+                if (capsule > 0)
+                  Positioned.fromRect(
+                    rect: capsuleBox,
+                    child: Opacity(
+                      opacity: capsule,
+                      child: _CapsuleContent(
                         snapshot: _snapshot,
+                        onOpen: () => _go(EdgePhase.panel),
                         onCommand: _command,
                       ),
                     ),
                   ),
-                ),
-            ],
-          );
-        },
+                if (panel > 0)
+                  Positioned.fromRect(
+                    rect: Rect.fromCenter(
+                      center: inner.center,
+                      width: EdgeShape.panel.depth,
+                      height: EdgeShape.panel.height,
+                    ),
+                    child: Opacity(
+                      opacity: panel,
+                      child: Transform.scale(
+                        scale: ui.lerpDouble(0.94, 1, panel),
+                        child: _PanelContent(
+                          snapshot: _snapshot,
+                          onCommand: _command,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            );
+          },
+        ),
       ),
     );
   }
@@ -395,7 +420,7 @@ class _Backdrop {
 }
 
 /// The outline: blurred, tinted backdrop, a hairline of light along the
-/// inner edge and a soft shadow. [amount] 0 is the bare handle.
+/// inner edge and a soft shadow, faded in by [amount].
 class _Glass extends StatelessWidget {
   const _Glass({
     required this.rect,
@@ -434,13 +459,12 @@ class _Glass extends StatelessWidget {
                 ),
               Positioned.fill(
                 child: ColoredBox(
-                  color: Color.lerp(
-                    const Color(0x47FFFFFF),
-                    backdrop == null
-                        ? const Color(0xEB101012)
-                        : const Color(0xA8101012),
-                    amount,
-                  )!,
+                  color: Color.fromRGBO(
+                    16,
+                    16,
+                    18,
+                    (backdrop == null ? 0.92 : 0.66) * amount,
+                  ),
                 ),
               ),
             ],
@@ -573,21 +597,91 @@ class _CapsuleContent extends StatelessWidget {
   final void Function(EdgeCommand, [num?]) onCommand;
 
   @override
-  Widget build(BuildContext context) => Column(
-    mainAxisAlignment: MainAxisAlignment.center,
-    children: [
-      GestureDetector(
-        onTap: onOpen,
-        child: _Artwork(snapshot.artwork, size: 44, radius: 12),
-      ),
-      const SizedBox(height: 14),
-      _PlayButton(
-        playing: snapshot.playing,
-        size: 40,
-        onPressed: () => onCommand(EdgeCommand.playPause),
-      ),
-    ],
-  );
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        GestureDetector(
+          onTap: onOpen,
+          child: MouseRegion(
+            cursor: SystemMouseCursors.click,
+            child: _Artwork(snapshot.artwork, size: 34, radius: 8),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4),
+          child: Column(
+            children: [
+              Text(
+                snapshot.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: text.labelSmall!.copyWith(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white,
+                ),
+              ),
+              const SizedBox(height: 1),
+              Text(
+                snapshot.artist,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: text.labelSmall!.copyWith(
+                  fontSize: 10,
+                  color: const Color(0x99FFFFFF),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
+        _IconButton(
+          icon: Icons.skip_previous_rounded,
+          label: 'Previous',
+          size: 18,
+          onPressed: snapshot.canPrevious
+              ? () => onCommand(EdgeCommand.previous)
+              : null,
+        ),
+        const SizedBox(height: 4),
+        _PlayButton(
+          playing: snapshot.playing,
+          size: 30,
+          onPressed: () => onCommand(EdgeCommand.playPause),
+        ),
+        const SizedBox(height: 4),
+        _IconButton(
+          icon: Icons.skip_next_rounded,
+          label: 'Next',
+          size: 18,
+          onPressed: snapshot.canNext
+              ? () => onCommand(EdgeCommand.next)
+              : null,
+        ),
+        const SizedBox(height: 4),
+        if (snapshot.canLike)
+          _IconButton(
+            icon: snapshot.liked
+                ? Icons.favorite_rounded
+                : Icons.favorite_border_rounded,
+            label: snapshot.liked ? 'Liked' : 'Like',
+            size: 15,
+            onPressed: () => onCommand(EdgeCommand.like),
+          ),
+        _IconButton(
+          icon: Icons.more_horiz_rounded,
+          label: 'More',
+          size: 16,
+          onPressed: onOpen,
+        ),
+      ],
+    );
+  }
 }
 
 class _PanelContent extends StatelessWidget {
@@ -720,8 +814,9 @@ class _PlayButton extends StatelessWidget {
           width: size,
           height: size,
           decoration: const BoxDecoration(
-            color: Colors.white,
+            color: Color(0xFFEDEDED),
             shape: BoxShape.circle,
+            boxShadow: [BoxShadow(color: Color(0x33FFFFFF), blurRadius: 10)],
           ),
           child: Icon(
             playing ? Icons.pause_rounded : Icons.play_arrow_rounded,

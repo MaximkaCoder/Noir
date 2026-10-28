@@ -8,7 +8,6 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
-#include <optional>
 #include <vector>
 
 namespace {
@@ -32,6 +31,9 @@ constexpr UINT_PTR kFullscreenTimer = 1;
 constexpr UINT kFullscreenInterval = 1000;
 constexpr UINT_PTR kBackdropTimer = 2;
 constexpr UINT kBackdropInterval = 200;
+constexpr UINT_PTR kSnapTimer = 3;
+constexpr UINT kSnapInterval = 10;
+constexpr ULONGLONG kSnapDuration = 240;
 
 const EncodableValue* Find(const EncodableMap& map, const char* key) {
   auto it = map.find(EncodableValue(key));
@@ -50,15 +52,19 @@ bool GetBool(const EncodableMap& map, const char* key) {
   return flag && *flag;
 }
 
-double GetDouble(const EncodableMap& map, const char* key) {
+std::optional<double> GetNumber(const EncodableMap& map, const char* key) {
   const EncodableValue* value = Find(map, key);
-  if (!value) return 0;
+  if (!value) return std::nullopt;
   if (const auto* d = std::get_if<double>(value)) return *d;
   if (const auto* narrow = std::get_if<int32_t>(value)) return *narrow;
   if (const auto* wide = std::get_if<int64_t>(value)) {
     return static_cast<double>(*wide);
   }
-  return 0;
+  return std::nullopt;
+}
+
+double GetDouble(const EncodableMap& map, const char* key) {
+  return GetNumber(map, key).value_or(0);
 }
 
 }  // namespace
@@ -100,13 +106,23 @@ void EdgePlayer::HandleAppCall(
   }
   wanted_ = GetBool(*args, "visible");
   state_ = std::make_unique<EncodableValue>(*args);
-  if (side != side_) {
-    side_ = side;
-    if (window_) {
-      Place();
-      SendLayout();
-    }
+
+  std::optional<POINT> anchor;
+  const auto x = GetNumber(*args, "anchorX");
+  const auto y = GetNumber(*args, "anchorY");
+  if (x && y) {
+    anchor = POINT{static_cast<LONG>(*x), static_cast<LONG>(*y)};
   }
+  const bool moved =
+      side != side_ || anchor.has_value() != anchor_.has_value() ||
+      (anchor && (anchor->x != anchor_->x || anchor->y != anchor_->y));
+  side_ = side;
+  anchor_ = anchor;
+  if (moved && window_ && !dragging_ && !snapping_) {
+    Place();
+    SendLayout();
+  }
+
   if (!window_ && wanted_ && !Create()) {
     result->Error("edge", "The edge player window could not be created");
     return;
@@ -137,19 +153,38 @@ void EdgePlayer::HandleViewCall(
     app_channel_->InvokeMethod("command",
                                std::make_unique<EncodableValue>(*args));
   } else if (method == "region" && args) {
+    const bool was_empty = ::IsRectEmpty(&region_);
     region_ = {static_cast<LONG>(std::floor(GetDouble(*args, "left"))),
                static_cast<LONG>(std::floor(GetDouble(*args, "top"))),
                static_cast<LONG>(std::ceil(GetDouble(*args, "right"))),
                static_cast<LONG>(std::ceil(GetDouble(*args, "bottom")))};
-    const bool open = GetBool(*args, "open");
+    const bool empty = ::IsRectEmpty(&region_);
     ApplyRegion();
-    if (open && !open_) {
+    ApplyVisibility();
+    if (was_empty && !empty) {
       SendBackdrop();
       ::SetTimer(window_, kBackdropTimer, kBackdropInterval, nullptr);
-    } else if (!open && open_) {
+    } else if (!was_empty && empty) {
       ::KillTimer(window_, kBackdropTimer);
     }
-    open_ = open;
+  } else if (method == "dragStart") {
+    POINT cursor;
+    ::GetCursorPos(&cursor);
+    ::KillTimer(window_, kSnapTimer);
+    snapping_ = false;
+    dragging_ = true;
+    grab_ = {cursor.x - origin_.x, cursor.y - origin_.y};
+    ApplyRegion();
+  } else if (method == "dragUpdate") {
+    if (dragging_) {
+      POINT cursor;
+      ::GetCursorPos(&cursor);
+      origin_ = {cursor.x - grab_.x, cursor.y - grab_.y};
+      ::SetWindowPos(window_, nullptr, origin_.x, origin_.y, 0, 0,
+                     SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+    }
+  } else if (method == "dragEnd") {
+    if (dragging_) DragEnd(args ? GetDouble(*args, "depth") : 0);
   } else {
     result->NotImplemented();
     return;
@@ -169,12 +204,11 @@ bool EdgePlayer::Create() {
     if (!registered) return false;
   }
 
-  Place();
-  const int width = static_cast<int>(std::lround(kWidth * scale_));
-  const int height = static_cast<int>(std::lround(kHeight * scale_));
+  origin_ = Target();
+  const SIZE size = WindowSize();
   window_ = ::CreateWindowExW(
       WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOACTIVATE, kWindowClass,
-      L"NOIR", WS_POPUP, origin_.x, origin_.y, width, height, nullptr,
+      L"NOIR", WS_POPUP, origin_.x, origin_.y, size.cx, size.cy, nullptr,
       nullptr, ::GetModuleHandleW(nullptr), this);
   if (!window_) return false;
 
@@ -186,7 +220,7 @@ bool EdgePlayer::Create() {
 
   flutter::DartProject project(L"data");
   project.set_dart_entrypoint("edgePlayerMain");
-  view_ = std::make_unique<flutter::FlutterViewController>(width, height,
+  view_ = std::make_unique<flutter::FlutterViewController>(size.cx, size.cy,
                                                            project);
   if (!view_->engine() || !view_->view()) {
     Destroy();
@@ -194,7 +228,7 @@ bool EdgePlayer::Create() {
   }
   HWND content = view_->view()->GetNativeWindow();
   ::SetParent(content, window_);
-  ::MoveWindow(content, 0, 0, width, height, TRUE);
+  ::MoveWindow(content, 0, 0, size.cx, size.cy, TRUE);
 
   view_channel_ = std::make_unique<Channel>(
       view_->engine()->messenger(), "noir/edge_view",
@@ -214,8 +248,9 @@ void EdgePlayer::Destroy() {
   view_channel_ = nullptr;
   view_ = nullptr;
   view_ready_ = false;
-  open_ = false;
   region_ = {};
+  dragging_ = false;
+  snapping_ = false;
   if (window_) {
     // Clear the pointer first: DestroyWindow sends messages.
     ::SetWindowLongPtrW(window_, GWLP_USERDATA, 0);
@@ -224,8 +259,10 @@ void EdgePlayer::Destroy() {
   }
 }
 
-void EdgePlayer::Place() {
-  HMONITOR monitor = ::MonitorFromPoint({0, 0}, MONITOR_DEFAULTTOPRIMARY);
+POINT EdgePlayer::Target() {
+  HMONITOR monitor =
+      anchor_ ? ::MonitorFromPoint(*anchor_, MONITOR_DEFAULTTONEAREST)
+              : ::MonitorFromPoint({0, 0}, MONITOR_DEFAULTTOPRIMARY);
   MONITORINFO info = {sizeof(info)};
   ::GetMonitorInfoW(monitor, &info);
   UINT dpi_x = 96;
@@ -235,20 +272,34 @@ void EdgePlayer::Place() {
   // The work area, so a taskbar on that side is not covered.
   monitor_ = info.rcWork;
 
-  const int width = static_cast<int>(std::lround(kWidth * scale_));
-  const int height = static_cast<int>(std::lround(kHeight * scale_));
+  const SIZE size = WindowSize();
   const int overhang = static_cast<int>(std::lround(kOverhang * scale_));
-  origin_.x = side_ == "left" ? monitor_.left - overhang
-                              : monitor_.right - width + overhang;
-  origin_.y = monitor_.top + (monitor_.bottom - monitor_.top - height) / 2;
+  const LONG center =
+      anchor_ ? anchor_->y : (monitor_.top + monitor_.bottom) / 2;
+  const LONG top = std::clamp<LONG>(center - size.cy / 2, monitor_.top,
+                                    std::max(monitor_.top,
+                                             monitor_.bottom - size.cy));
+  return {side_ == "left" ? monitor_.left - overhang
+                          : monitor_.right - size.cx + overhang,
+          top};
+}
 
+void EdgePlayer::Place() {
+  origin_ = Target();
   if (!window_) return;
-  ::SetWindowPos(window_, HWND_TOPMOST, origin_.x, origin_.y, width, height,
-                 SWP_NOACTIVATE);
+  const SIZE size = WindowSize();
+  ::SetWindowPos(window_, HWND_TOPMOST, origin_.x, origin_.y, size.cx,
+                 size.cy, SWP_NOACTIVATE);
   if (view_) {
-    ::MoveWindow(view_->view()->GetNativeWindow(), 0, 0, width, height, TRUE);
+    ::MoveWindow(view_->view()->GetNativeWindow(), 0, 0, size.cx, size.cy,
+                 TRUE);
   }
   ApplyRegion();
+}
+
+SIZE EdgePlayer::WindowSize() const {
+  return {static_cast<LONG>(std::lround(kWidth * scale_)),
+          static_cast<LONG>(std::lround(kHeight * scale_))};
 }
 
 void EdgePlayer::SendLayout() {
@@ -262,12 +313,22 @@ void EdgePlayer::SendLayout() {
 
 void EdgePlayer::ApplyVisibility() {
   if (!window_) return;
-  if (wanted_ && !fullscreen_) {
+  // Kept while the view slides the player away, then hidden.
+  const bool shown = wanted_ || !::IsRectEmpty(&region_);
+  if (shown && !fullscreen_) {
     ::SetWindowPos(window_, HWND_TOPMOST, 0, 0, 0, 0,
                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
   } else {
     ::ShowWindow(window_, SW_HIDE);
   }
+}
+
+RECT EdgePlayer::Bounds() const {
+  if (!dragging_ && !snapping_) return monitor_;
+  const int x = ::GetSystemMetrics(SM_XVIRTUALSCREEN);
+  const int y = ::GetSystemMetrics(SM_YVIRTUALSCREEN);
+  return {x, y, x + ::GetSystemMetrics(SM_CXVIRTUALSCREEN),
+          y + ::GetSystemMetrics(SM_CYVIRTUALSCREEN)};
 }
 
 void EdgePlayer::ApplyRegion() {
@@ -280,7 +341,7 @@ void EdgePlayer::ApplyRegion() {
       static_cast<LONG>(std::ceil(region_.right * scale_)),
       static_cast<LONG>(std::ceil(region_.bottom * scale_)),
   };
-  RECT screen = monitor_;
+  RECT screen = Bounds();
   ::OffsetRect(&screen, -origin_.x, -origin_.y);
   RECT visible = {};
   ::IntersectRect(&visible, &rect, &screen);
@@ -310,8 +371,9 @@ void EdgePlayer::SendBackdrop() {
       origin_.x + static_cast<LONG>(std::ceil(region_.right * scale_)),
       origin_.y + static_cast<LONG>(std::ceil(region_.bottom * scale_)),
   };
+  const RECT bounds = Bounds();
   RECT capture = {};
-  if (!::IntersectRect(&capture, &rect, &monitor_)) return;
+  if (!::IntersectRect(&capture, &rect, &bounds)) return;
   const int width = capture.right - capture.left;
   const int height = capture.bottom - capture.top;
   const int pixel_width = std::max(
@@ -366,6 +428,66 @@ void EdgePlayer::SendBackdrop() {
       }));
 }
 
+void EdgePlayer::DragEnd(double depth) {
+  dragging_ = false;
+  POINT cursor;
+  ::GetCursorPos(&cursor);
+  HMONITOR monitor = ::MonitorFromPoint(cursor, MONITOR_DEFAULTTONEAREST);
+  MONITORINFO info = {sizeof(info)};
+  ::GetMonitorInfoW(monitor, &info);
+  const RECT& work = info.rcWork;
+  const std::string side =
+      cursor.x < (work.left + work.right) / 2 ? "left" : "right";
+
+  if (side != side_) {
+    // The view mirrors its layout; move the window so the player stays
+    // under the cursor until it snaps.
+    const double shift = (kWidth - 2 * kOverhang - depth) * scale_;
+    origin_.x += static_cast<LONG>(
+        std::lround(side == "left" ? shift : -shift));
+    ::SetWindowPos(window_, nullptr, origin_.x, origin_.y, 0, 0,
+                   SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+    side_ = side;
+    SendLayout();
+  }
+  anchor_ = POINT{cursor.x, origin_.y + WindowSize().cy / 2};
+
+  snap_from_ = origin_;
+  snap_to_ = Target();
+  snap_start_ = ::GetTickCount64();
+  snapping_ = true;
+  ::SetTimer(window_, kSnapTimer, kSnapInterval, nullptr);
+
+  app_channel_->InvokeMethod(
+      "moved", std::make_unique<EncodableValue>(EncodableMap{
+                   {EncodableValue("side"), EncodableValue(side_)},
+                   {EncodableValue("anchorX"),
+                    EncodableValue(static_cast<int32_t>(anchor_->x))},
+                   {EncodableValue("anchorY"),
+                    EncodableValue(static_cast<int32_t>(anchor_->y))},
+               }));
+}
+
+void EdgePlayer::StepSnap() {
+  const double t = std::min(
+      1.0, static_cast<double>(::GetTickCount64() - snap_start_) /
+               kSnapDuration);
+  const double eased = 1 - std::pow(1 - t, 3);
+  origin_ = {
+      snap_from_.x + static_cast<LONG>(
+                         std::lround((snap_to_.x - snap_from_.x) * eased)),
+      snap_from_.y + static_cast<LONG>(
+                         std::lround((snap_to_.y - snap_from_.y) * eased)),
+  };
+  ::SetWindowPos(window_, nullptr, origin_.x, origin_.y, 0, 0,
+                 SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+  if (t >= 1) {
+    ::KillTimer(window_, kSnapTimer);
+    snapping_ = false;
+    Place();
+  }
+}
+
 LRESULT CALLBACK EdgePlayer::WndProc(HWND window, UINT message, WPARAM wparam,
                                      LPARAM lparam) {
   if (message == WM_NCCREATE) {
@@ -395,13 +517,31 @@ LRESULT EdgePlayer::HandleMessage(HWND window, UINT message, WPARAM wparam,
     case WM_TIMER:
       if (wparam == kFullscreenTimer) CheckFullscreen();
       if (wparam == kBackdropTimer) SendBackdrop();
+      if (wparam == kSnapTimer) StepSnap();
       return 0;
-    case WM_DISPLAYCHANGE:
     case WM_DPICHANGED:
+      if (dragging_ || snapping_) {
+        // Carried onto a monitor with another scale: take its size and
+        // keep following the cursor.
+        scale_ = LOWORD(wparam) / 96.0;
+        const auto* suggested = reinterpret_cast<const RECT*>(lparam);
+        const SIZE size = WindowSize();
+        origin_ = {suggested->left, suggested->top};
+        ::SetWindowPos(window_, nullptr, origin_.x, origin_.y, size.cx,
+                       size.cy, SWP_NOZORDER | SWP_NOACTIVATE);
+        if (view_) {
+          ::MoveWindow(view_->view()->GetNativeWindow(), 0, 0, size.cx,
+                       size.cy, TRUE);
+        }
+        return 0;
+      }
       Place();
       return 0;
+    case WM_DISPLAYCHANGE:
+      if (!dragging_) Place();
+      return 0;
     case WM_SETTINGCHANGE:
-      if (wparam == SPI_SETWORKAREA) Place();
+      if (wparam == SPI_SETWORKAREA && !dragging_) Place();
       break;
     case WM_CLOSE:
       // Closed with the app, never on its own.

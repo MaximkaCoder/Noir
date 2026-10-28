@@ -16,14 +16,33 @@ import 'package:window_manager/window_manager.dart';
 /// Implemented by the Windows runner (windows/runner/edge_player.cpp).
 const edgeChannel = MethodChannel('noir/edge');
 
+/// Whether NOIR's main window is minimized; the edge player shows only
+/// then. Kept up to date by [EdgePlayerBridge].
+final mainWindowMinimizedProvider = NotifierProvider<MainWindowMinimized, bool>(
+  MainWindowMinimized.new,
+);
+
+class MainWindowMinimized extends Notifier<bool> {
+  @override
+  bool build() => false;
+
+  bool get minimized => state;
+  set minimized(bool value) => state = value;
+}
+
 /// The edge player's state, apart from the position and duration (those
 /// move on their own and are added when sent).
 final edgeSnapshotProvider = Provider<EdgeSnapshot>((ref) {
-  final side = ref.watch(settingsProvider.select((s) => s.edgePlayer));
+  final settings = ref.watch(settingsProvider);
+  final side = settings.edgePlayer;
+  final anchorX = settings.edgePlayerX;
+  final anchorY = settings.edgePlayerY;
   final state = ref.watch(playbackProvider);
   final track = state.current?.track;
-  if (side == EdgePlayerSide.off || track == null) {
-    return EdgeSnapshot(side: side.name);
+  if (side == EdgePlayerSide.off) return EdgeSnapshot(side: side.name);
+  if (track == null || !ref.watch(mainWindowMinimizedProvider)) {
+    // The view keeps showing the last track while it slides away.
+    return EdgeSnapshot(side: side.name, anchorX: anchorX, anchorY: anchorY);
   }
 
   var canLike = false;
@@ -56,6 +75,8 @@ final edgeSnapshotProvider = Provider<EdgeSnapshot>((ref) {
     volume: state.volume,
     canLike: canLike,
     liked: liked,
+    anchorX: anchorX,
+    anchorY: anchorY,
   );
 });
 
@@ -69,7 +90,7 @@ void startEdgePlayer(ProviderContainer container) {
   }
 }
 
-class EdgePlayerBridge {
+class EdgePlayerBridge with WindowListener {
   EdgePlayerBridge(
     this._container, {
     this._channel = edgeChannel,
@@ -93,6 +114,11 @@ class EdgePlayerBridge {
 
   void start() {
     _channel.setMethodCallHandler(_onNativeCall);
+    try {
+      windowManager.addListener(this);
+    } on Object catch (e) {
+      debugPrint('Edge player cannot follow the window: $e');
+    }
     final engine = _container.read(playbackEngineProvider);
     _subscriptions
       ..add(engine.position.listen((_) => _checkPosition()))
@@ -105,6 +131,9 @@ class EdgePlayerBridge {
   }
 
   void dispose() {
+    try {
+      windowManager.removeListener(this);
+    } on Object catch (_) {}
     _snapshotSub?.close();
     for (final sub in _subscriptions) {
       unawaited(sub.cancel());
@@ -161,10 +190,39 @@ class EdgePlayerBridge {
     }
   }
 
+  @override
+  void onWindowMinimize() => _window.minimized = true;
+
+  @override
+  void onWindowRestore() => _window.minimized = false;
+
+  @override
+  void onWindowMaximize() => _window.minimized = false;
+
+  @override
+  void onWindowFocus() => _window.minimized = false;
+
+  MainWindowMinimized get _window =>
+      _container.read(mainWindowMinimizedProvider.notifier);
+
   Future<void> _onNativeCall(MethodCall call) async {
-    if (call.method != 'command') return;
     final args = call.arguments;
     if (args is! Map) return;
+    if (call.method == 'moved') {
+      final side = EdgePlayerSide.values.asNameMap()[args['side']];
+      if (side == null) return;
+      _container
+          .read(settingsProvider.notifier)
+          .update(
+            (s) => s.copyWith(
+              edgePlayer: side,
+              edgePlayerX: args['anchorX'] as int?,
+              edgePlayerY: args['anchorY'] as int?,
+            ),
+          );
+      return;
+    }
+    if (call.method != 'command') return;
     final command = EdgeCommand.values.asNameMap()[args['name']];
     final value = args['value'];
     final ctrl = _container.read(playbackProvider.notifier);
