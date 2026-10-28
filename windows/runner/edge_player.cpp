@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cwchar>
 #include <iterator>
 #include <utility>
 #include <vector>
@@ -45,6 +46,27 @@ bool IsSide(const std::string& side) {
 
 bool IsVertical(const std::string& side) {
   return side == "left" || side == "right";
+}
+
+// Remote Desktop Connection and the Windows App (Remote Desktop) client.
+bool IsRemoteDesktop(HWND window) {
+  if (!window) return false;
+  wchar_t name[64] = {};
+  ::GetClassNameW(window, name, 64);
+  if (std::wcscmp(name, L"TscShellContainerClass") == 0) return true;
+  DWORD process_id = 0;
+  ::GetWindowThreadProcessId(window, &process_id);
+  HANDLE process =
+      ::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, process_id);
+  if (!process) return false;
+  wchar_t path[MAX_PATH] = {};
+  DWORD size = MAX_PATH;
+  const bool named = ::QueryFullProcessImageNameW(process, 0, path, &size);
+  ::CloseHandle(process);
+  if (!named) return false;
+  const wchar_t* file = std::wcsrchr(path, L'\\');
+  file = file ? file + 1 : path;
+  return _wcsicmp(file, L"mstsc.exe") == 0 || _wcsicmp(file, L"msrdc.exe") == 0;
 }
 
 const EncodableValue* Find(const EncodableMap& map, const char* key) {
@@ -438,7 +460,17 @@ void EdgePlayer::CheckFullscreen() {
     fullscreen = state == QUNS_BUSY || state == QUNS_RUNNING_D3D_FULL_SCREEN ||
                  state == QUNS_PRESENTATION_MODE;
   }
-  if (fullscreen == fullscreen_) return;
+  if (fullscreen && IsRemoteDesktop(::GetForegroundWindow())) {
+    fullscreen = false;
+  }
+  if (fullscreen == fullscreen_) {
+    // A full-screen remote desktop puts itself on top; stay above it.
+    if (!fullscreen_ && ::IsWindowVisible(window_)) {
+      ::SetWindowPos(window_, HWND_TOPMOST, 0, 0, 0, 0,
+                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    }
+    return;
+  }
   fullscreen_ = fullscreen;
   ApplyVisibility();
 }

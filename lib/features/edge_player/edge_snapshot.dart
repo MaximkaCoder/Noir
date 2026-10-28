@@ -50,7 +50,8 @@ class EdgeSnapshot {
   /// "left", "right", or "off" (no edge player).
   final String side;
 
-  /// NOIR is minimized and something is loaded; otherwise the player slides
+  /// NOIR is in the background and something is loaded; otherwise the
+  /// player slides
   /// away.
   final bool visible;
   final String title;

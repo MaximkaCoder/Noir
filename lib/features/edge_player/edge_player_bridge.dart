@@ -16,18 +16,19 @@ import 'package:window_manager/window_manager.dart';
 /// Implemented by the Windows runner (windows/runner/edge_player.cpp).
 const edgeChannel = MethodChannel('noir/edge');
 
-/// Whether NOIR's main window is minimized; the edge player shows only
-/// then. Kept up to date by [EdgePlayerBridge].
-final mainWindowMinimizedProvider = NotifierProvider<MainWindowMinimized, bool>(
-  MainWindowMinimized.new,
+/// Whether NOIR's main window is the active one; the edge player shows
+/// whenever it isn't (minimized, or another window in front). Kept up to
+/// date by [EdgePlayerBridge].
+final mainWindowActiveProvider = NotifierProvider<MainWindowActive, bool>(
+  MainWindowActive.new,
 );
 
-class MainWindowMinimized extends Notifier<bool> {
+class MainWindowActive extends Notifier<bool> {
   @override
-  bool build() => false;
+  bool build() => true;
 
-  bool get minimized => state;
-  set minimized(bool value) => state = value;
+  bool get active => state;
+  set active(bool value) => state = value;
 }
 
 /// The edge player's state, apart from the position and duration (those
@@ -41,7 +42,7 @@ final edgeSnapshotProvider = Provider<EdgeSnapshot>((ref) {
   final capturable = settings.edgePlayerCapturable;
   final state = ref.watch(playbackProvider);
   final track = state.current?.track;
-  if (track == null || !ref.watch(mainWindowMinimizedProvider)) {
+  if (track == null || ref.watch(mainWindowActiveProvider)) {
     // The view keeps showing the last track while it slides away.
     return EdgeSnapshot(
       side: side.name,
@@ -197,20 +198,19 @@ class EdgePlayerBridge with WindowListener {
     }
   }
 
+  // Clicking the edge player never activates it, so NOIR's window loses
+  // focus only to other apps.
   @override
-  void onWindowMinimize() => _window.minimized = true;
+  void onWindowBlur() => _window.active = false;
 
   @override
-  void onWindowRestore() => _window.minimized = false;
+  void onWindowMinimize() => _window.active = false;
 
   @override
-  void onWindowMaximize() => _window.minimized = false;
+  void onWindowFocus() => _window.active = true;
 
-  @override
-  void onWindowFocus() => _window.minimized = false;
-
-  MainWindowMinimized get _window =>
-      _container.read(mainWindowMinimizedProvider.notifier);
+  MainWindowActive get _window =>
+      _container.read(mainWindowActiveProvider.notifier);
 
   Future<void> _onNativeCall(MethodCall call) async {
     final args = call.arguments;

@@ -64,8 +64,10 @@ void main() {
         trackRow('$name.mp3', title: name, artist: 'Artist $name'),
     ]);
     tracks = await library.watchTracks().first;
-    bridge = EdgePlayerBridge(container, clock: () => now)..start();
-    container.read(mainWindowMinimizedProvider.notifier).minimized = true;
+    // Another window is active.
+    bridge = EdgePlayerBridge(container, clock: () => now)
+      ..start()
+      ..onWindowBlur();
     await pumpEventQueue();
   });
 
@@ -91,17 +93,23 @@ void main() {
     expect(s.canLike, isTrue);
   });
 
-  test('shows only while NOIR is minimized', () async {
+  test('shows only while NOIR is in the background', () async {
     await controller().playTracks(tracks);
     await pumpEventQueue();
     expect(sent.last.visible, isTrue);
 
-    bridge.onWindowRestore();
+    bridge.onWindowFocus();
     await pumpEventQueue();
     expect(sent.last.visible, isFalse);
     expect(sent.last.side, 'right');
 
     bridge.onWindowMinimize();
+    await pumpEventQueue();
+    expect(sent.last.visible, isTrue);
+
+    bridge
+      ..onWindowFocus()
+      ..onWindowBlur();
     await pumpEventQueue();
     expect(sent.last.visible, isTrue);
   });

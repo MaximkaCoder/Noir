@@ -102,7 +102,8 @@ class EdgeShape {
   final double radius;
 }
 
-/// The player that lives behind the screen edge while NOIR is minimized: a
+/// The player that lives behind the screen edge while NOIR is in the
+/// background (minimized, or another window active): a
 /// thin line to point at, which brings out a strip with the essentials;
 /// "more" opens a wider player. Clicking the artwork or the title opens
 /// NOIR. Dragged anywhere, the strip docks to the nearest edge where it is

@@ -147,8 +147,8 @@ class SettingsScreen extends ConsumerWidget {
                     icon: Icons.view_sidebar_rounded,
                     title: 'Player at the screen edge',
                     subtitle:
-                        'While NOIR is minimized, point at the line at the '
-                        'screen edge. Drag the player to any edge.',
+                        'While NOIR is in the background, point at the line '
+                        'at the screen edge. Drag the player to any edge.',
                     value: s.edgePlayerEnabled,
                     onChanged: (v) =>
                         set((s) => s.copyWith(edgePlayerEnabled: v)),

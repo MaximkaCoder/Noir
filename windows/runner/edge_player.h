@@ -16,7 +16,8 @@
 #include <string>
 
 // The edge player: a small always-on-top window docked to an edge of a
-// monitor while NOIR is minimized, on whichever virtual desktop is shown.
+// monitor while NOIR is in the background, on whichever virtual desktop
+// is shown, over full-screen remote desktops too.
 // Its outer side reaches past the screen edge, so the player seems to come
 // out from behind it. It runs its own Flutter engine ("edgePlayerMain" in
 // lib/main.dart).
@@ -98,9 +99,10 @@ class EdgePlayer {
   std::string side_ = "right";
   // The player's middle where it was last dropped, physical screen pixels.
   std::optional<POINT> anchor_;
-  // NOIR is minimized and something is loaded to play.
+  // NOIR is in the background and something is loaded to play.
   bool wanted_ = false;
-  // Another app fills the screen (a game, a video, a presentation).
+  // Another app fills the screen (a game, a video, a presentation); a
+  // remote desktop doesn't count, being where the user works.
   bool fullscreen_ = false;
   // Shown in screenshots and screen sharing; then the screen behind it is
   // not captured, as the capture would see the player.

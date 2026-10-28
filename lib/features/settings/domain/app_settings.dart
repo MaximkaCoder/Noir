@@ -45,7 +45,7 @@ enum TransitionMode {
 }
 
 /// Where the edge player docks on Windows: a small player that comes out
-/// from behind the screen edge while NOIR is minimized.
+/// from behind the screen edge while NOIR is in the background.
 enum EdgePlayerSide { left, right, top, bottom }
 
 @freezed
