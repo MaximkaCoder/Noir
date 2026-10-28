@@ -34,15 +34,21 @@ class MainWindowMinimized extends Notifier<bool> {
 /// move on their own and are added when sent).
 final edgeSnapshotProvider = Provider<EdgeSnapshot>((ref) {
   final settings = ref.watch(settingsProvider);
+  if (!settings.edgePlayerEnabled) return const EdgeSnapshot(side: 'off');
   final side = settings.edgePlayer;
   final anchorX = settings.edgePlayerX;
   final anchorY = settings.edgePlayerY;
+  final capturable = settings.edgePlayerCapturable;
   final state = ref.watch(playbackProvider);
   final track = state.current?.track;
-  if (side == EdgePlayerSide.off) return EdgeSnapshot(side: side.name);
   if (track == null || !ref.watch(mainWindowMinimizedProvider)) {
     // The view keeps showing the last track while it slides away.
-    return EdgeSnapshot(side: side.name, anchorX: anchorX, anchorY: anchorY);
+    return EdgeSnapshot(
+      side: side.name,
+      anchorX: anchorX,
+      anchorY: anchorY,
+      capturable: capturable,
+    );
   }
 
   var canLike = false;
@@ -77,6 +83,7 @@ final edgeSnapshotProvider = Provider<EdgeSnapshot>((ref) {
     liked: liked,
     anchorX: anchorX,
     anchorY: anchorY,
+    capturable: capturable,
   );
 });
 

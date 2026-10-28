@@ -201,6 +201,11 @@ class _EdgePlayerViewState extends State<EdgePlayerView>
     switch (call.method) {
       case 'update' when args is Map:
         final next = EdgeSnapshot.fromMap(args);
+        if (next.capturable && _backdrop != null) {
+          // No more pictures of the screen will come.
+          _backdrop!.image.dispose();
+          setState(() => _backdrop = null);
+        }
         if (next.visible) {
           setState(() => _snapshot = next);
           unawaited(_loadArt(next.artwork));
@@ -614,7 +619,8 @@ class _Glass extends StatelessWidget {
                 Positioned.fromRect(
                   rect: rect,
                   child: Opacity(
-                    opacity: 0.85 * amount,
+                    // Over the blurred screen, a little of it shows through.
+                    opacity: (backdrop == null ? 1 : 0.85) * amount,
                     child: RepaintBoundary(
                       child: CustomPaint(
                         painter: ArtworkFlowPainter(

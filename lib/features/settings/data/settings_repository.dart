@@ -33,7 +33,7 @@ class SettingsRepository {
 
   /// Settings saved before transitions had a mode used `crossfadeSeconds`
   /// = 0 for "off"; before the volume was remembered, a "volume at startup"
-  /// was set instead.
+  /// was set instead; the edge player was once turned off by its side.
   @visibleForTesting
   static Map<String, Object?> migrateSettingsJson(Map<String, Object?> json) {
     final seconds = json['crossfadeSeconds'];
@@ -46,6 +46,10 @@ class SettingsRepository {
       },
       if (!json.containsKey('volume') && json.containsKey('defaultVolume'))
         'volume': json['defaultVolume'],
+      if (json['edgePlayer'] == 'off') ...{
+        'edgePlayer': 'right',
+        'edgePlayerEnabled': false,
+      },
     };
   }
 

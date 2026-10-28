@@ -186,7 +186,7 @@ void main() {
       expect(current.crossfadeSeconds, 3);
     });
 
-    test('keeps the old startup volume as the remembered volume', () async {
+    test('carries over the startup volume and the edge player off', () async {
       Future<AppSettings> load(String json) async {
         await db
             .into(db.keyValues)
@@ -197,6 +197,10 @@ void main() {
       }
 
       expect((await load('{"defaultVolume":0.3}')).volume, 0.3);
+      // The edge player used to be turned off by choosing "off" as its side.
+      final off = await load('{"edgePlayer":"off"}');
+      expect(off.edgePlayerEnabled, isFalse);
+      expect(off.edgePlayer, EdgePlayerSide.right);
       expect((await load('{"defaultVolume":0.3,"volume":0.6}')).volume, 0.6);
     });
 

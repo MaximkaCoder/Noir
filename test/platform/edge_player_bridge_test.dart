@@ -128,18 +128,25 @@ void main() {
     expect((sent.last.anchorX, sent.last.anchorY), (2600, 400));
   });
 
-  test('follows the setting, off included', () async {
+  test('follows the settings: side, screen capture, off', () async {
     await controller().playTracks(tracks);
     await pumpEventQueue();
+    expect(sent.last.capturable, isFalse);
     container
         .read(settingsProvider.notifier)
-        .update((s) => s.copyWith(edgePlayer: EdgePlayerSide.left));
+        .update(
+          (s) => s.copyWith(
+            edgePlayer: EdgePlayerSide.top,
+            edgePlayerCapturable: true,
+          ),
+        );
     await pumpEventQueue();
-    expect(sent.last.side, 'left');
+    expect(sent.last.side, 'top');
+    expect(sent.last.capturable, isTrue);
 
     container
         .read(settingsProvider.notifier)
-        .update((s) => s.copyWith(edgePlayer: EdgePlayerSide.off));
+        .update((s) => s.copyWith(edgePlayerEnabled: false));
     await pumpEventQueue();
     expect(sent.last.side, 'off');
     expect(sent.last.visible, isFalse);

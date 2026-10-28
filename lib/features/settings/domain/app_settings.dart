@@ -46,7 +46,7 @@ enum TransitionMode {
 
 /// Where the edge player docks on Windows: a small player that comes out
 /// from behind the screen edge while NOIR is minimized.
-enum EdgePlayerSide { off, left, right, top, bottom }
+enum EdgePlayerSide { left, right, top, bottom }
 
 @freezed
 abstract class AppSettings with _$AppSettings {
@@ -78,6 +78,16 @@ abstract class AppSettings with _$AppSettings {
     @JsonKey(unknownEnumValue: LyricsMode.lines)
     @Default(LyricsMode.lines)
     LyricsMode lyricsMode,
+
+    /// The Windows edge player is on.
+    @Default(true) bool edgePlayerEnabled,
+
+    /// The edge player shows in screenshots and screen sharing. Then it
+    /// can't see the screen behind it, so its glass is the flowing artwork
+    /// alone instead of the blurred screen too.
+    @Default(false) bool edgePlayerCapturable,
+
+    /// The edge it is docked to; set by dragging it.
     @JsonKey(unknownEnumValue: EdgePlayerSide.right)
     @Default(EdgePlayerSide.right)
     EdgePlayerSide edgePlayer,

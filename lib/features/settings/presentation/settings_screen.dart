@@ -142,22 +142,29 @@ class SettingsScreen extends ConsumerWidget {
                   },
                   onChanged: (m) => set((s) => s.copyWith(lyricsMode: m)),
                 ),
-                if (Platform.isWindows)
-                  _ChoiceTile<EdgePlayerSide>(
+                if (Platform.isWindows) ...[
+                  _ToggleTile(
                     icon: Icons.view_sidebar_rounded,
                     title: 'Player at the screen edge',
                     subtitle:
-                        'Shows while NOIR is minimized. Drag it to move it.',
-                    value: s.edgePlayer,
-                    options: const {
-                      EdgePlayerSide.off: 'Off',
-                      EdgePlayerSide.left: 'Left',
-                      EdgePlayerSide.right: 'Right',
-                      EdgePlayerSide.top: 'Top',
-                      EdgePlayerSide.bottom: 'Bottom',
-                    },
-                    onChanged: (e) => set((s) => s.copyWith(edgePlayer: e)),
+                        'While NOIR is minimized, point at the line at the '
+                        'screen edge. Drag the player to any edge.',
+                    value: s.edgePlayerEnabled,
+                    onChanged: (v) =>
+                        set((s) => s.copyWith(edgePlayerEnabled: v)),
                   ),
+                  if (s.edgePlayerEnabled)
+                    _ToggleTile(
+                      icon: Icons.screen_share_outlined,
+                      title: 'Show it in screenshots and screen sharing',
+                      subtitle:
+                          'Off, it is hidden there and its glass blurs what '
+                          'is behind it. On, the glass is the artwork alone.',
+                      value: s.edgePlayerCapturable,
+                      onChanged: (v) =>
+                          set((s) => s.copyWith(edgePlayerCapturable: v)),
+                    ),
+                ],
                 for (final section in ref.watch(settingsExtensionsProvider))
                   Builder(builder: section),
                 const _Section('Accounts'),

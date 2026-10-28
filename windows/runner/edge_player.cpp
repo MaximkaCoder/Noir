@@ -118,6 +118,20 @@ void EdgePlayer::HandleAppCall(
   }
   wanted_ = GetBool(*args, "visible");
   state_ = std::make_unique<EncodableValue>(*args);
+  const bool capturable = GetBool(*args, "capturable");
+  if (capturable != capturable_) {
+    capturable_ = capturable;
+    if (window_) {
+      ::SetWindowDisplayAffinity(
+          window_, capturable_ ? WDA_NONE : WDA_EXCLUDEFROMCAPTURE);
+      if (capturable_) {
+        ::KillTimer(window_, kBackdropTimer);
+      } else if (!::IsRectEmpty(&region_)) {
+        SendBackdrop();
+        ::SetTimer(window_, kBackdropTimer, kBackdropInterval, nullptr);
+      }
+    }
+  }
 
   std::optional<POINT> anchor;
   const auto x = GetNumber(*args, "anchorX");
@@ -173,7 +187,7 @@ void EdgePlayer::HandleViewCall(
     const bool empty = ::IsRectEmpty(&region_);
     ApplyRegion();
     ApplyVisibility();
-    if (was_empty && !empty) {
+    if (was_empty && !empty && !capturable_) {
       SendBackdrop();
       ::SetTimer(window_, kBackdropTimer, kBackdropInterval, nullptr);
     } else if (!was_empty && empty) {
@@ -265,7 +279,9 @@ HWND EdgePlayer::CreateHost() {
   MARGINS margins = {-1};
   ::DwmExtendFrameIntoClientArea(window, &margins);
   // The backdrop capture must not see the player itself.
-  ::SetWindowDisplayAffinity(window, WDA_EXCLUDEFROMCAPTURE);
+  if (!capturable_) {
+    ::SetWindowDisplayAffinity(window, WDA_EXCLUDEFROMCAPTURE);
+  }
   return window;
 }
 
@@ -287,7 +303,7 @@ void EdgePlayer::FollowDesktop() {
   ApplyRegion();
   ::SetTimer(window_, kFullscreenTimer, kFullscreenInterval, nullptr);
   ::SetTimer(window_, kDesktopTimer, kDesktopInterval, nullptr);
-  if (!::IsRectEmpty(&region_)) {
+  if (!::IsRectEmpty(&region_) && !capturable_) {
     ::SetTimer(window_, kBackdropTimer, kBackdropInterval, nullptr);
   }
   if (snapping_) ::SetTimer(window_, kSnapTimer, kSnapInterval, nullptr);
@@ -428,7 +444,7 @@ void EdgePlayer::CheckFullscreen() {
 }
 
 void EdgePlayer::SendBackdrop() {
-  if (!view_ready_) return;
+  if (!view_ready_ || capturable_) return;
   RECT rect = {
       origin_.x + static_cast<LONG>(std::floor(region_.left * scale_)),
       origin_.y + static_cast<LONG>(std::floor(region_.top * scale_)),

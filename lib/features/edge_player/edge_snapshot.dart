@@ -21,6 +21,7 @@ class EdgeSnapshot {
     this.liked = false,
     this.anchorX,
     this.anchorY,
+    this.capturable = false,
   });
 
   factory EdgeSnapshot.fromMap(Map<Object?, Object?> map) => EdgeSnapshot(
@@ -43,6 +44,7 @@ class EdgeSnapshot {
     liked: map['liked'] as bool? ?? false,
     anchorX: map['anchorX'] as int?,
     anchorY: map['anchorY'] as int?,
+    capturable: map['capturable'] as bool? ?? false,
   );
 
   /// "left", "right", or "off" (no edge player).
@@ -72,6 +74,10 @@ class EdgeSnapshot {
   final int? anchorX;
   final int? anchorY;
 
+  /// Shown in screenshots and screen sharing; then the runner sends no
+  /// picture of the screen behind it.
+  final bool capturable;
+
   /// The position now, moved on from [position] while playing.
   Duration positionAt(DateTime now) {
     final at = this.at;
@@ -99,6 +105,7 @@ class EdgeSnapshot {
     'liked': liked,
     'anchorX': anchorX,
     'anchorY': anchorY,
+    'capturable': capturable,
   };
 }
 

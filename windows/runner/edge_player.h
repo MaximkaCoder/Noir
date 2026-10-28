@@ -35,7 +35,8 @@
 // Outside the region clicks reach the windows underneath. While the player
 // shows, the screen behind it is captured, scaled down, and sent to the view
 // to draw blurred glass; the window is excluded from screen capture so it
-// never sees itself.
+// never sees itself. With "capturable" in the update, it shows in screen
+// capture instead and no backdrop is sent.
 class EdgePlayer {
  public:
   explicit EdgePlayer(flutter::BinaryMessenger* app_messenger);
@@ -101,6 +102,9 @@ class EdgePlayer {
   bool wanted_ = false;
   // Another app fills the screen (a game, a video, a presentation).
   bool fullscreen_ = false;
+  // Shown in screenshots and screen sharing; then the screen behind it is
+  // not captured, as the capture would see the player.
+  bool capturable_ = false;
 
   RECT monitor_ = {};  // Work area, physical pixels.
   POINT origin_ = {};  // Window position, physical pixels.
