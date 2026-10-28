@@ -153,6 +153,8 @@ class SettingsScreen extends ConsumerWidget {
                       EdgePlayerSide.off: 'Off',
                       EdgePlayerSide.left: 'Left',
                       EdgePlayerSide.right: 'Right',
+                      EdgePlayerSide.top: 'Top',
+                      EdgePlayerSide.bottom: 'Bottom',
                     },
                     onChanged: (e) => set((s) => s.copyWith(edgePlayer: e)),
                   ),

@@ -46,7 +46,7 @@ enum TransitionMode {
 
 /// Where the edge player docks on Windows: a small player that comes out
 /// from behind the screen edge while NOIR is minimized.
-enum EdgePlayerSide { off, left, right }
+enum EdgePlayerSide { off, left, right, top, bottom }
 
 @freezed
 abstract class AppSettings with _$AppSettings {
@@ -82,8 +82,8 @@ abstract class AppSettings with _$AppSettings {
     @Default(EdgePlayerSide.right)
     EdgePlayerSide edgePlayer,
 
-    /// Where the edge player was last dropped, in physical screen pixels:
-    /// it docks to that monitor at that height. Unset: the primary monitor,
+    /// Where the edge player's middle was last dropped, in physical screen
+    /// pixels: it docks to that monitor there. Unset: the primary monitor,
     /// centered.
     int? edgePlayerX,
     int? edgePlayerY,

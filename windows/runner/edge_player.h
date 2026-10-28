@@ -8,14 +8,18 @@
 #include <flutter/flutter_view_controller.h>
 #include <flutter/method_channel.h>
 
+#include <shobjidl.h>
+#include <wrl/client.h>
+
 #include <memory>
 #include <optional>
 #include <string>
 
-// The edge player: a small always-on-top window docked to the left or right
-// edge of a monitor while NOIR is minimized. Its outer side reaches past the
-// screen edge, so the player seems to come out from behind it. It runs its
-// own Flutter engine ("edgePlayerMain" in lib/main.dart).
+// The edge player: a small always-on-top window docked to an edge of a
+// monitor while NOIR is minimized, on whichever virtual desktop is shown.
+// Its outer side reaches past the screen edge, so the player seems to come
+// out from behind it. It runs its own Flutter engine ("edgePlayerMain" in
+// lib/main.dart).
 //
 // App -> native ("noir/edge"): "update" with the playback state, the side
 // and where the player was last dropped; forwarded to the view.
@@ -24,8 +28,9 @@
 //
 // View -> native ("noir/edge_view"): "ready"; "command"; "region" (the
 // rectangle to clip the window to, logical pixels; empty when the player has
-// slid away); "dragStart", "dragUpdate", "dragEnd" {depth}. Native -> view:
-// "update", "layout" {side, overhang}, "backdrop".
+// slid away); "dragStart", "dragUpdate", "dragEnd" {centerX, centerY, depth}
+// (the player's middle in window coordinates and how deep it is).
+// Native -> view: "update", "layout" {side, overhang}, "backdrop".
 //
 // Outside the region clicks reach the windows underneath. While the player
 // shows, the screen behind it is captured, scaled down, and sent to the view
@@ -55,10 +60,15 @@ class EdgePlayer {
                           flutter::EncodableValue>> result);
 
   bool Create();
+  // A new top-level window for the view, at |origin_|.
+  HWND CreateHost();
   void Destroy();
+  // Windows keep to the virtual desktop they were made on; when another one
+  // is shown, the view moves into a new window made there.
+  void FollowDesktop();
   // Where the docked window goes: the monitor nearest the anchor (the
-  // primary one without it), its |side_|, centered on the anchor's height.
-  // Updates |monitor_| and |scale_|.
+  // primary one without it), its |side_|, centered on the anchor along that
+  // edge. Updates |monitor_| and |scale_|.
   POINT Target();
   // Moves the window to |Target()|.
   void Place();
@@ -71,7 +81,7 @@ class EdgePlayer {
   RECT Bounds() const;
   void CheckFullscreen();
   void SendBackdrop();
-  void DragEnd(double depth);
+  void DragEnd(double center_x, double center_y, double depth);
   void StepSnap();
 
   std::unique_ptr<Channel> app_channel_;
@@ -83,8 +93,9 @@ class EdgePlayer {
 
   // The latest "update" from the app, replayed when the view starts.
   std::unique_ptr<flutter::EncodableValue> state_;
+  // "left", "right", "top" or "bottom".
   std::string side_ = "right";
-  // Where the player was last dropped, physical screen pixels.
+  // The player's middle where it was last dropped, physical screen pixels.
   std::optional<POINT> anchor_;
   // NOIR is minimized and something is loaded to play.
   bool wanted_ = false;
@@ -103,6 +114,8 @@ class EdgePlayer {
   POINT snap_from_ = {};
   POINT snap_to_ = {};
   ULONGLONG snap_start_ = 0;
+
+  Microsoft::WRL::ComPtr<IVirtualDesktopManager> desktops_;
 };
 
 #endif  // RUNNER_EDGE_PLAYER_H_

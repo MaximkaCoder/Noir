@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:noir/core/formatters.dart';
+import 'package:noir/core/widgets/artwork_flow.dart';
 import 'package:noir/features/edge_player/edge_snapshot.dart';
 
 /// Implemented by the Windows runner (windows/runner/edge_player.cpp), on
@@ -40,59 +41,79 @@ enum EdgePhase {
   /// Behind the screen edge: NOIR is open, or nothing is loaded.
   away,
 
-  /// The strip: artwork, title, transport, heart.
+  /// A thin line at the edge, to point at.
+  handle,
+
+  /// The strip: artwork, title, transport, heart and "more".
   capsule,
 
-  /// Everything: larger artwork, progress, volume and a way back to NOIR.
+  /// The wider player, opened with "more": progress and volume too.
   panel,
 }
 
-/// The player's outline in each [EdgePhase], measured from the screen edge.
+/// The screen edge the player is docked to.
+enum EdgeSide {
+  left,
+  right,
+  top,
+  bottom;
+
+  /// Left and right: the strip stands upright.
+  bool get vertical => this == left || this == right;
+}
+
+/// The player's outline in each [EdgePhase]: how far it reaches into the
+/// screen ([depth]) and how long it runs along the edge ([length]).
 @immutable
 class EdgeShape {
-  const EdgeShape(this.depth, this.height, this.radius);
+  const EdgeShape(this.depth, this.length, this.radius);
 
-  factory EdgeShape.of(EdgePhase phase) => switch (phase) {
-    EdgePhase.away => away,
-    EdgePhase.capsule => capsule,
-    EdgePhase.panel => panel,
+  factory EdgeShape.of(EdgePhase phase, EdgeSide side) => switch (phase) {
+    EdgePhase.away => const EdgeShape(0, 96, 3),
+    EdgePhase.handle => const EdgeShape(5, 96, 3),
+    EdgePhase.capsule => EdgeShape(capsuleDepth, side.vertical ? 276 : 300, 16),
+    EdgePhase.panel => EdgeShape(
+      side.vertical ? panelSize.width : panelSize.height,
+      side.vertical ? panelSize.height : panelSize.width,
+      26,
+    ),
   };
 
-  /// Between the phases: [t] runs 0 (away) → 1 (capsule) → 2 (panel).
-  factory EdgeShape.at(double t) {
-    final (a, b, f) = t <= 1 ? (away, capsule, t) : (capsule, panel, t - 1);
+  /// Between the phases: [t] runs 0 (away) to 3 (panel).
+  factory EdgeShape.at(double t, EdgeSide side) {
+    final from = t.floor().clamp(0, EdgePhase.values.length - 2);
+    final a = EdgeShape.of(EdgePhase.values[from], side);
+    final b = EdgeShape.of(EdgePhase.values[from + 1], side);
+    final f = t - from;
     return EdgeShape(
       ui.lerpDouble(a.depth, b.depth, f)!,
-      ui.lerpDouble(a.height, b.height, f)!,
+      ui.lerpDouble(a.length, b.length, f)!,
       ui.lerpDouble(a.radius, b.radius, f)!,
     );
   }
 
-  static const away = EdgeShape(0, 276, 16);
-  static const capsule = EdgeShape(60, 276, 16);
-  static const panel = EdgeShape(264, 364, 32);
+  static const capsuleDepth = 60.0;
 
-  /// How far it reaches into the screen.
+  /// The wider player's box, whichever edge it is on.
+  static const panelSize = Size(252, 236);
+
   final double depth;
-  final double height;
+  final double length;
   final double radius;
 }
 
-/// The player that comes out from behind the screen edge while NOIR is
-/// minimized: a strip with the essentials that opens into the full panel
-/// when pointed at for a moment (or when its artwork or "more" is
-/// clicked), and closes back when the pointer leaves. Dragged anywhere, it
-/// docks to the nearest side edge where it is dropped.
+/// The player that lives behind the screen edge while NOIR is minimized: a
+/// thin line to point at, which brings out a strip with the essentials;
+/// "more" opens a wider player. Clicking the artwork or the title opens
+/// NOIR. Dragged anywhere, the strip docks to the nearest edge where it is
+/// dropped.
 class EdgePlayerView extends StatefulWidget {
   const EdgePlayerView({this.channel = edgeViewChannel, super.key});
 
   final MethodChannel channel;
 
-  /// How long the pointer stays on the strip before the panel opens.
-  static const dwell = Duration(milliseconds: 700);
-
-  /// How long the pointer may be away before the panel closes.
-  static const grace = Duration(milliseconds: 400);
+  /// How long the pointer may be away before the player slides back.
+  static const grace = Duration(milliseconds: 450);
 
   /// Room around the outline for its shadow.
   static const shadowRoom = 28.0;
@@ -105,7 +126,7 @@ class _EdgePlayerViewState extends State<EdgePlayerView>
     with TickerProviderStateMixin {
   late final AnimationController _t = AnimationController(
     vsync: this,
-    upperBound: 2,
+    upperBound: 3,
   );
 
   /// 1 while dragged: the outline leaves the edge and rounds all corners.
@@ -115,36 +136,55 @@ class _EdgePlayerViewState extends State<EdgePlayerView>
     reverseDuration: const Duration(milliseconds: 240),
   );
 
+  /// One loop of the artwork's flow, as in Now Playing.
+  late final AnimationController _flow = AnimationController(
+    vsync: this,
+    duration: const Duration(seconds: 36),
+  );
+
+  /// Cross-fades the flow between tracks.
+  late final AnimationController _flowFade = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 900),
+    value: 1,
+  );
+
   /// What is shown; kept while the player slides away.
   EdgeSnapshot _snapshot = const EdgeSnapshot(side: 'right');
-  String _side = 'right';
+  EdgeSide _side = EdgeSide.right;
   double _overhang = 48;
   EdgePhase _phase = EdgePhase.away;
   bool _dragging = false;
-  Timer? _dwell;
   Timer? _grace;
   _Backdrop? _backdrop;
 
+  /// The artwork blurred for the flow, and the one it replaces.
+  ui.Image? _art;
+  ui.Image? _previousArt;
+  String? _artSource;
+
   /// The region last sent, to skip repeats.
   Rect? _sentRegion;
-
-  bool get _left => _side == 'left';
 
   @override
   void initState() {
     super.initState();
     widget.channel.setMethodCallHandler(_onNativeCall);
     unawaited(_call('ready'));
+    _t.addListener(_syncFlow);
   }
 
   @override
   void dispose() {
     widget.channel.setMethodCallHandler(null);
-    _dwell?.cancel();
     _grace?.cancel();
     _backdrop?.image.dispose();
+    _art?.dispose();
+    _previousArt?.dispose();
     _t.dispose();
     _detach.dispose();
+    _flow.dispose();
+    _flowFade.dispose();
     super.dispose();
   }
 
@@ -163,15 +203,15 @@ class _EdgePlayerViewState extends State<EdgePlayerView>
         final next = EdgeSnapshot.fromMap(args);
         if (next.visible) {
           setState(() => _snapshot = next);
-          if (_phase == EdgePhase.away) unawaited(_go(EdgePhase.capsule));
+          unawaited(_loadArt(next.artwork));
+          if (_phase == EdgePhase.away) unawaited(_go(EdgePhase.handle));
         } else if (_phase != EdgePhase.away) {
-          _dwell?.cancel();
           _grace?.cancel();
           unawaited(_go(EdgePhase.away));
         }
       case 'layout' when args is Map:
         setState(() {
-          _side = args['side'] as String? ?? 'right';
+          _side = EdgeSide.values.asNameMap()[args['side']] ?? EdgeSide.right;
           _overhang = (args['overhang'] as num? ?? 48).toDouble();
         });
         _sentRegion = null;
@@ -214,31 +254,98 @@ class _EdgePlayerViewState extends State<EdgePlayerView>
     old?.image.dispose();
   }
 
+  /// Blurs the track's artwork for the flowing background.
+  Future<void> _loadArt(String source) async {
+    if (source == _artSource) return;
+    _artSource = source;
+    if (source.isEmpty) return;
+    final provider = ResizeImage(
+      source.startsWith('http')
+          ? NetworkImage(source)
+          : FileImage(File(source)) as ImageProvider,
+      width: 160,
+    );
+    final done = Completer<ImageInfo?>();
+    final stream = provider.resolve(createLocalImageConfiguration(context));
+    final listener = ImageStreamListener(
+      (info, _) {
+        if (!done.isCompleted) done.complete(info);
+      },
+      onError: (_, _) {
+        if (!done.isCompleted) done.complete(null);
+      },
+    );
+    stream.addListener(listener);
+    final info = await done.future;
+    stream.removeListener(listener);
+    if (info == null) return;
+    final ui.Image baked;
+    try {
+      baked = await blurArtwork(info.image, width: 48, sigma: 4);
+    } finally {
+      info.dispose();
+    }
+    if (!mounted || _artSource != source) {
+      baked.dispose();
+      return;
+    }
+    setState(() {
+      _previousArt?.dispose();
+      _previousArt = _art;
+      _art = baked;
+    });
+    _flowFade.forward(from: 0);
+  }
+
+  /// The flow moves only while the glass shows.
+  void _syncFlow() {
+    final show = _t.value > 1.2 && !MediaQuery.disableAnimationsOf(context);
+    if (show && !_flow.isAnimating) {
+      _flow.repeat();
+    } else if (!show && _flow.isAnimating) {
+      _flow.stop();
+    }
+  }
+
   // ---------------------------------------------------------------- shape --
 
   /// The outline's rectangle in window coordinates. Docked, it runs
   /// [_overhang] past the screen edge, so its outer corners are never seen;
   /// [detach] 1 pulls it back to its visible part (while dragged).
   Rect _rectFor(EdgeShape shape, Size window, {double detach = 0}) {
-    final top = (window.height - shape.height) / 2;
-    final width = shape.depth + _overhang * (1 - detach);
-    final left = _left
-        ? _overhang * detach
-        : window.width - _overhang - shape.depth;
-    return Rect.fromLTWH(left, top, width, shape.height);
+    final o = _overhang;
+    final reach = shape.depth + o * (1 - detach);
+    final along =
+        (_side.vertical ? window.height : window.width) / 2 - shape.length / 2;
+    return switch (_side) {
+      EdgeSide.right => Rect.fromLTWH(
+        window.width - o - shape.depth,
+        along,
+        reach,
+        shape.length,
+      ),
+      EdgeSide.left => Rect.fromLTWH(o * detach, along, reach, shape.length),
+      EdgeSide.bottom => Rect.fromLTWH(
+        along,
+        window.height - o - shape.depth,
+        shape.length,
+        reach,
+      ),
+      EdgeSide.top => Rect.fromLTWH(along, o * detach, shape.length, reach),
+    };
   }
 
   /// Where clicks are caught in [phase]: the outline plus room for its
-  /// shadow. Empty once the player is away.
+  /// shadow (a little around the thin line). Empty once the player is away.
   Rect _regionFor(EdgePhase phase, Size window) {
     if (phase == EdgePhase.away) return Rect.zero;
-    final rect = _rectFor(EdgeShape.of(phase), window);
-    const room = EdgePlayerView.shadowRoom;
+    final rect = _rectFor(EdgeShape.of(phase, _side), window);
+    final room = phase == EdgePhase.handle ? 4.0 : EdgePlayerView.shadowRoom;
     return Rect.fromLTRB(
-      _left ? rect.left : rect.left - room,
-      rect.top - room,
-      _left ? rect.right + room : rect.right,
-      rect.bottom + room,
+      _side == EdgeSide.left ? rect.left : rect.left - room,
+      _side == EdgeSide.top ? rect.top : rect.top - room,
+      _side == EdgeSide.right ? rect.right : rect.right + room,
+      _side == EdgeSide.bottom ? rect.bottom : rect.bottom + room,
     );
   }
 
@@ -270,8 +377,8 @@ class _EdgePlayerViewState extends State<EdgePlayerView>
       await _t.animateTo(
         phase.index.toDouble(),
         duration: growing
-            ? const Duration(milliseconds: 460)
-            : const Duration(milliseconds: 340),
+            ? const Duration(milliseconds: 420)
+            : const Duration(milliseconds: 320),
         curve: growing ? Curves.easeOutQuint : Curves.easeInOutCubic,
       );
     }
@@ -282,22 +389,17 @@ class _EdgePlayerViewState extends State<EdgePlayerView>
 
   void _onEnter() {
     _grace?.cancel();
-    if (_phase == EdgePhase.capsule && !_dragging) {
-      _dwell?.cancel();
-      _dwell = Timer(EdgePlayerView.dwell, () => _go(EdgePhase.panel));
-    }
+    if (_phase == EdgePhase.handle) unawaited(_go(EdgePhase.capsule));
   }
 
   void _onExit() {
-    _dwell?.cancel();
-    if (_phase != EdgePhase.panel || _dragging) return;
+    if (_dragging || _phase.index < EdgePhase.capsule.index) return;
     _grace?.cancel();
-    _grace = Timer(EdgePlayerView.grace, () => _go(EdgePhase.capsule));
+    _grace = Timer(EdgePlayerView.grace, () => _go(EdgePhase.handle));
   }
 
   void _onDragStart() {
-    if (_phase == EdgePhase.away) return;
-    _dwell?.cancel();
+    if (_phase != EdgePhase.capsule) return;
     _grace?.cancel();
     _dragging = true;
     _detach.forward();
@@ -312,7 +414,15 @@ class _EdgePlayerViewState extends State<EdgePlayerView>
     if (!_dragging) return;
     _dragging = false;
     _detach.reverse();
-    unawaited(_call('dragEnd', {'depth': EdgeShape.at(_t.value).depth}));
+    final window = MediaQuery.sizeOf(context);
+    final box = _rectFor(EdgeShape.of(_phase, _side), window, detach: 1);
+    unawaited(
+      _call('dragEnd', {
+        'centerX': box.center.dx,
+        'centerY': box.center.dy,
+        'depth': EdgeShape.capsuleDepth,
+      }),
+    );
   }
 
   void _command(EdgeCommand command, [num? value]) =>
@@ -338,45 +448,37 @@ class _EdgePlayerViewState extends State<EdgePlayerView>
           animation: Listenable.merge([_t, _detach]),
           builder: (context, _) {
             final t = _t.value;
-            final shape = EdgeShape.at(t);
+            final shape = EdgeShape.at(t, _side);
             final rect = _rectFor(shape, window, detach: _detach.value);
             // The visible box, whether docked or dragged.
             final inner = _rectFor(shape, window, detach: 1);
-            final glass = (t / 0.25).clamp(0.0, 1.0);
+            final glass = ((t - 1) / 0.6).clamp(0.0, 1.0);
             final capsule =
-                ((t - 0.3) / 0.7).clamp(0.0, 1.0) *
-                (1 - ((t - 1) / 0.4).clamp(0.0, 1.0));
-            final panel = ((t - 1.45) / 0.55).clamp(0.0, 1.0);
-            // Coming out, the strip's contents ride along with its inner
-            // edge, as if pulled from behind the screen.
-            final capsuleBox = t <= 1
-                ? Rect.fromLTWH(
-                    _left ? inner.right - EdgeShape.capsule.depth : inner.left,
-                    inner.top,
-                    EdgeShape.capsule.depth,
-                    EdgeShape.capsule.height,
-                  )
-                : Rect.fromCenter(
-                    center: inner.center,
-                    width: EdgeShape.capsule.depth,
-                    height: EdgeShape.capsule.height,
-                  );
+                ((t - 1.3) / 0.7).clamp(0.0, 1.0) *
+                (1 - ((t - 2) / 0.4).clamp(0.0, 1.0));
+            final panel = ((t - 2.45) / 0.55).clamp(0.0, 1.0);
             return Stack(
               children: [
                 _Glass(
                   rect: rect,
                   radius: shape.radius,
+                  handle: t.clamp(0.0, 1.0),
                   amount: glass,
                   backdrop: _backdrop,
+                  art: _art,
+                  previousArt: _previousArt,
+                  flow: _flow,
+                  fade: _flowFade,
                 ),
                 if (capsule > 0)
                   Positioned.fromRect(
-                    rect: capsuleBox,
+                    rect: _capsuleBox(inner, t),
                     child: Opacity(
                       opacity: capsule,
                       child: _CapsuleContent(
                         snapshot: _snapshot,
-                        onOpen: () => _go(EdgePhase.panel),
+                        vertical: _side.vertical,
+                        onMore: () => _go(EdgePhase.panel),
                         onCommand: _command,
                       ),
                     ),
@@ -385,8 +487,8 @@ class _EdgePlayerViewState extends State<EdgePlayerView>
                   Positioned.fromRect(
                     rect: Rect.fromCenter(
                       center: inner.center,
-                      width: EdgeShape.panel.depth,
-                      height: EdgeShape.panel.height,
+                      width: EdgeShape.panelSize.width,
+                      height: EdgeShape.panelSize.height,
                     ),
                     child: Opacity(
                       opacity: panel,
@@ -394,6 +496,7 @@ class _EdgePlayerViewState extends State<EdgePlayerView>
                         scale: ui.lerpDouble(0.94, 1, panel),
                         child: _PanelContent(
                           snapshot: _snapshot,
+                          onLess: () => _go(EdgePhase.capsule),
                           onCommand: _command,
                         ),
                       ),
@@ -405,6 +508,27 @@ class _EdgePlayerViewState extends State<EdgePlayerView>
         ),
       ),
     );
+  }
+
+  /// The strip's contents. Coming out, they ride along with its inner
+  /// edge, as if pulled from behind the screen.
+  Rect _capsuleBox(Rect inner, double t) {
+    final length = EdgeShape.of(EdgePhase.capsule, _side).length;
+    final size = _side.vertical
+        ? Size(EdgeShape.capsuleDepth, length)
+        : Size(length, EdgeShape.capsuleDepth);
+    final c = inner.center;
+    if (t > 2) {
+      return Rect.fromCenter(center: c, width: size.width, height: size.height);
+    }
+    return switch (_side) {
+      EdgeSide.right => Offset(inner.left, c.dy - size.height / 2) & size,
+      EdgeSide.left =>
+        Offset(inner.right - size.width, c.dy - size.height / 2) & size,
+      EdgeSide.bottom => Offset(c.dx - size.width / 2, inner.top) & size,
+      EdgeSide.top =>
+        Offset(c.dx - size.width / 2, inner.bottom - size.height) & size,
+    };
   }
 }
 
@@ -419,25 +543,43 @@ class _Backdrop {
   final Rect rect;
 }
 
-/// The outline: blurred, tinted backdrop, a hairline of light along the
-/// inner edge and a soft shadow, faded in by [amount].
+/// The outline. As the thin line ([handle] 0–1) it is a faint bar; as the
+/// player ([amount] 0–1) it is glass: the blurred screen behind, the
+/// track's artwork flowing over it as in Now Playing, a dark wash, a
+/// hairline of light along the inner edge and a soft shadow.
 class _Glass extends StatelessWidget {
   const _Glass({
     required this.rect,
     required this.radius,
+    required this.handle,
     required this.amount,
     required this.backdrop,
+    required this.art,
+    required this.previousArt,
+    required this.flow,
+    required this.fade,
   });
 
   final Rect rect;
   final double radius;
+  final double handle;
   final double amount;
   final _Backdrop? backdrop;
+  final ui.Image? art;
+  final ui.Image? previousArt;
+  final Animation<double> flow;
+  final Animation<double> fade;
 
   @override
   Widget build(BuildContext context) {
     final shape = RRect.fromRectAndRadius(rect, Radius.circular(radius));
     final backdrop = this.backdrop;
+    final hasArt = art != null || previousArt != null;
+    final wash = hasArt
+        ? 0.5
+        : backdrop == null
+        ? 0.92
+        : 0.66;
     return Positioned.fill(
       child: CustomPaint(
         painter: _ShadowPainter(shape, amount),
@@ -446,6 +588,17 @@ class _Glass extends StatelessWidget {
           clipper: _ShapeClipper(shape),
           child: Stack(
             children: [
+              // The line, before the glass takes over.
+              Positioned.fill(
+                child: ColoredBox(
+                  color: Color.fromRGBO(
+                    255,
+                    255,
+                    255,
+                    0.3 * handle * (1 - amount),
+                  ),
+                ),
+              ),
               if (backdrop != null && amount > 0)
                 Positioned.fromRect(
                   rect: backdrop.rect,
@@ -457,16 +610,29 @@ class _Glass extends StatelessWidget {
                     ),
                   ),
                 ),
-              Positioned.fill(
-                child: ColoredBox(
-                  color: Color.fromRGBO(
-                    16,
-                    16,
-                    18,
-                    (backdrop == null ? 0.92 : 0.66) * amount,
+              if (hasArt && amount > 0)
+                Positioned.fromRect(
+                  rect: rect,
+                  child: Opacity(
+                    opacity: 0.85 * amount,
+                    child: RepaintBoundary(
+                      child: CustomPaint(
+                        painter: ArtworkFlowPainter(
+                          shown: art,
+                          previous: previousArt,
+                          fade: fade,
+                          flow: flow,
+                        ),
+                      ),
+                    ),
                   ),
                 ),
-              ),
+              if (amount > 0)
+                Positioned.fill(
+                  child: ColoredBox(
+                    color: Color.fromRGBO(12, 12, 14, wash * amount),
+                  ),
+                ),
             ],
           ),
         ),
@@ -585,170 +751,254 @@ class _Artwork extends StatelessWidget {
   }
 }
 
-class _CapsuleContent extends StatelessWidget {
-  const _CapsuleContent({
+/// Opens NOIR when clicked: the artwork, and the title with the artist.
+class _OpensApp extends StatelessWidget {
+  const _OpensApp({required this.onCommand, required this.child});
+
+  final void Function(EdgeCommand, [num?]) onCommand;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    button: true,
+    label: 'Open NOIR',
+    child: MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => onCommand(EdgeCommand.open),
+        child: child,
+      ),
+    ),
+  );
+}
+
+class _Titles extends StatelessWidget {
+  const _Titles({
     required this.snapshot,
-    required this.onOpen,
-    required this.onCommand,
+    required this.titleSize,
+    required this.centered,
   });
 
   final EdgeSnapshot snapshot;
-  final VoidCallback onOpen;
-  final void Function(EdgeCommand, [num?]) onCommand;
+  final double titleSize;
+  final bool centered;
 
   @override
   Widget build(BuildContext context) {
     final text = Theme.of(context).textTheme;
+    final align = centered ? TextAlign.center : TextAlign.start;
     return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: centered
+          ? CrossAxisAlignment.center
+          : CrossAxisAlignment.start,
       children: [
-        GestureDetector(
-          onTap: onOpen,
-          child: MouseRegion(
-            cursor: SystemMouseCursors.click,
-            child: _Artwork(snapshot.artwork, size: 34, radius: 8),
+        Text(
+          snapshot.title,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          textAlign: align,
+          style: text.labelSmall!.copyWith(
+            fontSize: titleSize,
+            fontWeight: FontWeight.w600,
+            color: Colors.white,
           ),
         ),
-        const SizedBox(height: 8),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 4),
-          child: Column(
-            children: [
-              Text(
-                snapshot.title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.center,
-                style: text.labelSmall!.copyWith(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.white,
-                ),
-              ),
-              const SizedBox(height: 1),
-              Text(
-                snapshot.artist,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.center,
-                style: text.labelSmall!.copyWith(
-                  fontSize: 10,
-                  color: const Color(0x99FFFFFF),
-                ),
-              ),
-            ],
+        const SizedBox(height: 1),
+        Text(
+          snapshot.artist,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          textAlign: align,
+          style: text.labelSmall!.copyWith(
+            fontSize: titleSize - 1.5,
+            color: const Color(0x99FFFFFF),
           ),
-        ),
-        const SizedBox(height: 10),
-        _IconButton(
-          icon: Icons.skip_previous_rounded,
-          label: 'Previous',
-          size: 18,
-          onPressed: snapshot.canPrevious
-              ? () => onCommand(EdgeCommand.previous)
-              : null,
-        ),
-        const SizedBox(height: 4),
-        _PlayButton(
-          playing: snapshot.playing,
-          size: 30,
-          onPressed: () => onCommand(EdgeCommand.playPause),
-        ),
-        const SizedBox(height: 4),
-        _IconButton(
-          icon: Icons.skip_next_rounded,
-          label: 'Next',
-          size: 18,
-          onPressed: snapshot.canNext
-              ? () => onCommand(EdgeCommand.next)
-              : null,
-        ),
-        const SizedBox(height: 4),
-        if (snapshot.canLike)
-          _IconButton(
-            icon: snapshot.liked
-                ? Icons.favorite_rounded
-                : Icons.favorite_border_rounded,
-            label: snapshot.liked ? 'Liked' : 'Like',
-            size: 15,
-            onPressed: () => onCommand(EdgeCommand.like),
-          ),
-        _IconButton(
-          icon: Icons.more_horiz_rounded,
-          label: 'More',
-          size: 16,
-          onPressed: onOpen,
         ),
       ],
     );
   }
 }
 
-class _PanelContent extends StatelessWidget {
-  const _PanelContent({required this.snapshot, required this.onCommand});
+/// The strip: upright on the left and right edges, lying along the top and
+/// bottom ones.
+class _CapsuleContent extends StatelessWidget {
+  const _CapsuleContent({
+    required this.snapshot,
+    required this.vertical,
+    required this.onMore,
+    required this.onCommand,
+  });
 
   final EdgeSnapshot snapshot;
+  final bool vertical;
+  final VoidCallback onMore;
   final void Function(EdgeCommand, [num?]) onCommand;
 
   @override
   Widget build(BuildContext context) {
-    final text = Theme.of(context).textTheme;
+    final controls = [
+      _IconButton(
+        icon: Icons.skip_previous_rounded,
+        label: 'Previous',
+        size: 18,
+        onPressed: snapshot.canPrevious
+            ? () => onCommand(EdgeCommand.previous)
+            : null,
+      ),
+      _PlayButton(
+        playing: snapshot.playing,
+        size: 30,
+        onPressed: () => onCommand(EdgeCommand.playPause),
+      ),
+      _IconButton(
+        icon: Icons.skip_next_rounded,
+        label: 'Next',
+        size: 18,
+        onPressed: snapshot.canNext ? () => onCommand(EdgeCommand.next) : null,
+      ),
+      if (snapshot.canLike)
+        _IconButton(
+          icon: snapshot.liked
+              ? Icons.favorite_rounded
+              : Icons.favorite_border_rounded,
+          label: snapshot.liked ? 'Liked' : 'Like',
+          size: 15,
+          onPressed: () => onCommand(EdgeCommand.like),
+        ),
+      _IconButton(
+        icon: Icons.more_horiz_rounded,
+        label: 'More',
+        size: 16,
+        onPressed: onMore,
+      ),
+    ];
+    final art = _Artwork(snapshot.artwork, size: 34, radius: 8);
+    if (!vertical) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        child: Row(
+          children: [
+            Expanded(
+              child: _OpensApp(
+                onCommand: onCommand,
+                child: Row(
+                  children: [
+                    art,
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _Titles(
+                        snapshot: snapshot,
+                        titleSize: 11,
+                        centered: false,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(width: 4),
+            ...controls,
+          ],
+        ),
+      );
+    }
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        _OpensApp(
+          onCommand: onCommand,
+          child: Column(
+            children: [
+              art,
+              const SizedBox(height: 8),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: _Titles(
+                  snapshot: snapshot,
+                  titleSize: 11,
+                  centered: true,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
+        for (final (i, control) in controls.indexed) ...[
+          if (i > 0) const SizedBox(height: 4),
+          control,
+        ],
+      ],
+    );
+  }
+}
+
+/// The wider player, opened with "more" on the strip.
+class _PanelContent extends StatelessWidget {
+  const _PanelContent({
+    required this.snapshot,
+    required this.onLess,
+    required this.onCommand,
+  });
+
+  final EdgeSnapshot snapshot;
+  final VoidCallback onLess;
+  final void Function(EdgeCommand, [num?]) onCommand;
+
+  @override
+  Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(22, 24, 22, 18),
+      padding: const EdgeInsets.fromLTRB(16, 16, 12, 10),
       child: Column(
         children: [
-          _Artwork(snapshot.artwork, size: 96, radius: 18),
-          const SizedBox(height: 14),
-          Text(
-            snapshot.title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            textAlign: TextAlign.center,
-            style: text.titleSmall!.copyWith(
-              fontSize: 15,
-              fontWeight: FontWeight.w600,
-              color: Colors.white,
+          _OpensApp(
+            onCommand: onCommand,
+            child: Row(
+              children: [
+                _Artwork(snapshot.artwork, size: 56, radius: 12),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _Titles(
+                    snapshot: snapshot,
+                    titleSize: 14,
+                    centered: false,
+                  ),
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 2),
-          Text(
-            snapshot.artist,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            textAlign: TextAlign.center,
-            style: text.bodySmall!.copyWith(
-              fontSize: 13,
-              color: const Color(0x99FFFFFF),
+          const SizedBox(height: 12),
+          Padding(
+            padding: const EdgeInsets.only(right: 4),
+            child: _Progress(
+              snapshot: snapshot,
+              onSeek: (p) => onCommand(EdgeCommand.seek, p.inMilliseconds),
             ),
           ),
-          const SizedBox(height: 14),
-          _Progress(
-            snapshot: snapshot,
-            onSeek: (p) => onCommand(EdgeCommand.seek, p.inMilliseconds),
-          ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 4),
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               _IconButton(
                 icon: Icons.skip_previous_rounded,
                 label: 'Previous',
-                size: 28,
+                size: 26,
                 onPressed: snapshot.canPrevious
                     ? () => onCommand(EdgeCommand.previous)
                     : null,
               ),
-              const SizedBox(width: 18),
+              const SizedBox(width: 14),
               _PlayButton(
                 playing: snapshot.playing,
-                size: 52,
+                size: 44,
                 onPressed: () => onCommand(EdgeCommand.playPause),
               ),
-              const SizedBox(width: 18),
+              const SizedBox(width: 14),
               _IconButton(
                 icon: Icons.skip_next_rounded,
                 label: 'Next',
-                size: 28,
+                size: 26,
                 onPressed: snapshot.canNext
                     ? () => onCommand(EdgeCommand.next)
                     : null,
@@ -764,11 +1014,9 @@ class _PanelContent extends StatelessWidget {
                       ? Icons.favorite_rounded
                       : Icons.favorite_border_rounded,
                   label: snapshot.liked ? 'Liked' : 'Like',
-                  size: 18,
+                  size: 16,
                   onPressed: () => onCommand(EdgeCommand.like),
-                )
-              else
-                const SizedBox(width: 32),
+                ),
               const SizedBox(width: 4),
               Expanded(
                 child: _Volume(
@@ -778,10 +1026,10 @@ class _PanelContent extends StatelessWidget {
               ),
               const SizedBox(width: 4),
               _IconButton(
-                icon: Icons.open_in_full_rounded,
-                label: 'Open NOIR',
+                icon: Icons.more_horiz_rounded,
+                label: 'Less',
                 size: 16,
-                onPressed: () => onCommand(EdgeCommand.open),
+                onPressed: onLess,
               ),
             ],
           ),
@@ -945,7 +1193,7 @@ class _ProgressState extends State<_Progress> {
             : 0.0);
     final shown = _scrub == null ? position : total * _scrub!;
     const style = TextStyle(
-      fontSize: 11,
+      fontSize: 10,
       color: Color(0x80FFFFFF),
       fontFeatures: [ui.FontFeature.tabularFigures()],
     );
@@ -973,7 +1221,7 @@ class _ProgressState extends State<_Progress> {
                   : null,
               child: SizedBox(
                 height: 14,
-                child: Center(child: _Line(fraction: fraction.clamp(0.0, 1.0))),
+                child: Center(child: _Line(fraction: fraction)),
               ),
             ),
             Row(
@@ -993,29 +1241,44 @@ class _ProgressState extends State<_Progress> {
   }
 }
 
+/// A 3 px track filled from the left up to [fraction].
 class _Line extends StatelessWidget {
   const _Line({required this.fraction});
 
   final double fraction;
 
   @override
-  Widget build(BuildContext context) => ClipRRect(
-    borderRadius: BorderRadius.circular(2),
-    child: SizedBox(
-      height: 3,
-      child: Stack(
-        children: [
-          const Positioned.fill(child: ColoredBox(color: Color(0x33FFFFFF))),
-          FractionallySizedBox(
-            widthFactor: fraction,
-            heightFactor: 1,
-            alignment: Alignment.centerLeft,
-            child: const ColoredBox(color: Colors.white),
-          ),
-        ],
-      ),
-    ),
+  Widget build(BuildContext context) => SizedBox(
+    height: 3,
+    width: double.infinity,
+    child: CustomPaint(painter: _LinePainter(fraction.clamp(0.0, 1.0))),
   );
+}
+
+class _LinePainter extends CustomPainter {
+  const _LinePainter(this.fraction);
+
+  final double fraction;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final radius = Radius.circular(size.height / 2);
+    canvas
+      ..drawRRect(
+        RRect.fromRectAndRadius(Offset.zero & size, radius),
+        Paint()..color = const Color(0x33FFFFFF),
+      )
+      ..drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(0, 0, size.width * fraction, size.height),
+          radius,
+        ),
+        Paint()..color = Colors.white,
+      );
+  }
+
+  @override
+  bool shouldRepaint(_LinePainter old) => old.fraction != fraction;
 }
 
 class _Volume extends StatefulWidget {
@@ -1045,7 +1308,7 @@ class _VolumeState extends State<_Volume> {
       children: [
         Icon(
           volume == 0 ? Icons.volume_off_rounded : Icons.volume_up_rounded,
-          size: 16,
+          size: 15,
           color: const Color(0x99FFFFFF),
         ),
         const SizedBox(width: 8),

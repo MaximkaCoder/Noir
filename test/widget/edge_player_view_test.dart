@@ -7,9 +7,9 @@ import 'package:noir/features/edge_player/edge_snapshot.dart';
 
 const _channel = MethodChannel('test/edge_view');
 
-/// The runner's window: 360 × 520 logical pixels, 48 of them past the
+/// The runner's window: 380 logical pixels square, 48 of them past the
 /// screen edge.
-const _window = Size(360, 520);
+const _window = Size(380, 380);
 const _overhang = 48.0;
 
 const _playing = EdgeSnapshot(
@@ -20,6 +20,7 @@ const _playing = EdgeSnapshot(
   playing: true,
   canPrevious: true,
   duration: Duration(minutes: 3),
+  position: Duration(minutes: 1),
   volume: 0.5,
   canLike: true,
 );
@@ -47,6 +48,7 @@ void main() {
         (_) {},
       );
 
+  /// The player minimized-and-ready on [side], showing the thin line.
   Future<void> pump(WidgetTester tester, {String side = 'right'}) async {
     calls = [];
     tester.view
@@ -69,9 +71,11 @@ void main() {
       const MaterialApp(home: EdgePlayerView(channel: _channel)),
     );
     await deliver(tester, 'layout', {'side': side, 'overhang': _overhang});
-    await tester.pump();
+    await deliver(tester, 'update', _playing.toMap());
+    await tester.pumpAndSettle();
   }
 
+  /// A mouse resting at [at].
   Future<TestGesture> hover(WidgetTester tester, Offset at) async {
     final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
     addTearDown(mouse.removePointer);
@@ -81,112 +85,155 @@ void main() {
     return mouse;
   }
 
-  testWidgets('comes out as a strip while minimized and slides away after', (
+  /// Lets an animation finish. The artwork keeps flowing behind the
+  /// strip, so the tree never settles.
+  Future<void> settle(WidgetTester tester) async {
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 600));
+  }
+
+  /// Points at the line on the right edge, bringing out the strip.
+  Future<TestGesture> openStrip(WidgetTester tester) async {
+    final mouse = await hover(tester, const Offset(330, 190));
+    await settle(tester);
+    return mouse;
+  }
+
+  Future<void> openPanel(WidgetTester tester) async {
+    await tester.tap(find.bySemanticsLabel('More'));
+    await settle(tester);
+  }
+
+  testWidgets('a thin line at the edge brings out the strip when pointed at', (
     tester,
   ) async {
     await pump(tester);
     expect(calls.first.method, 'ready');
+    final line = regions().last;
+    expect(line['right'], _window.width);
+    // Only a few pixels on screen.
+    expect(_window.width - _overhang - (line['left']! as num), lessThan(12));
     expect(find.text('Ash & Ember'), findsNothing);
 
-    await deliver(tester, 'update', _playing.toMap());
-    await tester.pumpAndSettle();
+    final mouse = await openStrip(tester);
     expect(find.text('Ash & Ember'), findsOneWidget);
-    expect(find.text('Mara Vale'), findsOneWidget);
     for (final label in ['Previous', 'Pause', 'Next', 'Like', 'More']) {
       expect(find.bySemanticsLabel(label), findsOneWidget, reason: label);
     }
-    final strip = regions().last;
-    expect(strip['right'], _window.width);
-    expect(
-      _window.width - _overhang - (strip['left']! as num),
-      lessThan(60 + EdgePlayerView.shadowRoom + 1),
-    );
+    // Pointing longer does not open the wider player.
+    await tester.pump(const Duration(seconds: 2));
+    expect(find.bySemanticsLabel('Volume'), findsNothing);
 
-    // NOIR opened again: it slides away, keeping the track meanwhile, and
-    // only then gives up its region.
+    // Off the window: the runner clips it to the player, so leaving the
+    // player leaves the window.
+    await mouse.moveTo(const Offset(-10, -10));
+    await tester.pump(EdgePlayerView.grace);
+    await settle(tester);
+    expect(find.text('Ash & Ember'), findsNothing);
+    expect(regions().last, line);
+  });
+
+  testWidgets('NOIR opened: the player slides away, then gives up its region', (
+    tester,
+  ) async {
+    await pump(tester);
+    await openStrip(tester);
+    final strip = regions().last;
+
     await deliver(tester, 'update', const EdgeSnapshot(side: 'right').toMap());
     await tester.pump(const Duration(milliseconds: 100));
     expect(find.text('Ash & Ember'), findsOneWidget);
     expect(regions().last, strip);
-    await tester.pumpAndSettle();
+    await settle(tester);
     expect(find.text('Ash & Ember'), findsNothing);
     final away = regions().last;
     expect(away['right'], away['left']);
   });
 
-  testWidgets('pointing at the strip for a moment opens the panel', (
+  testWidgets('More opens the wider player, Less closes it', (tester) async {
+    await pump(tester);
+    await openStrip(tester);
+
+    await openPanel(tester);
+    expect(find.bySemanticsLabel('Volume'), findsOneWidget);
+
+    await tester.tap(find.bySemanticsLabel('Less'));
+    await settle(tester);
+    expect(find.bySemanticsLabel('Volume'), findsNothing);
+    expect(find.bySemanticsLabel('More'), findsOneWidget);
+  });
+
+  testWidgets('the strip sends commands; the artwork and title open NOIR', (
     tester,
   ) async {
     await pump(tester);
-    await deliver(tester, 'update', _playing.toMap());
-    await tester.pumpAndSettle();
-    final strip = regions().last;
-
-    final mouse = await hover(tester, const Offset(290, 160));
-    await tester.pump(EdgePlayerView.dwell);
-    await tester.pump(const Duration(milliseconds: 600));
-    expect(find.bySemanticsLabel('Open NOIR'), findsOneWidget);
-    expect(find.bySemanticsLabel('Volume'), findsOneWidget);
-
-    await mouse.moveTo(const Offset(-10, -10));
-    await tester.pump(EdgePlayerView.grace);
-    await tester.pumpAndSettle();
-    expect(find.bySemanticsLabel('Open NOIR'), findsNothing);
-    expect(regions().last, strip);
-  });
-
-  testWidgets('the strip sends commands; More opens the panel', (tester) async {
-    await pump(tester);
-    await deliver(tester, 'update', _playing.toMap());
-    await tester.pumpAndSettle();
+    await openStrip(tester);
 
     await tester.tap(find.bySemanticsLabel('Pause'));
     await tester.tap(find.bySemanticsLabel('Previous'));
     // No next track: the button does nothing.
     await tester.tap(find.bySemanticsLabel('Next'));
     await tester.tap(find.bySemanticsLabel('Like'));
+    await tester.tap(find.text('Ash & Ember'));
     await tester.pump();
-    expect(commands(), ['playPause', 'previous', 'like']);
-
-    await tester.tap(find.bySemanticsLabel('More'));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 600));
-    await tester.tap(find.bySemanticsLabel('Open NOIR'));
-    expect(commands().last, 'open');
+    expect(commands(), ['playPause', 'previous', 'like', 'open']);
   });
 
-  testWidgets('dragging tells the runner where the pointer goes', (
+  testWidgets('the progress line spans the panel whatever the position', (
     tester,
   ) async {
     await pump(tester);
-    await deliver(tester, 'update', _playing.toMap());
-    await tester.pumpAndSettle();
+    await openStrip(tester);
+    await openPanel(tester);
 
-    final art = tester.getCenter(find.text('Ash & Ember'));
-    final drag = await tester.startGesture(art);
+    // A third of the song played; the track still runs the full width
+    // (it used to be as wide as the played part, centered).
+    final lines = find.byWidgetPredicate(
+      (w) =>
+          w is CustomPaint &&
+          w.painter.runtimeType.toString() == '_LinePainter',
+    );
+    final progress = tester.getRect(lines.first);
+    final volume = tester.getRect(lines.last);
+    expect(progress.width, greaterThan(EdgeShape.panelSize.width - 40));
+    expect(volume.width, greaterThan(100));
+  });
+
+  testWidgets('dragging the strip tells the runner where it goes', (
+    tester,
+  ) async {
+    await pump(tester);
+    await openStrip(tester);
+
+    final drag = await tester.startGesture(
+      tester.getCenter(find.bySemanticsLabel('Pause')) + const Offset(0, 20),
+    );
     await drag.moveBy(const Offset(-40, 30));
     await drag.moveBy(const Offset(-40, 30));
     await drag.up();
-    await tester.pumpAndSettle();
+    await settle(tester);
     expect(drags().first, 'dragStart');
     expect(drags(), contains('dragUpdate'));
     expect(drags().last, 'dragEnd');
-    final end = calls.lastWhere((c) => c.method == 'dragEnd');
-    expect((end.arguments as Map)['depth'], 60);
+    final end = calls.lastWhere((c) => c.method == 'dragEnd').arguments as Map;
+    expect(end['depth'], 60);
+    // The strip's middle: 30 in from the edge, halfway down.
+    expect(end['centerX'], _window.width - _overhang - 30);
+    expect(end['centerY'], _window.height / 2);
     expect(commands(), isEmpty);
   });
 
-  testWidgets('on the left edge it sits flush with the left side', (
-    tester,
-  ) async {
-    await pump(tester, side: 'left');
-    await deliver(tester, 'update', _playing.toMap());
-    await tester.pumpAndSettle();
-    final strip = regions().last;
-    expect(strip['left'], 0);
-    expect(
-      (strip['right']! as num) - _overhang,
-      lessThan(60 + EdgePlayerView.shadowRoom + 1),
-    );
+  testWidgets('on the bottom edge the strip lies along it', (tester) async {
+    await pump(tester, side: 'bottom');
+    final line = regions().last;
+    expect(line['bottom'], _window.height);
+    expect(_window.height - _overhang - (line['top']! as num), lessThan(12));
+
+    await hover(tester, const Offset(190, 330));
+    await settle(tester);
+    final title = tester.getCenter(find.text('Ash & Ember'));
+    final pause = tester.getCenter(find.bySemanticsLabel('Pause'));
+    expect((title.dy - pause.dy).abs(), lessThan(10));
+    expect(pause.dx, greaterThan(title.dx));
   });
 }
