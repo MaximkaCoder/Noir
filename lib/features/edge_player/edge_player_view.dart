@@ -373,6 +373,8 @@ class _EdgePlayerViewState extends State<EdgePlayerView>
         'top': region.top,
         'right': region.right,
         'bottom': region.bottom,
+        // The line alone needs no picture of the screen behind it.
+        'glass': _phase.index >= EdgePhase.capsule.index,
       }),
     );
   }

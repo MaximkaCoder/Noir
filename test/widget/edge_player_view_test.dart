@@ -113,10 +113,13 @@ void main() {
     expect(line['right'], _window.width);
     // Only a few pixels on screen.
     expect(_window.width - _overhang - (line['left']! as num), lessThan(12));
+    // The line needs no picture of the screen; the glass does.
+    expect(line['glass'], isFalse);
     expect(find.text('Ash & Ember'), findsNothing);
 
     final mouse = await openStrip(tester);
     expect(find.text('Ash & Ember'), findsOneWidget);
+    expect(regions().last['glass'], isTrue);
     for (final label in ['Previous', 'Pause', 'Next', 'Like', 'More']) {
       expect(find.bySemanticsLabel(label), findsOneWidget, reason: label);
     }

@@ -29,12 +29,12 @@
 //
 // View -> native ("noir/edge_view"): "ready"; "command"; "region" (the
 // rectangle to clip the window to, logical pixels; empty when the player has
-// slid away); "dragStart", "dragUpdate", "dragEnd" {centerX, centerY, depth}
+// slid away; "glass" while more than the line shows); "dragStart", "dragUpdate", "dragEnd" {centerX, centerY, depth}
 // (the player's middle in window coordinates and how deep it is).
 // Native -> view: "update", "layout" {side, overhang}, "backdrop", "tone"
 // {luminance} (the screen beside the player).
 //
-// Outside the region clicks reach the windows underneath. While the player
+// Outside the region clicks reach the windows underneath. While the glass
 // shows, the screen behind it is captured, scaled down, and sent to the view
 // to draw blurred glass; the window is excluded from screen capture so it
 // never sees itself. With "capturable" in the update, it shows in screen
@@ -83,6 +83,8 @@ class EdgePlayer {
   // docked, every monitor while it is dragged or snapping.
   RECT Bounds() const;
   void CheckFullscreen();
+  // The glass shows and may see the screen: the backdrop is captured.
+  bool WantsBackdrop() const;
   void SendBackdrop();
   // How light the screen is just inside the player, 0-1, for the view to
   // pick a line that stands out.
@@ -117,6 +119,8 @@ class EdgePlayer {
   double scale_ = 1;
   // Asked for by the view, logical pixels in window coordinates.
   RECT region_ = {};
+  // More than the line shows (the strip or the wider player).
+  bool glass_ = false;
   double tone_ = -1;
 
   bool dragging_ = false;

@@ -93,24 +93,31 @@ class _YouTubeVideoLayerState extends ConsumerState<YouTubeVideoLayer> {
           rect: isYouTube ? rect : Rect.fromLTWH(size.width, 0, 2, 2),
           duration: fx.motion(NoirMotion.medium),
           curve: NoirMotion.standard,
-          child: Offstage(
-            offstage: !isYouTube,
-            child: Opacity(
-              opacity: hidden ? 0 : 1,
-              child: ValueListenableBuilder(
-                valueListenable: engine.ready,
-                builder: (context, ready, _) => ClipRRect(
-                  borderRadius: BorderRadius.circular(mini ? 12 : 16),
-                  child: ColoredBox(
-                    color: Colors.black,
-                    child: ready
-                        ? Webview(engine.controller)
-                        : const Center(
-                            child: SizedBox.square(
-                              dimension: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2),
+          // Offstage alone leaves the spinner spinning, redrawing the whole
+          // window every frame while nothing from YouTube plays.
+          child: TickerMode(
+            enabled: isYouTube && !hidden,
+            child: Offstage(
+              offstage: !isYouTube,
+              child: Opacity(
+                opacity: hidden ? 0 : 1,
+                child: ValueListenableBuilder(
+                  valueListenable: engine.ready,
+                  builder: (context, ready, _) => ClipRRect(
+                    borderRadius: BorderRadius.circular(mini ? 12 : 16),
+                    child: ColoredBox(
+                      color: Colors.black,
+                      child: ready
+                          ? Webview(engine.controller)
+                          : const Center(
+                              child: SizedBox.square(
+                                dimension: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              ),
                             ),
-                          ),
+                    ),
                   ),
                 ),
               ),

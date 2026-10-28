@@ -152,7 +152,7 @@ void EdgePlayer::HandleAppCall(
           window_, capturable_ ? WDA_NONE : WDA_EXCLUDEFROMCAPTURE);
       if (capturable_) {
         ::KillTimer(window_, kBackdropTimer);
-      } else if (!::IsRectEmpty(&region_)) {
+      } else if (WantsBackdrop()) {
         SendBackdrop();
         ::SetTimer(window_, kBackdropTimer, kBackdropInterval, nullptr);
       }
@@ -205,18 +205,19 @@ void EdgePlayer::HandleViewCall(
     app_channel_->InvokeMethod("command",
                                std::make_unique<EncodableValue>(*args));
   } else if (method == "region" && args) {
-    const bool was_empty = ::IsRectEmpty(&region_);
+    const bool wanted = WantsBackdrop();
     region_ = {static_cast<LONG>(std::floor(GetDouble(*args, "left"))),
                static_cast<LONG>(std::floor(GetDouble(*args, "top"))),
                static_cast<LONG>(std::ceil(GetDouble(*args, "right"))),
                static_cast<LONG>(std::ceil(GetDouble(*args, "bottom")))};
-    const bool empty = ::IsRectEmpty(&region_);
+    glass_ = GetBool(*args, "glass");
     ApplyRegion();
     ApplyVisibility();
-    if (was_empty && !empty && !capturable_) {
+    const bool wants = WantsBackdrop();
+    if (!wanted && wants) {
       SendBackdrop();
       ::SetTimer(window_, kBackdropTimer, kBackdropInterval, nullptr);
-    } else if (!was_empty && empty) {
+    } else if (wanted && !wants) {
       ::KillTimer(window_, kBackdropTimer);
     }
   } else if (method == "dragStart") {
@@ -331,7 +332,7 @@ void EdgePlayer::FollowDesktop() {
   ::SetTimer(window_, kFullscreenTimer, kFullscreenInterval, nullptr);
   ::SetTimer(window_, kDesktopTimer, kDesktopInterval, nullptr);
   ::SetTimer(window_, kToneTimer, kToneInterval, nullptr);
-  if (!::IsRectEmpty(&region_) && !capturable_) {
+  if (WantsBackdrop()) {
     ::SetTimer(window_, kBackdropTimer, kBackdropInterval, nullptr);
   }
   if (snapping_) ::SetTimer(window_, kSnapTimer, kSnapInterval, nullptr);
@@ -348,6 +349,7 @@ void EdgePlayer::Destroy() {
   desktops_ = nullptr;
   view_ready_ = false;
   region_ = {};
+  glass_ = false;
   tone_ = -1;
   dragging_ = false;
   snapping_ = false;
@@ -482,8 +484,12 @@ void EdgePlayer::CheckFullscreen() {
   ApplyVisibility();
 }
 
+bool EdgePlayer::WantsBackdrop() const {
+  return glass_ && !capturable_ && !::IsRectEmpty(&region_);
+}
+
 void EdgePlayer::SendBackdrop() {
-  if (!view_ready_ || capturable_) return;
+  if (!view_ready_ || !WantsBackdrop()) return;
   RECT rect = {
       origin_.x + static_cast<LONG>(std::floor(region_.left * scale_)),
       origin_.y + static_cast<LONG>(std::floor(region_.top * scale_)),
