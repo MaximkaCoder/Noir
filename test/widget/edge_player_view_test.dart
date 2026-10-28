@@ -236,4 +236,42 @@ void main() {
     expect((title.dy - pause.dy).abs(), lessThan(10));
     expect(pause.dx, greaterThan(title.dx));
   });
+
+  group('outline', () {
+    const box = Rect.fromLTWH(100, 50, 60, 276);
+
+    test('loose, it is the box with rounded corners', () {
+      const loose = EdgeOutline(box, EdgeSide.right, radius: 16, attach: 0);
+      expect(loose.path.getBounds(), box);
+      // A rounded corner leaves the box's corner itself outside.
+      expect(loose.path.contains(box.topRight + const Offset(-1, 1)), isFalse);
+    });
+
+    test('stuck, it is flat against the edge and flares into it', () {
+      const stuck = EdgeOutline(box, EdgeSide.right, radius: 16, attach: 1);
+      final bounds = stuck.path.getBounds();
+      expect(bounds.right, box.right);
+      expect(bounds.left, box.left);
+      // The flares run along the edge past both ends of the box.
+      expect(bounds.top, closeTo(box.top - EdgeOutline.flare, 0.01));
+      expect(bounds.bottom, closeTo(box.bottom + EdgeOutline.flare, 0.01));
+      expect(stuck.path.contains(box.topRight + const Offset(-1, 1)), isTrue);
+      // The inner corners stay rounded.
+      expect(stuck.path.contains(box.topLeft + const Offset(1, 1)), isFalse);
+    });
+
+    test('on the left and bottom edges it flares the same way, mirrored', () {
+      const left = EdgeOutline(box, EdgeSide.left, radius: 16, attach: 1);
+      final l = left.path.getBounds();
+      expect((l.left, l.right), (box.left, box.right));
+      expect(l.top, closeTo(box.top - EdgeOutline.flare, 0.01));
+
+      const wide = Rect.fromLTWH(40, 200, 300, 60);
+      const bottom = EdgeOutline(wide, EdgeSide.bottom, radius: 16, attach: 1);
+      final b = bottom.path.getBounds();
+      expect((b.top, b.bottom), (wide.top, wide.bottom));
+      expect(b.left, closeTo(wide.left - EdgeOutline.flare, 0.01));
+      expect(b.right, closeTo(wide.right + EdgeOutline.flare, 0.01));
+    });
+  });
 }

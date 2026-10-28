@@ -131,10 +131,9 @@ class _EdgePlayerViewState extends State<EdgePlayerView>
   );
 
   /// 1 while dragged: the outline leaves the edge and rounds all corners.
-  late final AnimationController _detach = AnimationController(
+  /// May dip below 0 as it lands (the flares overshoot).
+  late final AnimationController _detach = AnimationController.unbounded(
     vsync: this,
-    duration: const Duration(milliseconds: 180),
-    reverseDuration: const Duration(milliseconds: 240),
   );
 
   /// One loop of the artwork's flow, as in Now Playing.
@@ -408,7 +407,11 @@ class _EdgePlayerViewState extends State<EdgePlayerView>
     if (_phase != EdgePhase.capsule) return;
     _grace?.cancel();
     _dragging = true;
-    _detach.forward();
+    _detach.animateTo(
+      1,
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOutCubic,
+    );
     unawaited(_call('dragStart'));
   }
 
@@ -419,7 +422,13 @@ class _EdgePlayerViewState extends State<EdgePlayerView>
   void _onDragEnd() {
     if (!_dragging) return;
     _dragging = false;
-    _detach.reverse();
+    // The runner springs the window onto the edge; the outline flattens
+    // against it as it lands, the flares overshooting a little.
+    _detach.animateBack(
+      0,
+      duration: const Duration(milliseconds: 520),
+      curve: const Interval(0.35, 1, curve: Curves.easeOutBack),
+    );
     final window = MediaQuery.sizeOf(context);
     final box = _rectFor(EdgeShape.of(_phase, _side), window, detach: 1);
     unawaited(
@@ -455,7 +464,6 @@ class _EdgePlayerViewState extends State<EdgePlayerView>
           builder: (context, _) {
             final t = _t.value;
             final shape = EdgeShape.at(t, _side);
-            final rect = _rectFor(shape, window, detach: _detach.value);
             // The visible box, whether docked or dragged.
             final inner = _rectFor(shape, window, detach: 1);
             final glass = ((t - 1) / 0.6).clamp(0.0, 1.0);
@@ -466,8 +474,12 @@ class _EdgePlayerViewState extends State<EdgePlayerView>
             return Stack(
               children: [
                 _Glass(
-                  rect: rect,
-                  radius: shape.radius,
+                  outline: EdgeOutline(
+                    inner,
+                    _side,
+                    radius: shape.radius,
+                    attach: 1 - _detach.value,
+                  ),
                   handle: t.clamp(0.0, 1.0),
                   amount: glass,
                   backdrop: _backdrop,
@@ -549,14 +561,119 @@ class _Backdrop {
   final Rect rect;
 }
 
-/// The outline. As the thin line ([handle] 0–1) it is a faint bar; as the
-/// player ([amount] 0–1) it is glass: the blurred screen behind, the
+/// The player's outline: its visible box with rounded inner corners. Stuck
+/// to the edge ([attach] 1) its outer side is flat against the screen edge
+/// and flares into it with concave curves, as if it flowed out of the
+/// edge; pulled off ([attach] 0) it is a plain rounded rectangle.
+@immutable
+class EdgeOutline {
+  const EdgeOutline(
+    this.box,
+    this.side, {
+    required this.radius,
+    required this.attach,
+  });
+
+  final Rect box;
+  final EdgeSide side;
+  final double radius;
+  final double attach;
+
+  /// The largest flare, and how far into the screen it reaches along the
+  /// edge beyond the box.
+  static const flare = 18.0;
+
+  /// The outer corners: rounded while loose (shrinking through the first
+  /// half of [attach]), then flaring out (through the second half).
+  double get _outerRadius => radius * (1 - 2 * attach).clamp(0.0, 1.0);
+  double get _flare =>
+      math.min(flare, depth / 2) * (2 * attach - 1).clamp(0.0, 1.2);
+
+  double get depth => side.vertical ? box.width : box.height;
+  double get length => side.vertical ? box.height : box.width;
+
+  /// The filled shape.
+  Path get path => _build(closed: true);
+
+  /// The lit rim: the whole outline while loose, all but the side against
+  /// the screen edge once stuck.
+  Path get rim => _build(closed: _flare <= 0);
+
+  /// Maps a point measured from the edge (u ≤ 0 into the screen, v along
+  /// it) into the window.
+  Offset _at(double u, double v) => switch (side) {
+    EdgeSide.right => Offset(box.right + u, box.top + v),
+    EdgeSide.left => Offset(box.left - u, box.top + v),
+    EdgeSide.bottom => Offset(box.left + v, box.bottom + u),
+    EdgeSide.top => Offset(box.left + v, box.top - u),
+  };
+
+  /// Left and bottom mirror the drawing, which turns arcs the other way.
+  bool get _mirrored => side == EdgeSide.left || side == EdgeSide.bottom;
+
+  Path _build({required bool closed}) {
+    final d = depth;
+    final l = length;
+    final r = math.min(radius, math.min(d, l) / 2);
+    final ro = math.min(_outerRadius, math.min(d, l) / 2);
+    final f = _flare;
+    final path = Path();
+    void arc(double u, double v, double radius, {required bool clockwise}) {
+      if (radius <= 0) {
+        path.lineTo(_at(u, v).dx, _at(u, v).dy);
+        return;
+      }
+      path.arcToPoint(
+        _at(u, v),
+        radius: Radius.circular(radius),
+        clockwise: clockwise != _mirrored,
+      );
+    }
+
+    void line(double u, double v) => path.lineTo(_at(u, v).dx, _at(u, v).dy);
+
+    // From the edge at the top, across to the inner side, down, and back.
+    final start = f > 0 ? _at(0, -f) : _at(0, ro);
+    path.moveTo(start.dx, start.dy);
+    if (f > 0) {
+      arc(-f, 0, f, clockwise: true);
+    } else {
+      arc(-ro, 0, ro, clockwise: false);
+    }
+    line(-d + r, 0);
+    arc(-d, r, r, clockwise: false);
+    line(-d, l - r);
+    arc(-d + r, l, r, clockwise: false);
+    if (f > 0) {
+      line(-f, l);
+      arc(0, l + f, f, clockwise: true);
+    } else {
+      line(-ro, l);
+      arc(0, l - ro, ro, clockwise: false);
+    }
+    if (closed) path.close();
+    return path;
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is EdgeOutline &&
+      other.box == box &&
+      other.side == side &&
+      other.radius == radius &&
+      other.attach == attach;
+
+  @override
+  int get hashCode => Object.hash(box, side, radius, attach);
+}
+
+/// The outline drawn. As the thin line ([handle] 0–1) it is a faint bar; as
+/// the player ([amount] 0–1) it is glass: the blurred screen behind, the
 /// track's artwork flowing over it as in Now Playing, a dark wash, a
-/// hairline of light along the inner edge and a soft shadow.
+/// hairline of light along its inner sides and a soft shadow.
 class _Glass extends StatelessWidget {
   const _Glass({
-    required this.rect,
-    required this.radius,
+    required this.outline,
     required this.handle,
     required this.amount,
     required this.backdrop,
@@ -566,8 +683,7 @@ class _Glass extends StatelessWidget {
     required this.fade,
   });
 
-  final Rect rect;
-  final double radius;
+  final EdgeOutline outline;
   final double handle;
   final double amount;
   final _Backdrop? backdrop;
@@ -578,7 +694,8 @@ class _Glass extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final shape = RRect.fromRectAndRadius(rect, Radius.circular(radius));
+    final path = outline.path;
+    final bounds = path.getBounds();
     final backdrop = this.backdrop;
     final hasArt = art != null || previousArt != null;
     final wash = hasArt
@@ -588,10 +705,10 @@ class _Glass extends StatelessWidget {
         : 0.66;
     return Positioned.fill(
       child: CustomPaint(
-        painter: _ShadowPainter(shape, amount),
-        foregroundPainter: _RimPainter(shape, amount),
-        child: ClipRRect(
-          clipper: _ShapeClipper(shape),
+        painter: _ShadowPainter(path, amount),
+        foregroundPainter: _RimPainter(outline.rim, bounds, amount),
+        child: ClipPath(
+          clipper: _ShapeClipper(path),
           child: Stack(
             children: [
               // The line, before the glass takes over.
@@ -618,7 +735,7 @@ class _Glass extends StatelessWidget {
                 ),
               if (hasArt && amount > 0)
                 Positioned.fromRect(
-                  rect: rect,
+                  rect: bounds,
                   child: Opacity(
                     // Over the blurred screen, a little of it shows through.
                     opacity: (backdrop == null ? 1 : 0.85) * amount,
@@ -648,32 +765,33 @@ class _Glass extends StatelessWidget {
   }
 }
 
-class _ShapeClipper extends CustomClipper<RRect> {
+class _ShapeClipper extends CustomClipper<Path> {
   const _ShapeClipper(this.shape);
 
-  final RRect shape;
+  final Path shape;
 
   @override
-  RRect getClip(Size size) => shape;
+  Path getClip(Size size) => shape;
 
   @override
   bool shouldReclip(_ShapeClipper old) => old.shape != shape;
 }
 
+/// A soft shadow just under the outline, darkest beneath its middle.
 class _ShadowPainter extends CustomPainter {
   const _ShadowPainter(this.shape, this.amount);
 
-  final RRect shape;
+  final Path shape;
   final double amount;
 
   @override
   void paint(Canvas canvas, Size size) {
     if (amount <= 0) return;
-    canvas.drawRRect(
-      shape.shift(const Offset(0, 6)),
+    canvas.drawPath(
+      shape.shift(const Offset(0, 4)),
       Paint()
-        ..color = Color.fromRGBO(0, 0, 0, 0.45 * amount)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.outer, 14),
+        ..color = Color.fromRGBO(0, 0, 0, 0.32 * amount)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 10),
     );
   }
 
@@ -684,23 +802,23 @@ class _ShadowPainter extends CustomPainter {
 
 /// Light catching the glass: brighter at the top, fading downwards.
 class _RimPainter extends CustomPainter {
-  const _RimPainter(this.shape, this.amount);
+  const _RimPainter(this.rim, this.bounds, this.amount);
 
-  final RRect shape;
+  final Path rim;
+  final Rect bounds;
   final double amount;
 
   @override
   void paint(Canvas canvas, Size size) {
     if (amount <= 0) return;
-    final rect = shape.outerRect;
-    canvas.drawRRect(
-      shape.deflate(0.5),
+    canvas.drawPath(
+      rim,
       Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1
         ..shader = ui.Gradient.linear(
-          rect.topCenter,
-          rect.bottomCenter,
+          bounds.topCenter,
+          bounds.bottomCenter,
           [
             Color.fromRGBO(255, 255, 255, 0.22 * amount),
             Color.fromRGBO(255, 255, 255, 0.05 * amount),
@@ -713,7 +831,7 @@ class _RimPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_RimPainter old) =>
-      old.shape != shape || old.amount != amount;
+      old.rim != rim || old.bounds != bounds || old.amount != amount;
 }
 
 // -------------------------------------------------------------- contents --

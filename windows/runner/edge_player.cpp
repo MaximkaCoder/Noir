@@ -35,7 +35,7 @@ constexpr UINT_PTR kBackdropTimer = 2;
 constexpr UINT kBackdropInterval = 200;
 constexpr UINT_PTR kSnapTimer = 3;
 constexpr UINT kSnapInterval = 10;
-constexpr ULONGLONG kSnapDuration = 240;
+constexpr ULONGLONG kSnapDuration = 420;
 constexpr UINT_PTR kDesktopTimer = 4;
 constexpr UINT kDesktopInterval = 250;
 
@@ -606,7 +606,11 @@ void EdgePlayer::StepSnap() {
   const double t = std::min(
       1.0, static_cast<double>(::GetTickCount64() - snap_start_) /
                kSnapDuration);
-  const double eased = 1 - std::pow(1 - t, 3);
+  // Eases out with a small overshoot, so it lands against the edge a
+  // little past it (clipped there) and settles back: it sticks.
+  constexpr double kOvershoot = 1.3;
+  const double eased = 1 + (kOvershoot + 1) * std::pow(t - 1, 3) +
+                       kOvershoot * std::pow(t - 1, 2);
   origin_ = {
       snap_from_.x + static_cast<LONG>(
                          std::lround((snap_to_.x - snap_from_.x) * eased)),
