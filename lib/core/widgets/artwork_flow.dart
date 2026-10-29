@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:math';
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
 /// Blurs [src] once into a tiny bitmap [width] px wide, to be upscaled with
@@ -31,6 +33,49 @@ Future<ui.Image> blurArtwork(
   return recorder.endRecording().toImage(width, h);
 }
 
+/// Drives [ArtworkFlowPainter]: 0–1 over each [period], stepped [fps]
+/// times a second rather than at every display refresh. The flow is slow
+/// and blurred, so a few steps a second look the same, while each one
+/// redraws the whole window: at 144 Hz that kept a laptop's fans going.
+class FlowClock extends ValueNotifier<double> {
+  FlowClock({required this.period, this.fps = 30}) : super(0);
+
+  final Duration period;
+  final int fps;
+
+  Timer? _timer;
+
+  /// Where the loop was when it last started.
+  double _from = 0;
+
+  bool get isRunning => _timer != null;
+
+  void start() {
+    if (_timer != null) return;
+    _from = value;
+    final step = Duration(microseconds: Duration.microsecondsPerSecond ~/ fps);
+    // Counted in steps, late ones included, so it keeps time even when a
+    // step is skipped.
+    _timer = Timer.periodic(
+      step,
+      (timer) => value =
+          (_from + timer.tick * step.inMicroseconds / period.inMicroseconds) %
+          1,
+    );
+  }
+
+  void stop() {
+    _timer?.cancel();
+    _timer = null;
+  }
+
+  @override
+  void dispose() {
+    stop();
+    super.dispose();
+  }
+}
+
 /// Artwork as a slowly flowing liquid (Now Playing's backdrop, the edge
 /// player's glass): the blurred bitmap fills the canvas, drifting a little,
 /// and two larger copies turn over it in opposite directions at partial
@@ -49,7 +94,7 @@ class ArtworkFlowPainter extends CustomPainter {
   final Animation<double> fade;
 
   /// 0–1 over one loop.
-  final Animation<double> flow;
+  final ValueListenable<double> flow;
 
   @override
   void paint(Canvas canvas, Size size) {

@@ -1,18 +1,21 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
-import 'package:flutter/scheduler.dart';
 import 'package:noir/features/lyrics/domain/lrc.dart';
 
 /// The playback position the karaoke fill shows: the engine's position,
-/// interpolated every frame while [run] says it is playing, so the sweep
-/// glides instead of stepping with each position tick (about every 200 ms).
+/// interpolated about 60 times a second while [run] says it is playing, so
+/// the sweep glides instead of stepping with each position tick (about
+/// every 200 ms). A timer rather than a ticker: a ticker steps at the
+/// display's rate (144 Hz on some laptops), redrawing the window each time.
 class KaraokeClock extends ValueNotifier<Duration> {
-  KaraokeClock(TickerProvider vsync) : super(Duration.zero) {
-    _ticker = vsync.createTicker(_onTick);
-  }
+  KaraokeClock() : super(Duration.zero);
 
-  late final Ticker _ticker;
+  static const _step = Duration(microseconds: 16667);
+
+  Timer? _timer;
 
   /// Last position the engine reported, and the ticker time it arrived at.
   Duration _reported = Duration.zero;
@@ -23,17 +26,20 @@ class KaraokeClock extends ValueNotifier<Duration> {
   static const _maxAhead = Duration(milliseconds: 1500);
 
   /// Whether it is interpolating.
-  bool get running => _ticker.isActive;
+  bool get running => _timer != null;
 
   /// Interpolates while [smooth]; otherwise shows the reported position.
   void run({required bool smooth}) {
-    if (smooth == _ticker.isActive) return;
+    if (smooth == running) return;
     if (smooth) {
       _elapsed = Duration.zero;
       _reportedAt = Duration.zero;
-      _ticker.start();
+      // Counted in steps, late ones included, so it keeps time even when a
+      // step is skipped.
+      _timer = Timer.periodic(_step, (timer) => _onTick(_step * timer.tick));
     } else {
-      _ticker.stop();
+      _timer?.cancel();
+      _timer = null;
       value = _reported;
     }
   }
@@ -42,7 +48,7 @@ class KaraokeClock extends ValueNotifier<Duration> {
   void report(Duration position) {
     _reported = position;
     _reportedAt = _elapsed;
-    if (!_ticker.isActive) value = position;
+    if (!running) value = position;
   }
 
   void _onTick(Duration elapsed) {
@@ -60,7 +66,7 @@ class KaraokeClock extends ValueNotifier<Duration> {
 
   @override
   void dispose() {
-    _ticker.dispose();
+    _timer?.cancel();
     super.dispose();
   }
 }

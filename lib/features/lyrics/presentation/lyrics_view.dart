@@ -278,7 +278,7 @@ class _SyncedLyricsListState extends ConsumerState<SyncedLyricsList>
   Timer? _resume;
 
   /// Karaoke: the interpolated position the fill and the active line follow.
-  late final KaraokeClock _clock = KaraokeClock(this);
+  final _clock = KaraokeClock();
 
   /// Karaoke: one animation moves on to the next line — the new line grows,
   /// the old one shrinks and dims, and the scroll glides — so every part of

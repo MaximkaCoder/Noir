@@ -431,7 +431,8 @@ class _RenderContentGate extends RenderProxyBox {
 /// The colours flow like a liquid: copies of the bitmap drift and turn
 /// slowly over one another ([ArtworkFlowPainter]), on a 36 s loop. Still with
 /// Animations off and while the app is hidden. It flows in Performance mode
-/// too: it only redraws a tiny bitmap three times a frame.
+/// too: it only redraws a tiny bitmap three times a step, at [FlowClock]'s
+/// pace.
 class _ArtworkBackdrop extends StatefulWidget {
   const _ArtworkBackdrop({required this.source, required this.baked});
 
@@ -461,10 +462,7 @@ class _ArtworkBackdropState extends State<_ArtworkBackdrop>
 
   /// One loop of the flow; every motion in it turns a whole number of
   /// times per loop, so it never jumps.
-  late final AnimationController _flow = AnimationController(
-    vsync: this,
-    duration: const Duration(seconds: 36),
-  );
+  late final _flow = FlowClock(period: const Duration(seconds: 36));
   late final AppLifecycleListener _lifecycle;
 
   @override
@@ -519,9 +517,9 @@ class _ArtworkBackdropState extends State<_ArtworkBackdrop>
         fx.animations &&
         visible &&
         (_shown != null || _previous != null);
-    if (run && !_flow.isAnimating) {
-      _flow.repeat();
-    } else if (!run && _flow.isAnimating) {
+    if (run) {
+      _flow.start();
+    } else {
       _flow.stop();
     }
   }

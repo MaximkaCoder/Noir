@@ -137,10 +137,7 @@ class _EdgePlayerViewState extends State<EdgePlayerView>
   );
 
   /// One loop of the artwork's flow, as in Now Playing.
-  late final AnimationController _flow = AnimationController(
-    vsync: this,
-    duration: const Duration(seconds: 36),
-  );
+  late final _flow = FlowClock(period: const Duration(seconds: 36));
 
   /// Cross-fades the flow between tracks.
   late final AnimationController _flowFade = AnimationController(
@@ -313,9 +310,9 @@ class _EdgePlayerViewState extends State<EdgePlayerView>
   /// The flow moves only while the glass shows.
   void _syncFlow() {
     final show = _t.value > 1.2 && !MediaQuery.disableAnimationsOf(context);
-    if (show && !_flow.isAnimating) {
-      _flow.repeat();
-    } else if (!show && _flow.isAnimating) {
+    if (show) {
+      _flow.start();
+    } else {
       _flow.stop();
     }
   }
@@ -703,7 +700,7 @@ class _Glass extends StatelessWidget {
   final _Backdrop? backdrop;
   final ui.Image? art;
   final ui.Image? previousArt;
-  final Animation<double> flow;
+  final ValueListenable<double> flow;
   final Animation<double> fade;
 
   @override
