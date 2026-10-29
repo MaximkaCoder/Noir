@@ -419,7 +419,8 @@ class YouTubeApi {
     if (thumbs == null) return null;
     for (final size in ['maxres', 'standard', 'high', 'medium', 'default']) {
       final url = (thumbs[size] as Map?)?['url'] as String?;
-      if (url != null) return url;
+      // Anything but https would be taken for a local file.
+      if (url != null && url.startsWith('https://')) return url;
     }
     return null;
   }

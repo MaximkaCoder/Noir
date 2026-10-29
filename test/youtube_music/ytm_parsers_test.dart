@@ -345,6 +345,31 @@ void main() {
       expect(textOf(null), isNull);
     });
 
+    // Anything but https would be opened as a local file, a share included.
+    test('bestThumbnail takes only https URLs', () {
+      expect(
+        bestThumbnail([
+          {'url': 'https://i.ytimg.com/vi/a/default.jpg', 'width': 120},
+          {'url': r'\\host\share\x.jpg', 'width': 960},
+          {'url': 'file:///C:/x.jpg', 'width': 960},
+          {'url': 'http://i.ytimg.com/vi/a/maxres.jpg', 'width': 1280},
+        ]),
+        'https://i.ytimg.com/vi/a/default.jpg',
+      );
+      expect(
+        bestThumbnail([
+          {'url': '//i.ytimg.com/vi/a/hq.jpg', 'width': 480},
+        ]),
+        'https://i.ytimg.com/vi/a/hq.jpg',
+      );
+      expect(
+        bestThumbnail([
+          {'url': r'\\host\share\x.jpg', 'width': 960},
+        ]),
+        isNull,
+      );
+    });
+
     test('bestThumbnail resizes Google art to a 544 px square', () {
       expect(
         bestThumbnail([

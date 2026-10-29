@@ -71,6 +71,13 @@ bool IsHttp(const std::string& uri) {
   return uri.rfind("http://", 0) == 0 || uri.rfind("https://", 0) == 0;
 }
 
+// A network share path (\\host\share, //host/share): opening it makes
+// Windows log in to that host with the user's credentials.
+bool IsNetworkPath(const std::string& path) {
+  return path.size() >= 2 && (path[0] == '\\' || path[0] == '/') &&
+         (path[1] == '\\' || path[1] == '/');
+}
+
 }  // namespace
 
 struct SmtcBridge::Impl {
@@ -262,7 +269,7 @@ void SmtcBridge::HandleMethodCall(
             winrt::Windows::Foundation::Uri(winrt::to_hstring(artwork))));
       } else {
         updater.Thumbnail(nullptr);
-        if (!artwork.empty()) {
+        if (!artwork.empty() && !IsNetworkPath(artwork)) {
           Impl::LoadLocalArtwork(impl_, artwork, generation);
         }
       }

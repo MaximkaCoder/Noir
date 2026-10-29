@@ -101,3 +101,8 @@ YouTubeFrame youtubeFrame(double px) => px <= hqFrame.square
 
 String youtubeFrameUrl(String videoId, YouTubeFrame frame) =>
     'https://i.ytimg.com/vi/$videoId/${frame.name}.jpg';
+
+/// Whether an artwork source is fetched over the network; anything else is
+/// a file NOIR saved itself.
+bool isRemoteImage(String source) =>
+    source.startsWith('https://') || source.startsWith('http://');

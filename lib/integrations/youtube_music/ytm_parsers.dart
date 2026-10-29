@@ -327,7 +327,9 @@ String? bestThumbnail(Object? thumbnails) {
   return best;
 }
 
-/// URL of the widest thumbnail, unchanged.
+/// URL of the widest thumbnail, unchanged. Only https URLs count: anything
+/// else would be taken for a local file, and a `\\host\share` path
+/// would make Windows log in to that host.
 String? _largestThumbnail(Object? thumbnails) {
   final list = thumbnails is Map
       ? navList(thumbnails, ['thumbnails'])
@@ -335,8 +337,10 @@ String? _largestThumbnail(Object? thumbnails) {
   String? best;
   var bestWidth = -1;
   for (final t in list) {
-    final url = navString(t, ['url']);
-    if (url == null || url.isEmpty) continue;
+    final raw = navString(t, ['url']);
+    if (raw == null) continue;
+    final url = raw.startsWith('//') ? 'https:$raw' : raw;
+    if (!url.startsWith('https://')) continue;
     final width = switch (nav(t, ['width'])) {
       final num n => n.toInt(),
       _ => 0,
@@ -346,8 +350,7 @@ String? _largestThumbnail(Object? thumbnails) {
       bestWidth = width;
     }
   }
-  if (best == null) return null;
-  return best.startsWith('//') ? 'https:$best' : best;
+  return best;
 }
 
 /// `3:21` / `1:02:03` → Duration.

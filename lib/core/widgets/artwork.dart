@@ -8,6 +8,8 @@ import 'package:noir/features/artwork/application/artwork_providers.dart';
 import 'package:noir/features/artwork/domain/art_urls.dart';
 import 'package:noir/features/youtube/presentation/youtube_cover.dart';
 
+export 'package:noir/features/artwork/domain/art_urls.dart' show isRemoteImage;
+
 /// Square artwork decoded at display size × device pixel ratio
 /// (`cacheWidth`) to keep memory and decode time proportional to what is on
 /// screen. Missing or broken artwork falls back to a quiet placeholder.
@@ -131,9 +133,6 @@ Future<void> precacheArtwork(
   }
   await precacheImage(image, context, onError: (_, _) {});
 }
-
-bool isRemoteImage(String source) =>
-    source.startsWith('https://') || source.startsWith('http://');
 
 /// 2×2 collage of up to four covers, as used for playlists.
 class ArtworkCollage extends StatelessWidget {

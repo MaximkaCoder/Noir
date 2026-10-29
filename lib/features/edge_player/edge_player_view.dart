@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:noir/core/formatters.dart';
 import 'package:noir/core/widgets/artwork_flow.dart';
+import 'package:noir/features/artwork/domain/art_urls.dart';
 import 'package:noir/features/edge_player/edge_snapshot.dart';
 
 /// Implemented by the Windows runner (windows/runner/edge_player.cpp), on
@@ -270,7 +271,7 @@ class _EdgePlayerViewState extends State<EdgePlayerView>
     _artSource = source;
     if (source.isEmpty) return;
     final provider = ResizeImage(
-      source.startsWith('http')
+      isRemoteImage(source)
           ? NetworkImage(source)
           : FileImage(File(source)) as ImageProvider,
       width: 160,
@@ -870,7 +871,7 @@ class _Artwork extends StatelessWidget {
     );
     final ImageProvider? image = source.isEmpty
         ? null
-        : source.startsWith('http')
+        : isRemoteImage(source)
         ? ResizeImage(NetworkImage(source), width: cache, height: cache)
         : ResizeImage(FileImage(File(source)), width: cache, height: cache);
     return ClipRRect(
