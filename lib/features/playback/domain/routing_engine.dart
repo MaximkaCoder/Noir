@@ -46,6 +46,9 @@ class RoutingEngine implements PlaybackEngine, MixingEngine {
 
   /// How long a track nothing else can play may wait for its file.
   static const _fileNowTimeout = Duration(minutes: 2);
+
+  /// Counts [load]s, so one overtaken while it waited plays nothing.
+  int _loads = 0;
   final _subs = <StreamSubscription<Object?>>[];
   final _events = StreamController<EngineEvent>.broadcast();
   final _position = StreamController<Duration>.broadcast();
@@ -83,7 +86,9 @@ class RoutingEngine implements PlaybackEngine, MixingEngine {
         engine == null &&
         local != null &&
         track.source != MediaSource.local) {
-      // No player for this source here: wait for a file instead.
+      // No player for this source here: wait for a file instead. What
+      // played so far stops meanwhile; it isn't what was asked for.
+      await _active.stop();
       final path = await _fileNow(track);
       return path == null ? null : (local, track.copyWith(uri: path));
     }
@@ -155,7 +160,10 @@ class RoutingEngine implements PlaybackEngine, MixingEngine {
 
   @override
   Future<bool> load(Track track, {Duration start = Duration.zero}) async {
+    final ticket = ++_loads;
     final route = await _route(track, wait: true);
+    // Another song was asked for while this one waited for its file.
+    if (ticket != _loads) return false;
     if (route == null) {
       _events.add(
         const EngineFailed('This kind of item cannot be played here.'),

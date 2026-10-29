@@ -189,6 +189,36 @@ void main() {
       expect(events.whereType<EngineFailed>(), hasLength(1));
     });
 
+    test(
+      'the song playing stops while the next one waits for its file',
+      () async {
+        await router.load(track('song', MediaSource.local));
+        local.calls.clear();
+        final file = files.waits['video'] = Completer<void>();
+        files.later['video'] = '/cache/video.webm';
+        final loading = router.load(track('video', MediaSource.youtube));
+        await pumpEventQueue();
+        expect(local.calls, ['stop']);
+
+        file.complete();
+        expect(await loading, isTrue);
+        expect(local.loaded!.uri, '/cache/video.webm');
+      },
+    );
+
+    test('a song asked for while another waits plays instead of it', () async {
+      final slow = files.waits['a'] = Completer<void>();
+      files.later['a'] = '/cache/a.webm';
+      final first = router.load(track('a', MediaSource.youtube));
+      await pumpEventQueue();
+      expect(await router.load(track('song', MediaSource.local)), isTrue);
+      final song = local.loaded;
+
+      slow.complete();
+      expect(await first, isFalse);
+      expect(local.loaded, same(song));
+    });
+
     test('a look ahead does not fetch', () async {
       files.later['next'] = '/cache/next.webm';
       expect(

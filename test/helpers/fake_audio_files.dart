@@ -26,9 +26,13 @@ class FakeAudioFiles implements AudioFileProvider {
   final later = <String, String>{};
   final askedNow = <String>[];
 
+  /// [fileNow] for a uri here answers once its completer completes.
+  final waits = <String, Completer<void>>{};
+
   @override
   Future<String?> fileNow(Track track) async {
     askedNow.add(track.uri);
+    await waits[track.uri]?.future;
     return files[track.uri] ?? later[track.uri];
   }
 
