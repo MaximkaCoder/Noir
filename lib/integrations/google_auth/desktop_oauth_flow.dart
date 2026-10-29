@@ -5,6 +5,7 @@ import 'dart:math';
 
 import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:noir/integrations/google_auth/google_oauth_config.dart';
 
 /// Tokens returned by Google's token endpoint. Never logged.
@@ -110,6 +111,7 @@ class DesktopOAuthFlow {
     required this._dio,
     required this._launch,
     this.timeout = const Duration(minutes: 5),
+    this.untilForeground,
     Random? random,
   }) : _random = random ?? Random.secure();
 
@@ -118,6 +120,11 @@ class DesktopOAuthFlow {
   final UrlLauncher _launch;
   final Random _random;
   final Duration timeout;
+
+  /// Completes once the app is in front again. The code comes back while
+  /// the browser is in front, and Android gives apps in the background no
+  /// network: the exchange waits for the user to return to the app.
+  final Future<void> Function()? untilForeground;
 
   Completer<Uri>? _callback;
 
@@ -176,6 +183,7 @@ class DesktopOAuthFlow {
       }
       final code = result.queryParameters['code'];
       if (code == null) throw const OAuthFailed('No authorization code.');
+      await untilForeground?.call();
       return await _token({
         'grant_type': 'authorization_code',
         'code': code,
@@ -252,6 +260,8 @@ class DesktopOAuthFlow {
       );
       return OAuthTokens.fromJson(response.data!, DateTime.now());
     } on DioException catch (e) {
+      // The kind of failure only; never the request, which holds the code.
+      debugPrint('Token request failed: ${e.type} ${e.error}');
       final data = e.response?.data;
       final error = data is Map ? data['error'] : null;
       if (error == 'invalid_grant') throw const OAuthReauthRequired();

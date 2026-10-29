@@ -83,6 +83,31 @@ void main() {
       expect(tokens.identity.email, 'me@example.com');
     });
 
+    test('exchanges the code only once the app is in front', () async {
+      final http = FakeHttp((_) => ok(tokenJson()));
+      final front = Completer<void>();
+      var asked = false;
+      final flow = DesktopOAuthFlow(
+        config: _config,
+        dio: http.dio(),
+        launch: browser(),
+        untilForeground: () {
+          asked = true;
+          return front.future;
+        },
+      );
+      final tokens = flow.authorize(GoogleOAuthConfig.readOnlyScopes);
+      while (!asked) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(http.requests, isEmpty);
+
+      front.complete();
+      expect((await tokens).refreshToken, 'refresh-1');
+      expect(http.requests.single.form['code'], 'auth-code');
+    });
+
     test('ignores a callback with a forged state', () async {
       final http = FakeHttp((_) => ok(tokenJson()));
       final flow = DesktopOAuthFlow(

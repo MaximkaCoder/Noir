@@ -1,6 +1,9 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:dio/dio.dart';
+import 'package:flutter/widgets.dart';
+import 'package:flutter_custom_tabs/flutter_custom_tabs.dart' as tabs;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:noir/integrations/google_auth/desktop_oauth_flow.dart';
 import 'package:noir/integrations/google_auth/google_oauth_config.dart';
@@ -339,13 +342,58 @@ final accountServiceProvider = Provider<AccountConnectionService>((ref) {
     flow: DesktopOAuthFlow(
       config: config,
       dio: ref.watch(httpClientProvider),
-      launch: (url) => launchUrl(url, mode: LaunchMode.externalApplication),
+      launch: Platform.isAndroid ? _openSheet : _openBrowser,
+      untilForeground: Platform.isAndroid ? _backToApp : null,
     ),
     store: ref.watch(tokenStoreProvider),
   );
   unawaited(service.init());
   return service;
 });
+
+Future<bool> _openBrowser(Uri url) =>
+    launchUrl(url, mode: LaunchMode.externalApplication);
+
+/// Android: sign-in in a sheet over the app. With the browser in front the
+/// app would be frozen, its redirect server unanswered; under a sheet it
+/// stays visible, and so running.
+Future<bool> _openSheet(Uri url) async {
+  final view = WidgetsBinding.instance.platformDispatcher.views.first;
+  try {
+    await tabs.launchUrl(
+      url,
+      customTabsOptions: tabs.CustomTabsOptions.partial(
+        configuration: tabs.PartialCustomTabsConfiguration.bottomSheet(
+          initialHeight: view.physicalSize.height / view.devicePixelRatio * .9,
+        ),
+        showTitle: true,
+      ),
+    );
+    return true;
+  } on Object {
+    // No browser with Custom Tabs: the full browser, as on desktop.
+    return await _openBrowser(url);
+  }
+}
+
+/// Closes the sign-in sheet and waits until the app is in front.
+Future<void> _backToApp() async {
+  try {
+    await tabs.closeCustomTabs();
+  } on Object {
+    // Opened in the full browser; the user comes back on their own.
+  }
+  if (WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) {
+    return;
+  }
+  final resumed = Completer<void>();
+  final listener = AppLifecycleListener(onResume: resumed.complete);
+  try {
+    await resumed.future;
+  } finally {
+    listener.dispose();
+  }
+}
 
 final accountConnectionProvider = StreamProvider<AccountConnection>(
   (ref) => ref.watch(accountServiceProvider).watch(),
