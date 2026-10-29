@@ -108,7 +108,13 @@ class _YouTubeVideoLayerState extends ConsumerState<YouTubeVideoLayer> {
                     child: ColoredBox(
                       color: Colors.black,
                       child: ready
-                          ? Webview(engine.controller)
+                          ? Webview(
+                              engine.controller,
+                              // The player needs no camera, microphone,
+                              // location or notifications.
+                              permissionRequested: (_, _, _) =>
+                                  WebviewPermissionDecision.deny,
+                            )
                           : const Center(
                               child: SizedBox.square(
                                 dimension: 20,

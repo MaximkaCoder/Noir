@@ -48,6 +48,11 @@ class YouTubeEmbedEngine implements PlaybackEngine {
   final ready = ValueNotifier<bool>(false);
   Completer<void>? _initializing;
   StreamSubscription<dynamic>? _messages;
+  StreamSubscription<String>? _urls;
+
+  /// The page the WebView shows. Messages count only while it is NOIR's
+  /// own player page, not a page the embed may have navigated to.
+  String? _pageUrl;
 
   Duration _currentPosition = Duration.zero;
   Duration? _currentDuration;
@@ -92,11 +97,14 @@ class YouTubeEmbedEngine implements PlaybackEngine {
       await controller.initialize();
       await controller.setBackgroundColor(Colors.black);
       await controller.setPopupWindowPolicy(WebviewPopupWindowPolicy.deny);
+      _urls = controller.url.listen((url) => _pageUrl = url);
       _messages = controller.webMessage.listen(_onMessage);
+      // The YouTube frame never fetches the page itself, so other origins
+      // need no access to it.
       await controller.addVirtualHostNameMapping(
         host,
         _pageDir.path,
-        WebviewHostResourceAccessKind.allow,
+        WebviewHostResourceAccessKind.denyCors,
       );
       final apiReady = Completer<void>();
       void onReady() {
@@ -116,6 +124,8 @@ class YouTubeEmbedEngine implements PlaybackEngine {
   }
 
   void _onMessage(dynamic raw) {
+    final page = _pageUrl;
+    if (page != null && page != 'https://$host/player.html') return;
     final Map<String, Object?> m;
     try {
       m = jsonDecode(raw as String) as Map<String, Object?>;
@@ -235,6 +245,7 @@ class YouTubeEmbedEngine implements PlaybackEngine {
   @override
   Future<void> dispose() async {
     await _messages?.cancel();
+    await _urls?.cancel();
     await controller.dispose();
     await _events.close();
     await _position.close();
