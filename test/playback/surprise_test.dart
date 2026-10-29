@@ -25,7 +25,9 @@ void main() {
   PlaybackState state() => container.read(playbackProvider);
   List<String> titles() => [for (final q in state().queue) q.track.title];
 
-  const bpms = {'A': 120.0, 'B': 150.0, 'C': 121.0, 'D': 149.0, 'E': 122.0};
+  // Every pair is a different distance apart, so the closest track is never
+  // a tie that the shuffled order would decide.
+  const bpms = {'A': 100.0, 'B': 151.0, 'C': 103.0, 'D': 147.0, 'E': 108.0};
 
   Future<void> setUpWith([List<Override> overrides = const []]) async {
     db = inMemoryDatabase();
