@@ -904,6 +904,39 @@ void main() {
       expect(inCapsule(find.byTooltip('Hide lyrics')), findsOneWidget);
     });
 
+    testWidgets('a phone spreads the controls and leaves out the volume', (
+      tester,
+    ) async {
+      NowPlayingScreen.touchControls = true;
+      addTearDown(() => NowPlayingScreen.touchControls = false);
+      await pumpNowPlaying(tester, size: const Size(400, 860));
+      expect(find.byKey(ControlCapsule.glassKey), findsNothing);
+      Finder inControls(String tooltip) => find.descendant(
+        of: find.byType(TouchControls),
+        matching: find.byTooltip(tooltip),
+      );
+      Offset at(String tooltip) => tester.getCenter(inControls(tooltip));
+      expect(_inPlayer(find.byTooltip('Mute')), findsNothing);
+      expect(_inPlayer(find.byType(VolumeControl)), findsNothing);
+
+      // Transport in one row, spread over the column, play in the middle.
+      final row = ['Shuffle off', 'Previous', 'Pause', 'Next', 'Repeat off'];
+      for (final (i, tooltip) in row.indexed) {
+        expect(at(tooltip).dy, at('Pause').dy, reason: tooltip);
+        if (i > 0) expect(at(tooltip).dx, greaterThan(at(row[i - 1]).dx));
+      }
+      expect(at('Pause').dx, moreOrLessEquals(200, epsilon: 1));
+      final controls = tester.getRect(find.byType(TouchControls));
+      expect(controls.width, 400 - 48);
+      // Lyrics and queue in a row under it, at its ends.
+      expect(at('Show lyrics').dy, greaterThan(at('Pause').dy));
+      expect(at('Queue').dy, at('Show lyrics').dy);
+      expect(at('Show lyrics').dx, lessThan(at('Shuffle off').dx + 1));
+      expect(at('Queue').dx, greaterThan(at('Repeat off').dx - 1));
+      // Everything fits on the screen.
+      expect(controls.bottom, lessThan(860));
+    });
+
     testWidgets('the volume slider is always shown', (tester) async {
       await pumpNowPlaying(tester);
       double width() =>

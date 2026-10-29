@@ -61,6 +61,10 @@ class NowPlayingScreen extends ConsumerStatefulWidget {
   /// own column.
   static const wideBreakpoint = 760.0;
 
+  /// Phone controls instead of the capsule on narrow layouts.
+  @visibleForTesting
+  static bool touchControls = Platform.isAndroid || Platform.isIOS;
+
   /// How long showing or hiding lyrics rearranges the screen.
   static const lyricsDuration = Duration(milliseconds: 450);
 
@@ -858,7 +862,12 @@ class _Player extends ConsumerWidget {
                   : details(0),
             ),
             const _StageSlot(slot: _Slot.progress, child: ProgressSlider()),
-            const _StageSlot(slot: _Slot.controls, child: ControlCapsule()),
+            _StageSlot(
+              slot: _Slot.controls,
+              child: NowPlayingScreen.touchControls && !wide
+                  ? TouchControls(width: max(0, box.maxWidth - 48))
+                  : const ControlCapsule(),
+            ),
             if (video)
               _StageSlot(
                 slot: _Slot.video,
@@ -1281,6 +1290,97 @@ class _RenderStage extends RenderBox
   }
 }
 
+/// The transport, lyrics and queue buttons, sized by the layout that
+/// places them. A control the engine can't offer is null.
+typedef _Buttons = ({
+  Widget? shuffle,
+  Widget? previous,
+  Widget play,
+  Widget? next,
+  Widget? repeat,
+  Widget lyrics,
+  Widget queue,
+});
+
+_Buttons _buttons(
+  BuildContext context,
+  WidgetRef ref, {
+  double icon = 20,
+  double skip = 24,
+  double play = 48,
+}) {
+  final s = ref.watch(playbackProvider);
+  final ctrl = ref.read(playbackProvider.notifier);
+  final caps = s.capabilities;
+  final hasItem = s.current != null;
+  final lyrics = ref.watch(lyricsVisibleProvider);
+  final queueOpen = ref.watch(queueSheetOpenProvider);
+  final c = context.noir;
+  return (
+    shuffle: caps.canShuffle
+        ? NoirIconButton(
+            icon: Icons.shuffle_rounded,
+            tooltip: s.shuffle ? 'Shuffle on' : 'Shuffle off',
+            size: icon,
+            active: s.shuffle,
+            onPressed: hasItem ? ctrl.toggleShuffle : null,
+          )
+        : null,
+    previous: caps.canSkip
+        ? NoirIconButton(
+            icon: Icons.skip_previous_rounded,
+            tooltip: 'Previous',
+            size: skip,
+            color: c.textPrimary,
+            onPressed: hasItem ? () => unawaited(ctrl.previous()) : null,
+          )
+        : null,
+    play: PrimaryPlayButton(
+      playing: s.isPlaying,
+      size: play,
+      onPressed: hasItem ? () => unawaited(ctrl.togglePlayPause()) : null,
+    ),
+    next: caps.canSkip
+        ? NoirIconButton(
+            icon: Icons.skip_next_rounded,
+            tooltip: 'Next',
+            size: skip,
+            color: c.textPrimary,
+            onPressed: s.hasNext ? () => unawaited(ctrl.next()) : null,
+          )
+        : null,
+    repeat: caps.canRepeat
+        ? NoirIconButton(
+            icon: s.repeat == RepeatMode.one
+                ? Icons.repeat_one_rounded
+                : Icons.repeat_rounded,
+            tooltip: switch (s.repeat) {
+              RepeatMode.off => 'Repeat off',
+              RepeatMode.all => 'Repeat all',
+              RepeatMode.one => 'Repeat one',
+            },
+            size: icon,
+            active: s.repeat != RepeatMode.off,
+            onPressed: hasItem ? ctrl.cycleRepeat : null,
+          )
+        : null,
+    lyrics: NoirIconButton(
+      icon: Icons.format_quote_rounded,
+      tooltip: lyrics ? 'Hide lyrics' : 'Show lyrics',
+      size: icon,
+      active: lyrics,
+      onPressed: ref.read(lyricsVisibleProvider.notifier).toggle,
+    ),
+    queue: NoirIconButton(
+      icon: Icons.queue_music_rounded,
+      tooltip: 'Queue',
+      size: icon,
+      active: queueOpen,
+      onPressed: () => unawaited(showQueueSheet(context, ref)),
+    ),
+  );
+}
+
 /// Every control in one Liquid Glass capsule: shuffle · previous ·
 /// play/pause · next · repeat | lyrics · queue · volume.
 class ControlCapsule extends ConsumerWidget {
@@ -1291,12 +1391,7 @@ class ControlCapsule extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final s = ref.watch(playbackProvider);
-    final ctrl = ref.read(playbackProvider.notifier);
-    final caps = s.capabilities;
-    final hasItem = s.current != null;
-    final lyrics = ref.watch(lyricsVisibleProvider);
-    final queueOpen = ref.watch(queueSheetOpenProvider);
+    final b = _buttons(context, ref);
     final c = context.noir;
     const gap = SizedBox(width: NoirSpacing.xs);
     return GlassSurface(
@@ -1307,54 +1402,11 @@ class ControlCapsule extends ConsumerWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (caps.canShuffle) ...[
-            NoirIconButton(
-              icon: Icons.shuffle_rounded,
-              tooltip: s.shuffle ? 'Shuffle on' : 'Shuffle off',
-              active: s.shuffle,
-              onPressed: hasItem ? ctrl.toggleShuffle : null,
-            ),
-            gap,
-          ],
-          if (caps.canSkip) ...[
-            NoirIconButton(
-              icon: Icons.skip_previous_rounded,
-              tooltip: 'Previous',
-              size: 24,
-              color: c.textPrimary,
-              onPressed: hasItem ? () => unawaited(ctrl.previous()) : null,
-            ),
-            gap,
-          ],
-          PrimaryPlayButton(
-            playing: s.isPlaying,
-            onPressed: hasItem ? () => unawaited(ctrl.togglePlayPause()) : null,
-          ),
-          if (caps.canSkip) ...[
-            gap,
-            NoirIconButton(
-              icon: Icons.skip_next_rounded,
-              tooltip: 'Next',
-              size: 24,
-              color: c.textPrimary,
-              onPressed: s.hasNext ? () => unawaited(ctrl.next()) : null,
-            ),
-          ],
-          if (caps.canRepeat) ...[
-            gap,
-            NoirIconButton(
-              icon: s.repeat == RepeatMode.one
-                  ? Icons.repeat_one_rounded
-                  : Icons.repeat_rounded,
-              tooltip: switch (s.repeat) {
-                RepeatMode.off => 'Repeat off',
-                RepeatMode.all => 'Repeat all',
-                RepeatMode.one => 'Repeat one',
-              },
-              active: s.repeat != RepeatMode.off,
-              onPressed: hasItem ? ctrl.cycleRepeat : null,
-            ),
-          ],
+          if (b.shuffle case final shuffle?) ...[shuffle, gap],
+          if (b.previous case final previous?) ...[previous, gap],
+          b.play,
+          if (b.next case final next?) ...[gap, next],
+          if (b.repeat case final repeat?) ...[gap, repeat],
           gap,
           const MixModeButton(),
           Container(
@@ -1363,23 +1415,54 @@ class ControlCapsule extends ConsumerWidget {
             margin: const EdgeInsets.symmetric(horizontal: NoirSpacing.sm),
             color: c.textTertiary.withValues(alpha: 0.35),
           ),
-          NoirIconButton(
-            icon: Icons.format_quote_rounded,
-            tooltip: lyrics ? 'Hide lyrics' : 'Show lyrics',
-            active: lyrics,
-            onPressed: ref.read(lyricsVisibleProvider.notifier).toggle,
-          ),
+          b.lyrics,
           gap,
-          NoirIconButton(
-            icon: Icons.queue_music_rounded,
-            tooltip: 'Queue',
-            active: queueOpen,
-            onPressed: () => unawaited(showQueueSheet(context, ref)),
-          ),
+          b.queue,
           gap,
           // Last, its slider always shown: a capsule that grew and shrank
           // under the pointer kept jumping.
           const VolumeControl(),
+        ],
+      ),
+    );
+  }
+}
+
+/// The controls on a phone, as phone music apps lay them out: the
+/// transport spread across the column around a large play button, and
+/// lyrics · mix · queue in a quieter row under it. No volume: the phone's
+/// own buttons do that.
+class TouchControls extends ConsumerWidget {
+  const TouchControls({required this.width, super.key});
+
+  /// The column's width; the rows spread across it.
+  final double width;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final b = _buttons(context, ref, icon: 24, skip: 38, play: 68);
+    // Keeps the rest in place when the engine can't offer a control.
+    const none = SizedBox.square(dimension: 40);
+    return SizedBox(
+      width: width,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              b.shuffle ?? none,
+              b.previous ?? none,
+              b.play,
+              b.next ?? none,
+              b.repeat ?? none,
+            ],
+          ),
+          const SizedBox(height: NoirSpacing.lg),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [b.lyrics, const MixModeButton(size: 24), b.queue],
+          ),
         ],
       ),
     );
