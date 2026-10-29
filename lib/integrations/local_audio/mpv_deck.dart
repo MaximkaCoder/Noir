@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
@@ -118,6 +120,9 @@ class MpvDeck implements AudioDeck {
     _loaded = false;
     _emit();
     try {
+      if (await startsAsText(path)) {
+        throw const DeckLoadException('not an audio file');
+      }
       await _player.open(Media(path, start: start), play: false);
       // open() resets the duration; it is known again once the file loaded.
       final watch = Stopwatch()..start();
@@ -138,6 +143,44 @@ class MpvDeck implements AudioDeck {
     } finally {
       if (identical(_opening, opening)) _opening = null;
       _emit();
+    }
+  }
+
+  /// Whether [path] begins like a text file rather than audio. A playlist,
+  /// EDL or CUE sheet saved under an audio name would make mpv open what it
+  /// points at, a network share or a URL included. Those are all text,
+  /// while every audio container has binary bytes near its start.
+  /// (`access-references=no` would stop mpv too, but media_kit hands each
+  /// file to mpv through a playlist of its own.)
+  @visibleForTesting
+  static Future<bool> startsAsText(String path) async {
+    final file = await File(path).open();
+    try {
+      final head = await file.read(512);
+      if (head.isEmpty) return false;
+      var start = 0;
+      if (head.length >= 3 &&
+          head[0] == 0xEF &&
+          head[1] == 0xBB &&
+          head[2] == 0xBF) {
+        start = 3;
+      }
+      try {
+        // A UTF-8 sequence cut off at the end of the sample is still text.
+        const Utf8Decoder().convert(
+          head.sublist(start, head.length - (head.length == 512 ? 3 : 0)),
+        );
+      } on FormatException {
+        return false;
+      }
+      for (var i = start; i < head.length; i++) {
+        final b = head[i];
+        if (b < 0x20 && b != 0x09 && b != 0x0A && b != 0x0D) return false;
+        if (b == 0x7F) return false;
+      }
+      return true;
+    } finally {
+      await file.close();
     }
   }
 
