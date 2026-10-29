@@ -51,6 +51,25 @@ Rect _glassRect(WidgetTester tester) =>
     tester.getRect(_inIsland(find.byType(LiquidGlass)));
 
 void main() {
+  testWidgets('settings the theme ignores do not rebuild the app', (
+    tester,
+  ) async {
+    final app = await TestApp.pump(tester);
+    MaterialApp root() => tester.widget<MaterialApp>(find.byType(MaterialApp));
+    final before = root();
+    app.container
+        .read(settingsProvider.notifier)
+        .update((s) => s.copyWith(transitionMode: TransitionMode.crossfade));
+    await tester.pump();
+    expect(root(), same(before));
+
+    app.container
+        .read(settingsProvider.notifier)
+        .update((s) => s.copyWith(themeMode: ThemeMode.light));
+    await tester.pump();
+    expect(root(), isNot(same(before)));
+  });
+
   group('adaptive shell', () {
     testWidgets('wide desktop: sidebar, top search, no bottom nav', (
       tester,

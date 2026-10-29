@@ -18,7 +18,21 @@ class NoirApp extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final settings = ref.watch(settingsProvider);
+    // Only what the theme and the effects depend on: any other setting
+    // (a transition mode, the volume) changing must not rebuild the app.
+    ref.watch(
+      settingsProvider.select(
+        (s) => (
+          s.themeMode,
+          s.density,
+          s.liquidGlass,
+          s.glassLevel,
+          s.animations,
+          s.performanceMode,
+        ),
+      ),
+    );
+    final settings = ref.read(settingsProvider);
     return MaterialApp.router(
       title: 'NOIR',
       debugShowCheckedModeBanner: false,
