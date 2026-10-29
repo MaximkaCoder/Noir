@@ -830,6 +830,7 @@ class _Player extends ConsumerWidget {
           lyrics: lyrics,
           wide: wide,
           viewport: box.maxHeight,
+          anchorBottom: NowPlayingScreen.touchControls && !wide,
           detailsExtent: _TrackDetails.extentUnderCover(context, state),
           children: [
             if (cover)
@@ -956,11 +957,16 @@ class _Stage extends MultiChildRenderObjectWidget {
     required this.viewport,
     required this.detailsExtent,
     required super.children,
+    this.anchorBottom = false,
   });
 
   final Animation<double> lyrics;
   final bool wide;
   final double viewport;
+
+  /// Narrow layouts only: the details, progress and controls sit at the
+  /// bottom of the screen, within thumb reach, as in phone music apps.
+  final bool anchorBottom;
 
   /// The details' height under the cover (wide, without lyrics) at a
   /// width. The cover is sized from it rather than from the details as
@@ -991,14 +997,23 @@ class _Stage extends MultiChildRenderObjectWidget {
 
   @override
   _RenderStage createRenderObject(BuildContext context) =>
-      _RenderStage(lyrics, detailsExtent, wide: wide, viewport: viewport);
+      _RenderStage(
+        lyrics,
+        detailsExtent,
+        wide: wide,
+        viewport: viewport,
+        anchorBottom: anchorBottom,
+      );
 
   @override
   void updateRenderObject(BuildContext context, _RenderStage renderObject) {
-    if (renderObject.wide != wide || renderObject.viewport != viewport) {
+    if (renderObject.wide != wide ||
+        renderObject.viewport != viewport ||
+        renderObject.anchorBottom != anchorBottom) {
       renderObject
         ..wide = wide
         ..viewport = viewport
+        ..anchorBottom = anchorBottom
         ..markNeedsLayout();
     }
     renderObject
@@ -1016,6 +1031,7 @@ class _RenderStage extends RenderBox
     this._detailsExtent, {
     required this.wide,
     required this.viewport,
+    required this.anchorBottom,
   });
 
   Animation<double> get lyrics => _lyrics;
@@ -1030,6 +1046,7 @@ class _RenderStage extends RenderBox
 
   bool wide;
   double viewport;
+  bool anchorBottom;
 
   double Function(double width) get detailsExtent => _detailsExtent;
   double Function(double width) _detailsExtent;
@@ -1226,9 +1243,22 @@ class _RenderStage extends RenderBox
 
       // The lyrics take the cover's place; everything below follows.
       const top = 16.0;
+      final below =
+          details.height +
+          20 +
+          progress.height +
+          20 +
+          controls.height * cScale +
+          (hasVideo ? 24 + video.height : 0);
+      // At the bottom when anchored; the lyrics then fill the room above.
+      final lowest = anchorBottom ? h - 32 - below : 0.0;
+      final lyricsTall = max(lyricsHeight, lowest - 16 - top);
       placeTight(_Slot.cover, Rect.fromLTWH((w - art) / 2, top, art, art));
-      placeTight(_Slot.lyrics, Rect.fromLTWH(x, top, cw, lyricsHeight));
-      var y = top + _lerp(art, lyricsHeight, t) + _lerp(28, 16, t);
+      placeTight(_Slot.lyrics, Rect.fromLTWH(x, top, cw, lyricsTall));
+      var y = max(
+        top + _lerp(art, lyricsTall, t) + _lerp(28, 16, t),
+        lowest,
+      );
       place(_Slot.details, Offset(x, y));
       y += details.height + 20;
       place(_Slot.progress, Offset(x, y));

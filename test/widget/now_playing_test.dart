@@ -933,8 +933,13 @@ void main() {
       expect(at('Queue').dy, at('Show lyrics').dy);
       expect(at('Show lyrics').dx, lessThan(at('Shuffle off').dx + 1));
       expect(at('Queue').dx, greaterThan(at('Repeat off').dx - 1));
-      // Everything fits on the screen.
+      // At the bottom of the screen, within thumb reach.
       expect(controls.bottom, lessThan(860));
+      expect(controls.bottom, greaterThan(860 - 80));
+      expect(
+        tester.getRect(find.byKey(NowPlayingScreen.coverKey)).top,
+        lessThan(120),
+      );
     });
 
     testWidgets('the volume slider is always shown', (tester) async {
