@@ -48,3 +48,8 @@ kotlin {
 flutter {
     source = "../.."
 }
+
+// Optional local-only modules (see tool/run.ps1); not in the repository.
+if (file("local-only.gradle").exists()) {
+    apply(from = "local-only.gradle")
+}

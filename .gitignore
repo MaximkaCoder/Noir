@@ -74,3 +74,6 @@ spikes/**/.dart_tool/
 # Optional local-only modules and their tests (see tool/run.ps1)
 lib/private/
 test/private/
+android/app/local-only.gradle
+android/app/proguard-local-only.pro
+android/app/src/localOnly/
