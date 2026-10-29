@@ -184,6 +184,21 @@ void main() {
       expect(find.byTooltip('Close player (Esc)'), findsOneWidget);
     });
 
+    testWidgets('on a phone the sheet takes the whole screen', (tester) async {
+      await pumpNowPlaying(tester, size: const Size(448, 900));
+      await tester.tap(_nowPlayingQueue);
+      await tester.pumpAndSettle();
+      final sheet = tester.getRect(
+        find
+            .ancestor(
+              of: find.text('Up next'),
+              matching: find.byType(GlassSurface),
+            )
+            .first,
+      );
+      expect(sheet, const Rect.fromLTWH(0, 0, 448, 900));
+    });
+
     testWidgets('maybePop closes the sheet first, then the player', (
       tester,
     ) async {

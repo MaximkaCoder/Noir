@@ -106,7 +106,12 @@ class _QueueSheet extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final t = Theme.of(context).textTheme;
-    final width = min(MediaQuery.sizeOf(context).width, maxWidth);
+    final screen = MediaQuery.sizeOf(context).width;
+    // A phone gets the whole screen; a sliver of the player beside the
+    // sheet is no use there.
+    final width = WindowClass.of(screen) == WindowClass.compact
+        ? screen
+        : min(screen, maxWidth);
     void close() => Navigator.of(context).maybePop();
     final showVideo =
         ref.watch(playbackProvider.select((s) => s.showsVideoPlayer)) &&
