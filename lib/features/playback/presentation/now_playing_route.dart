@@ -133,10 +133,16 @@ Page<void> nowPlayingPage(
   Widget child,
 ) {
   final fx = NoirEffects.of(context);
+  // Phones slide it like the queue sheet; the island morph takes longer.
+  final touch = FormFactor.touch;
   return _NowPlayingPage(
     key: state.pageKey,
-    duration: fx.motion(NowPlayingTransition.openDuration),
-    reverseDuration: fx.motion(NowPlayingTransition.closeDuration),
+    duration: fx.motion(
+      touch ? NoirMotion.slow : NowPlayingTransition.openDuration,
+    ),
+    reverseDuration: fx.motion(
+      touch ? NoirMotion.slow : NowPlayingTransition.closeDuration,
+    ),
     child: child,
   );
 }
@@ -375,11 +381,15 @@ class _MorphState extends State<_Morph> {
           // so moving it costs no offscreen layer. While dragged it sits
           // exactly under the finger.
           final drag = Navigator.of(context).userGestureInProgress;
-          final p = drag
-              ? widget.animation.value
-              : widget.animation.isCompleted
-              ? 1.0
-              : t;
+          final route = widget.animation;
+          // The queue sheet's easing: out emphasized, back in accelerating.
+          // Dragged (and settling after), exactly where the finger put it.
+          final p = drag || route.isCompleted
+              ? route.value
+              : (route.status == AnimationStatus.reverse
+                        ? Curves.easeInCubic
+                        : NoirMotion.emphasized)
+                    .transform(route.value);
           // Clipped while it moves: the flowing backdrop paints a little
           // past its bounds, which would show above the page's top edge.
           return Transform.translate(

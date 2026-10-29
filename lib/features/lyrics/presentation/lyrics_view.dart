@@ -266,7 +266,11 @@ class SyncedLyricsList extends ConsumerStatefulWidget {
   static const followPause = Duration(seconds: 3);
 
   /// Size of the line being sung in karaoke, relative to the others.
-  static const karaokeScale = 1.3;
+  ///
+  /// Phones keep the lines around it closer to its size: the sung line is
+  /// as large as elsewhere, the others a little larger than elsewhere.
+  static double get karaokeScale => FormFactor.touch ? 1.15 : _desktopScale;
+  static const _desktopScale = 1.3;
 
   /// How long karaoke takes to move on to the next line.
   static const karaokeChange = Duration(milliseconds: 450);
@@ -432,7 +436,7 @@ class _SyncedLyricsListState extends ConsumerState<SyncedLyricsList>
     if (row == null) return null;
     final viewport = RenderAbstractViewport.maybeOf(row);
     if (viewport == null) return null;
-    const big = SyncedLyricsList.karaokeScale;
+    final big = SyncedLyricsList.karaokeScale;
     final incoming = _scaleBoxOf(row);
     final outgoing = from >= 0 ? _scaleBoxOf(_rowBox(from)) : null;
     final grows = incoming?.child == null
@@ -557,7 +561,10 @@ class _SyncedLyricsListState extends ConsumerState<SyncedLyricsList>
     return LayoutBuilder(
       builder: (context, box) {
         final size =
-            widget.fontSize ?? lyricsFontSize(box, compact: widget.compact);
+            (widget.fontSize ?? lyricsFontSize(box, compact: widget.compact)) *
+            (widget.karaoke
+                ? SyncedLyricsList._desktopScale / SyncedLyricsList.karaokeScale
+                : 1);
         final base = lyricLineStyle(context, size);
         return Listener(
           // Wheel and trackpad scrolling don't send drag notifications.

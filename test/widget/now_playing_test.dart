@@ -12,6 +12,7 @@ import 'package:noir/app/app.dart';
 import 'package:noir/app/router.dart';
 import 'package:noir/app/shell/adaptive_shell.dart';
 import 'package:noir/app/shell/sidebar.dart';
+import 'package:noir/app/theme/design_tokens.dart';
 import 'package:noir/core/database/database_provider.dart';
 import 'package:noir/core/platform/form_factor.dart';
 import 'package:noir/core/platform/window_controls.dart';
@@ -192,6 +193,20 @@ void main() {
         c.read(playbackProvider).current!.track.title;
     double pageTop(WidgetTester tester) =>
         tester.getTopLeft(find.byType(NowPlayingScreen)).dy;
+
+    testWidgets('closes as quickly as the queue sheet', (tester) async {
+      await pumpNowPlaying(tester, size: phone);
+      await tester.tap(find.byTooltip('Close player (Esc)'));
+      await tester.pump();
+      await tester.pump(NoirMotion.slow ~/ 2);
+      expect(pageTop(tester), inExclusiveRange(0, 900));
+      await tester.pump(NoirMotion.slow ~/ 2);
+      // Down at the bottom edge once the queue sheet would be.
+      final gone =
+          find.byType(NowPlayingScreen).evaluate().isEmpty ||
+          pageTop(tester) >= 900;
+      expect(gone, isTrue);
+    });
 
     testWidgets('no More menu', (tester) async {
       await pumpNowPlaying(tester, size: phone);
@@ -699,7 +714,7 @@ void main() {
       final app = await pumpKaraoke(tester);
       app.engine.tick(const Duration(milliseconds: 5600));
       await tester.pumpAndSettle();
-      const big = SyncedLyricsList.karaokeScale;
+      final big = SyncedLyricsList.karaokeScale;
       expect(scaleOf(tester, 'Second line'), big);
       expect(scaleOf(tester, 'Third line'), 1);
       // Every line stays in the list.
