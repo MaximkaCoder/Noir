@@ -11,7 +11,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:noir/app/app.dart';
 import 'package:noir/app/router.dart';
 import 'package:noir/app/shell/adaptive_shell.dart';
+import 'package:noir/app/shell/sidebar.dart';
 import 'package:noir/core/database/database_provider.dart';
+import 'package:noir/core/platform/form_factor.dart';
 import 'package:noir/core/platform/window_controls.dart';
 import 'package:noir/core/widgets/artwork.dart';
 import 'package:noir/core/widgets/buttons.dart';
@@ -153,7 +155,128 @@ pumpNowPlaying(
   return (container: container, engine: engine, http: http);
 }
 
+/// Narrow windows with lyrics: the cover stays mounted under them (so
+/// hiding them is instant) but shows nothing, takes no taps and doesn't fly.
+void _expectCoverHidden(WidgetTester tester) {
+  final cover = find.byKey(NowPlayingScreen.coverKey);
+  expect(cover, findsOneWidget);
+  final fade = tester.widget<FadeTransition>(
+    find.descendant(of: cover, matching: find.byType(FadeTransition)).first,
+  );
+  expect(fade.opacity.value, 0);
+  expect(
+    tester
+        .widget<HeroMode>(
+          find.ancestor(of: cover, matching: find.byType(HeroMode)).first,
+        )
+        .enabled,
+    isFalse,
+  );
+  expect(
+    tester
+        .widget<IgnorePointer>(
+          find.ancestor(of: cover, matching: find.byType(IgnorePointer)).first,
+        )
+        .ignoring,
+    isTrue,
+  );
+}
+
 void main() {
+  group('phone', () {
+    const phone = Size(448, 900);
+    setUp(() => FormFactor.touch = true);
+    tearDown(() => FormFactor.touch = false);
+
+    String playing(ProviderContainer c) =>
+        c.read(playbackProvider).current!.track.title;
+    double pageTop(WidgetTester tester) =>
+        tester.getTopLeft(find.byType(NowPlayingScreen)).dy;
+
+    testWidgets('no More menu', (tester) async {
+      await pumpNowPlaying(tester, size: phone);
+      expect(_inPlayer(find.byTooltip('More')), findsNothing);
+    });
+
+    testWidgets('swiping the cover left plays the next song, right the '
+        'previous one', (tester) async {
+      final app = await pumpNowPlaying(tester, size: phone);
+      final cover = find.byKey(NowPlayingScreen.coverKey);
+      await tester.fling(cover, const Offset(-200, 0), 1000);
+      await tester.pumpAndSettle();
+      expect(playing(app.container), 'Quiet Harbor');
+      await tester.fling(cover, const Offset(200, 0), 1000);
+      await tester.pumpAndSettle();
+      expect(playing(app.container), 'Ash & Ember');
+    });
+
+    testWidgets('a short, slow swipe of the cover glides back', (tester) async {
+      final app = await pumpNowPlaying(tester, size: phone);
+      final cover = find.byKey(NowPlayingScreen.coverKey);
+      final before = tester.getRect(cover);
+      await tester.timedDrag(
+        cover,
+        const Offset(-40, 0),
+        const Duration(milliseconds: 600),
+      );
+      await tester.pumpAndSettle();
+      expect(playing(app.container), 'Ash & Ember');
+      expect(tester.getRect(cover), before);
+    });
+
+    testWidgets('dragged down, the page follows the finger and closes past '
+        'halfway', (tester) async {
+      await pumpNowPlaying(tester, size: phone);
+      final drag = await tester.startGesture(const Offset(300, 120));
+      await drag.moveBy(const Offset(0, 20));
+      await drag.moveBy(const Offset(0, 280));
+      await tester.pump();
+      expect(pageTop(tester), closeTo(300, 30));
+
+      await drag.moveBy(const Offset(0, 200));
+      await tester.pump(const Duration(milliseconds: 500));
+      await drag.up();
+      await tester.pumpAndSettle();
+      expect(find.byType(NowPlayingScreen), findsNothing);
+    });
+
+    testWidgets('dragged up, the mini player opens Now Playing under the '
+        'finger', (tester) async {
+      await pumpNowPlaying(tester, size: phone);
+      await tester.tap(find.byTooltip('Close player (Esc)'));
+      await tester.pumpAndSettle();
+      expect(find.byType(NowPlayingScreen), findsNothing);
+
+      final mini = find.byType(MobileMiniPlayer);
+      final drag = await tester.startGesture(tester.getCenter(mini));
+      await drag.moveBy(const Offset(0, -20));
+      await tester.pump();
+      await drag.moveBy(const Offset(0, -280));
+      await tester.pump();
+      await tester.pump();
+      // About a third of the way up, as far as the finger went.
+      expect(pageTop(tester), closeTo(900 - 300, 40));
+
+      await drag.moveBy(const Offset(0, -300));
+      await tester.pump(const Duration(milliseconds: 500));
+      await drag.up();
+      await tester.pumpAndSettle();
+      expect(pageTop(tester), 0);
+      expect(find.byTooltip('Close player (Esc)'), findsOneWidget);
+    });
+
+    testWidgets('the shell is not painted under the open player', (
+      tester,
+    ) async {
+      await pumpNowPlaying(tester, size: phone);
+      expect(find.byType(BottomNav), findsNothing);
+      expect(find.byType(BottomNav, skipOffstage: false), findsOneWidget);
+      await tester.tap(find.byTooltip('Close player (Esc)'));
+      await tester.pumpAndSettle();
+      expect(find.byType(BottomNav), findsOneWidget);
+    });
+  });
+
   group('queue sheet', () {
     testWidgets('no inline "Up next" card; the queue button opens a sheet', (
       tester,
@@ -190,13 +313,18 @@ void main() {
       await tester.pumpAndSettle();
       final sheet = tester.getRect(
         find
-            .ancestor(
-              of: find.text('Up next'),
-              matching: find.byType(GlassSurface),
-            )
+            .ancestor(of: find.text('Up next'), matching: find.byType(SafeArea))
             .first,
       );
       expect(sheet, const Rect.fromLTWH(0, 0, 448, 900));
+      // Opaque: no glass blurring the whole screen behind it.
+      expect(
+        find.ancestor(
+          of: find.text('Up next'),
+          matching: find.byType(GlassSurface),
+        ),
+        findsNothing,
+      );
     });
 
     testWidgets('maybePop closes the sheet first, then the player', (
@@ -289,13 +417,7 @@ void main() {
       await tester.tap(find.byTooltip('Show lyrics'));
       await tester.pumpAndSettle();
       expect(find.text('First line'), findsOneWidget);
-      expect(
-        find.descendant(
-          of: find.byType(NowPlayingScreen),
-          matching: find.byType(Hero),
-        ),
-        findsNothing,
-      );
+      _expectCoverHidden(tester);
     });
 
     testWidgets('the source is credited after the last line only', (
@@ -515,7 +637,7 @@ void main() {
       expect(find.byKey(NowPlayingScreen.coverKey), findsOneWidget);
       expect(find.byKey(NowPlayingScreen.lyricsKey), findsOneWidget);
       await tester.pumpAndSettle();
-      expect(find.byKey(NowPlayingScreen.coverKey), findsNothing);
+      _expectCoverHidden(tester);
     });
 
     testWidgets('with animations off it switches at once', (tester) async {
@@ -922,8 +1044,8 @@ void main() {
     testWidgets('a phone spreads the controls and leaves out the volume', (
       tester,
     ) async {
-      NowPlayingScreen.touchControls = true;
-      addTearDown(() => NowPlayingScreen.touchControls = false);
+      FormFactor.touch = true;
+      addTearDown(() => FormFactor.touch = false);
       await pumpNowPlaying(tester, size: const Size(400, 860));
       expect(find.byKey(ControlCapsule.glassKey), findsNothing);
       Finder inControls(String tooltip) => find.descendant(

@@ -14,6 +14,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:noir/app/theme/design_tokens.dart';
 import 'package:noir/app/theme/glass_theme.dart';
+import 'package:noir/core/platform/form_factor.dart';
 import 'package:noir/core/platform/window_controls.dart';
 import 'package:noir/core/widgets/artwork.dart';
 import 'package:noir/core/widgets/artwork_flow.dart';
@@ -60,10 +61,6 @@ class NowPlayingScreen extends ConsumerStatefulWidget {
   /// Below this width lyrics replace the artwork instead of getting their
   /// own column.
   static const wideBreakpoint = 760.0;
-
-  /// Phone controls instead of the capsule on narrow layouts.
-  @visibleForTesting
-  static bool touchControls = Platform.isAndroid || Platform.isIOS;
 
   /// How long showing or hiding lyrics rearranges the screen.
   static const lyricsDuration = Duration(milliseconds: 450);
@@ -162,6 +159,14 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
     super.dispose();
   }
 
+  /// A drag down closing the page (phones).
+  NowPlayingDrag? _drag;
+
+  void _endDrag(double velocity) {
+    _drag?.end(velocity);
+    _drag = null;
+  }
+
   @override
   Widget build(BuildContext context) {
     final s = ref.watch(playbackProvider);
@@ -199,8 +204,26 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
                     child: RepaintBoundary(
                       child: SafeArea(
                         child: GestureDetector(
+                          // Phones: dragged down, the page follows the
+                          // finger and closes past halfway or on a flick.
+                          onVerticalDragStart: FormFactor.touch
+                              ? (_) => _drag = NowPlayingDrag(
+                                  extent: MediaQuery.sizeOf(context).height,
+                                  opening: false,
+                                )
+                              : null,
+                          onVerticalDragUpdate: FormFactor.touch
+                              ? (d) => _drag?.update(d.delta.dy)
+                              : null,
+                          onVerticalDragCancel: FormFactor.touch
+                              ? () => _endDrag(0)
+                              : null,
                           onVerticalDragEnd: (d) {
-                            if ((d.primaryVelocity ?? 0) > 400) close();
+                            if (_drag != null) {
+                              _endDrag(d.velocity.pixelsPerSecond.dy);
+                            } else if ((d.primaryVelocity ?? 0) > 400) {
+                              close();
+                            }
                           },
                           child: Column(
                             children: [
@@ -466,7 +489,12 @@ class _ArtworkBackdropState extends State<_ArtworkBackdrop>
 
   /// One loop of the flow; every motion in it turns a whole number of
   /// times per loop, so it never jumps.
-  late final _flow = FlowClock(period: const Duration(seconds: 36));
+  late final _flow = FlowClock(
+    period: const Duration(seconds: 36),
+    // Each step repaints the whole page: a phone's GPU gets fewer. The
+    // motion is slow enough not to show it.
+    fps: FormFactor.touch ? 10 : 30,
+  );
   late final AppLifecycleListener _lifecycle;
 
   @override
@@ -694,7 +722,9 @@ class _TopBar extends ConsumerWidget {
                 onPressed: onClose,
               ),
               const Spacer(),
-              if (track != null)
+              // Phones keep the player to playback; everything in this
+              // menu is a long-press away elsewhere.
+              if (track != null && !FormFactor.touch)
                 LiquidPress(
                   child: PopupMenuButton<String>(
                     tooltip: 'More',
@@ -815,7 +845,9 @@ class _Player extends ConsumerWidget {
     final track = state.current!.track;
     final wide = box.maxWidth >= NowPlayingScreen.wideBreakpoint;
     final video = state.showsVideoPlayer && !hidePlayer;
-    // Lyrics replace the cover on narrow windows: gone once they're in.
+    // Lyrics replace the cover on narrow windows. It stays mounted under
+    // them, so hiding the lyrics doesn't build and decode it again; it
+    // only stops taking taps.
     final cover = wide || lyrics.value < 1 || lyrics.status.isAnimating;
     final art = _Stage.coverSize(box, wide: wide);
     final lyricFont = lyricsFontSizeFor(box.maxWidth, box.maxHeight);
@@ -830,28 +862,35 @@ class _Player extends ConsumerWidget {
           lyrics: lyrics,
           wide: wide,
           viewport: box.maxHeight,
-          anchorBottom: NowPlayingScreen.touchControls && !wide,
+          anchorBottom: FormFactor.touch && !wide,
           detailsExtent: _TrackDetails.extentUnderCover(context, state),
           children: [
-            if (cover)
-              _StageSlot(
-                slot: _Slot.cover,
-                child: KeyedSubtree(
-                  key: NowPlayingScreen.coverKey,
-                  child: wide
-                      ? _LargeArtwork(state: state, size: art)
-                      : FadeTransition(
-                          opacity: ReverseAnimation(lyrics),
-                          child: ScaleTransition(
-                            scale: Tween<double>(
-                              begin: 1,
-                              end: 0.92,
-                            ).animate(lyrics),
-                            child: _LargeArtwork(state: state, size: art),
+            _StageSlot(
+              slot: _Slot.cover,
+              // Hidden, it neither takes taps nor flies into the mini
+              // player on close.
+              child: HeroMode(
+                enabled: cover,
+                child: IgnorePointer(
+                  ignoring: !cover,
+                  child: KeyedSubtree(
+                    key: NowPlayingScreen.coverKey,
+                    child: wide
+                        ? _LargeArtwork(state: state, size: art)
+                        : FadeTransition(
+                            opacity: ReverseAnimation(lyrics),
+                            child: ScaleTransition(
+                              scale: Tween<double>(
+                                begin: 1,
+                                end: 0.92,
+                              ).animate(lyrics),
+                              child: _LargeArtwork(state: state, size: art),
+                            ),
                           ),
-                        ),
+                  ),
                 ),
               ),
+            ),
             _StageSlot(
               slot: _Slot.details,
               // Only the title's size follows the animation.
@@ -865,7 +904,7 @@ class _Player extends ConsumerWidget {
             const _StageSlot(slot: _Slot.progress, child: ProgressSlider()),
             _StageSlot(
               slot: _Slot.controls,
-              child: NowPlayingScreen.touchControls && !wide
+              child: FormFactor.touch && !wide
                   ? TouchControls(width: max(0, box.maxWidth - 48))
                   : const ControlCapsule(),
             ),
@@ -996,14 +1035,13 @@ class _Stage extends MultiChildRenderObjectWidget {
       min(width * 0.33, height * 0.64).clamp(260.0, 760.0);
 
   @override
-  _RenderStage createRenderObject(BuildContext context) =>
-      _RenderStage(
-        lyrics,
-        detailsExtent,
-        wide: wide,
-        viewport: viewport,
-        anchorBottom: anchorBottom,
-      );
+  _RenderStage createRenderObject(BuildContext context) => _RenderStage(
+    lyrics,
+    detailsExtent,
+    wide: wide,
+    viewport: viewport,
+    anchorBottom: anchorBottom,
+  );
 
   @override
   void updateRenderObject(BuildContext context, _RenderStage renderObject) {
@@ -1255,10 +1293,7 @@ class _RenderStage extends RenderBox
       final lyricsTall = max(lyricsHeight, lowest - 16 - top);
       placeTight(_Slot.cover, Rect.fromLTWH((w - art) / 2, top, art, art));
       placeTight(_Slot.lyrics, Rect.fromLTWH(x, top, cw, lyricsTall));
-      var y = max(
-        top + _lerp(art, lyricsTall, t) + _lerp(28, 16, t),
-        lowest,
-      );
+      var y = max(top + _lerp(art, lyricsTall, t) + _lerp(28, 16, t), lowest);
       place(_Slot.details, Offset(x, y));
       y += details.height + 20;
       place(_Slot.progress, Offset(x, y));
@@ -1518,7 +1553,7 @@ class _LargeArtwork extends ConsumerStatefulWidget {
 }
 
 class _LargeArtworkState extends ConsumerState<_LargeArtwork>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   late final AnimationController _flash = AnimationController(
     vsync: this,
     duration: const Duration(milliseconds: 700),
@@ -1527,10 +1562,49 @@ class _LargeArtworkState extends ConsumerState<_LargeArtwork>
   /// Glyph of the state a tap switched to.
   bool _flashPlaying = false;
 
+  /// Phones: how far the cover is dragged sideways; let go, it glides back
+  /// (and the track changes if it went far or fast enough).
+  final _dx = ValueNotifier<double>(0);
+  late final AnimationController _settle = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 260),
+  );
+  double _settleFrom = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _settle.addListener(
+      () => _dx.value =
+          _settleFrom * (1 - Curves.easeOutCubic.transform(_settle.value)),
+    );
+  }
+
   @override
   void dispose() {
     _flash.dispose();
+    _settle.dispose();
+    _dx.dispose();
     super.dispose();
+  }
+
+  void _dragBy(double dx) {
+    _settle.stop();
+    final limit = widget.size * 0.6;
+    _dx.value = (_dx.value + dx).clamp(-limit, limit);
+  }
+
+  /// Left goes to the next song, right to the previous one.
+  void _dragEnd(double velocity) {
+    final ctrl = ref.read(playbackProvider.notifier);
+    final far = widget.size * 0.25;
+    if (_dx.value < -far || velocity < -600) {
+      if (widget.state.hasNext) unawaited(ctrl.next());
+    } else if (_dx.value > far || velocity > 600) {
+      unawaited(ctrl.previous());
+    }
+    _settleFrom = _dx.value;
+    _settle.forward(from: 0);
   }
 
   void _toggle() {
@@ -1585,6 +1659,13 @@ class _LargeArtworkState extends ConsumerState<_LargeArtwork>
         cursor: SystemMouseCursors.click,
         child: GestureDetector(
           onTap: _toggle,
+          onHorizontalDragUpdate: FormFactor.touch
+              ? (d) => _dragBy(d.delta.dx)
+              : null,
+          onHorizontalDragEnd: FormFactor.touch
+              ? (d) => _dragEnd(d.velocity.pixelsPerSecond.dx)
+              : null,
+          onHorizontalDragCancel: FormFactor.touch ? () => _dragEnd(0) : null,
           child: AnimatedScale(
             scale: paused ? _LargeArtwork.pausedScale : 1,
             duration: fx.motion(const Duration(milliseconds: 550)),
@@ -1593,7 +1674,12 @@ class _LargeArtworkState extends ConsumerState<_LargeArtwork>
             child: Stack(
               alignment: Alignment.center,
               children: [
-                cover,
+                ValueListenableBuilder<double>(
+                  valueListenable: _dx,
+                  child: cover,
+                  builder: (context, dx, cover) =>
+                      Transform.translate(offset: Offset(dx, 0), child: cover),
+                ),
                 _PlayPauseFlash(
                   animation: _flash,
                   playing: _flashPlaying,

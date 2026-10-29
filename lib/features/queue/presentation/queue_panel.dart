@@ -78,6 +78,16 @@ Future<void> showQueueSheet(BuildContext context, WidgetRef ref) async {
           curve: NoirMotion.emphasized,
           reverseCurve: Curves.easeInCubic,
         );
+        if (_QueueSheet.fullScreen(context)) {
+          // A phone: up from the bottom, opaque, so no layer is faded.
+          return SlideTransition(
+            position: Tween(
+              begin: const Offset(0, 1),
+              end: Offset.zero,
+            ).animate(curved),
+            child: child,
+          );
+        }
         final fade = CurvedAnimation(parent: animation, curve: Curves.easeOut);
         return AnimatedBuilder(
           animation: fade,
@@ -103,20 +113,68 @@ class _QueueSheet extends ConsumerWidget {
 
   static const maxWidth = 400.0;
 
+  /// A phone gets the whole screen; a sliver of the player beside the
+  /// sheet is no use there.
+  static bool fullScreen(BuildContext context) =>
+      WindowClass.of(MediaQuery.sizeOf(context).width) == WindowClass.compact;
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final t = Theme.of(context).textTheme;
     final screen = MediaQuery.sizeOf(context).width;
-    // A phone gets the whole screen; a sliver of the player beside the
-    // sheet is no use there.
-    final width = WindowClass.of(screen) == WindowClass.compact
-        ? screen
-        : min(screen, maxWidth);
+    final full = fullScreen(context);
+    final width = full ? screen : min(screen, maxWidth);
     void close() => Navigator.of(context).maybePop();
     final showVideo =
         ref.watch(playbackProvider.select((s) => s.showsVideoPlayer)) &&
         !ref.watch(settingsProvider.select((s) => s.hideYouTubePlayer)) &&
         ref.watch(youTubeEngineProvider) != null;
+
+    final content = SafeArea(
+      left: false,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // The title bar's geometry, so these window dots sit
+          // exactly over the ones of the screen underneath.
+          WindowDragArea(
+            child: Container(
+              height: TitleBarMetrics.height,
+              padding: TitleBarMetrics.padding.copyWith(left: 20),
+              child: Row(
+                children: [
+                  Expanded(child: Text('Queue', style: t.titleMedium)),
+                  NoirIconButton(
+                    icon: Icons.close_rounded,
+                    tooltip: 'Close queue (Esc)',
+                    onPressed: close,
+                  ),
+                  if (usesCustomWindowChrome) ...[
+                    const SizedBox(width: NoirSpacing.sm),
+                    const WindowControls(),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          if (showVideo)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+              child: VideoSlot(
+                size: Size(
+                  (width - 32).clamp(200.0, YouTubeVideoLayer.miniSize.width),
+                  YouTubeVideoLayer.miniSize.height,
+                ),
+              ),
+            ),
+          const Expanded(
+            child: QueueList(
+              padding: EdgeInsets.symmetric(horizontal: NoirSpacing.md),
+            ),
+          ),
+        ],
+      ),
+    );
 
     return CallbackShortcuts(
       bindings: {const SingleActivator(LogicalKeyboardKey.escape): close},
@@ -127,71 +185,24 @@ class _QueueSheet extends ConsumerWidget {
           height: double.infinity,
           child: Material(
             type: MaterialType.transparency,
-            child: GlassSurface(
-              borderRadius: width < maxWidth
-                  ? BorderRadius.zero
-                  : const BorderRadius.horizontal(
-                      left: Radius.circular(NoirRadii.xl),
-                    ),
-              shadow: 1,
-              highlight: 0.4,
-              fillOpacity: 2.5,
-              floating: true,
-              // Too large for the lens shader: saturate in the blur.
-              refract: false,
-              child: SafeArea(
-                left: false,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // The title bar's geometry, so these window dots sit
-                    // exactly over the ones of the screen underneath.
-                    WindowDragArea(
-                      child: Container(
-                        height: TitleBarMetrics.height,
-                        padding: TitleBarMetrics.padding.copyWith(left: 20),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: Text('Queue', style: t.titleMedium),
-                            ),
-                            NoirIconButton(
-                              icon: Icons.close_rounded,
-                              tooltip: 'Close queue (Esc)',
-                              onPressed: close,
-                            ),
-                            if (usesCustomWindowChrome) ...[
-                              const SizedBox(width: NoirSpacing.sm),
-                              const WindowControls(),
-                            ],
-                          ],
-                        ),
-                      ),
-                    ),
-                    if (showVideo)
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
-                        child: VideoSlot(
-                          size: Size(
-                            (width - 32).clamp(
-                              200.0,
-                              YouTubeVideoLayer.miniSize.width,
-                            ),
-                            YouTubeVideoLayer.miniSize.height,
+            // A phone's full-screen sheet is opaque: blurring the whole
+            // screen behind it cost a phone's GPU every frame.
+            child: full
+                ? ColoredBox(color: context.noir.background, child: content)
+                : GlassSurface(
+                    borderRadius: width < maxWidth
+                        ? BorderRadius.zero
+                        : const BorderRadius.horizontal(
+                            left: Radius.circular(NoirRadii.xl),
                           ),
-                        ),
-                      ),
-                    const Expanded(
-                      child: QueueList(
-                        padding: EdgeInsets.symmetric(
-                          horizontal: NoirSpacing.md,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
+                    shadow: 1,
+                    highlight: 0.4,
+                    fillOpacity: 2.5,
+                    floating: true,
+                    // Too large for the lens shader: saturate in the blur.
+                    refract: false,
+                    child: content,
+                  ),
           ),
         ),
       ),

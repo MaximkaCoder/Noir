@@ -681,6 +681,44 @@ class _ToggleButton extends StatelessWidget {
 }
 
 /// Floating player above the bottom navigation on phones.
+/// A tap opens Now Playing; dragging up opens it under the finger, as far
+/// as the finger goes ([NowPlayingDrag]).
+class _DragToOpen extends StatefulWidget {
+  const _DragToOpen({required this.child});
+
+  final Widget child;
+
+  @override
+  State<_DragToOpen> createState() => _DragToOpenState();
+}
+
+class _DragToOpenState extends State<_DragToOpen> {
+  NowPlayingDrag? _drag;
+
+  void _end(double velocity) {
+    _drag?.end(velocity);
+    _drag = null;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: () => openNowPlaying(context),
+      onVerticalDragStart: (_) {
+        openNowPlaying(context);
+        _drag = NowPlayingDrag(
+          extent: MediaQuery.sizeOf(context).height,
+          opening: true,
+        );
+      },
+      onVerticalDragUpdate: (d) => _drag?.update(d.delta.dy),
+      onVerticalDragEnd: (d) => _end(d.velocity.pixelsPerSecond.dy),
+      onVerticalDragCancel: () => _end(0),
+      child: widget.child,
+    );
+  }
+}
+
 class MobileMiniPlayer extends ConsumerWidget {
   const MobileMiniPlayer({super.key});
 
@@ -698,13 +736,8 @@ class MobileMiniPlayer extends ConsumerWidget {
       ),
       child: Semantics(
         label: 'Now playing. Open player',
-        child: GestureDetector(
-          onTap: () => openNowPlaying(context),
-          onVerticalDragEnd: (d) {
-            if ((d.primaryVelocity ?? 0) < -200) openNowPlaying(context);
-          },
+        child: _DragToOpen(
           child: GlassSurface(
-            shadow: 0.6,
             padding: const EdgeInsets.fromLTRB(8, 8, 4, 4),
             child: Column(
               mainAxisSize: MainAxisSize.min,

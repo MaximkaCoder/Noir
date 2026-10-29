@@ -7,6 +7,7 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:noir/app/theme/design_tokens.dart';
 import 'package:noir/app/theme/glass_theme.dart';
+import 'package:noir/core/platform/form_factor.dart';
 import 'package:noir/core/widgets/smooth_scroll.dart';
 import 'package:noir/core/widgets/states.dart';
 import 'package:noir/features/lyrics/application/lyrics_providers.dart';
@@ -47,7 +48,10 @@ class LyricsView extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final request = LyricsRequest.fromTrack(track);
     final lyrics = ref.watch(lyricsProvider(request));
-    final mode = ref.watch(settingsProvider.select((s) => s.lyricsMode));
+    // Phones always get karaoke where the lyrics are time-synced, and the
+    // plain list where they aren't, without a word about it.
+    final chosen = ref.watch(settingsProvider.select((s) => s.lyricsMode));
+    final mode = FormFactor.touch ? LyricsMode.karaoke : chosen;
     final fx = NoirEffects.of(context);
 
     final child = lyrics.when(
@@ -86,7 +90,9 @@ class LyricsView extends ConsumerWidget {
           key: ValueKey(('plain', mode)),
           text: text,
           source: source,
-          note: mode == LyricsMode.karaoke ? noKaraokeNote : null,
+          note: chosen == LyricsMode.karaoke && !FormFactor.touch
+              ? noKaraokeNote
+              : null,
           compact: compact,
           fontSize: fontSize,
         ),

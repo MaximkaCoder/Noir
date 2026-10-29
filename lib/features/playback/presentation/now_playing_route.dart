@@ -1,9 +1,11 @@
+import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:noir/app/theme/design_tokens.dart';
 import 'package:noir/app/theme/glass_theme.dart';
+import 'package:noir/core/platform/form_factor.dart';
 
 /// The container transform between the player island and Now Playing: the
 /// page grows out of the island's capsule — rect and corners morphing to
@@ -13,8 +15,9 @@ import 'package:noir/app/theme/glass_theme.dart';
 /// Playing's content fades in over it. Closing, the content fades first,
 /// the opaque shape shrinks onto the island, and only there cross-fades
 /// into the island's glass.
-/// Without an island on screen (phones, nothing playing) the page fades and
-/// rises from below instead.
+/// Without an island on screen (nothing playing) the page fades and rises
+/// from below instead; on phones it slides up from the bottom, and follows
+/// the finger while dragged open or closed ([NowPlayingDrag]).
 abstract final class NowPlayingTransition {
   static const openDuration = Duration(milliseconds: 500);
   static const closeDuration = Duration(milliseconds: 480);
@@ -24,6 +27,9 @@ abstract final class NowPlayingTransition {
 
   static Object? _owner;
   static Rect? Function()? _anchor;
+
+  /// The open Now Playing route, for [NowPlayingDrag].
+  static _NowPlayingRoute? _route;
 
   /// How far Now Playing covers the island: 0 closed, 1 open. The island
   /// hides behind it as this rises.
@@ -127,15 +133,157 @@ Page<void> nowPlayingPage(
   Widget child,
 ) {
   final fx = NoirEffects.of(context);
-  return CustomTransitionPage<void>(
+  return _NowPlayingPage(
     key: state.pageKey,
-    opaque: false,
-    transitionDuration: fx.motion(NowPlayingTransition.openDuration),
-    reverseTransitionDuration: fx.motion(NowPlayingTransition.closeDuration),
+    duration: fx.motion(NowPlayingTransition.openDuration),
+    reverseDuration: fx.motion(NowPlayingTransition.closeDuration),
     child: child,
-    transitionsBuilder: (context, animation, _, child) =>
-        _Morph(animation: animation, child: child),
   );
+}
+
+class _NowPlayingPage extends Page<void> {
+  const _NowPlayingPage({
+    required this.duration,
+    required this.reverseDuration,
+    required this.child,
+    super.key,
+  });
+
+  final Duration duration;
+  final Duration reverseDuration;
+  final Widget child;
+
+  @override
+  Route<void> createRoute(BuildContext context) => _NowPlayingRoute(this);
+}
+
+/// A route of its own (not go_router's CustomTransitionPage) so that a drag
+/// can drive its animation.
+class _NowPlayingRoute extends PageRoute<void> {
+  _NowPlayingRoute(_NowPlayingPage page) : super(settings: page);
+
+  _NowPlayingPage get _page => settings as _NowPlayingPage;
+
+  /// The route's own animation, for [NowPlayingDrag] to drive.
+  AnimationController? get drive => controller;
+
+  @override
+  bool get opaque => false;
+
+  @override
+  Color? get barrierColor => null;
+
+  @override
+  String? get barrierLabel => null;
+
+  @override
+  bool get maintainState => true;
+
+  @override
+  Duration get transitionDuration => _page.duration;
+
+  @override
+  Duration get reverseTransitionDuration => _page.reverseDuration;
+
+  @override
+  Widget buildPage(
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+  ) => _page.child;
+
+  @override
+  Widget buildTransitions(
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+    Widget child,
+  ) => _Morph(animation: animation, child: child);
+
+  @override
+  void install() {
+    super.install();
+    NowPlayingTransition._route = this;
+  }
+
+  @override
+  void dispose() {
+    if (NowPlayingTransition._route == this) NowPlayingTransition._route = null;
+    super.dispose();
+  }
+}
+
+/// Now Playing following a finger: dragging the mini player up opens it as
+/// far as the finger has gone, dragging the page down closes it the same
+/// way; let go, it settles open or closed by where and how fast it went.
+///
+/// Opening, start the drag right after pushing the page: the route may only
+/// arrive a frame later, so the progress is kept until it does.
+class NowPlayingDrag {
+  /// [extent] is the distance (logical px) of a whole open or close.
+  NowPlayingDrag({required this.extent, required bool opening})
+    : _value = opening ? 0 : 1;
+
+  final double extent;
+  double _value;
+  bool _started = false;
+
+  /// [dy] in logical px, down positive.
+  void update(double dy) {
+    _value = (_value - dy / extent).clamp(0.0, 1.0);
+    _apply();
+  }
+
+  void _apply() {
+    final route = NowPlayingTransition._route;
+    final controller = route?.drive;
+    if (route == null || controller == null || !route.isActive) return;
+    if (!_started) {
+      _started = true;
+      route.navigator!.didStartUserGesture();
+    }
+    controller.value = _value;
+  }
+
+  /// [velocity] in logical px/s, down positive.
+  void end(double velocity) {
+    _apply();
+    final route = NowPlayingTransition._route;
+    final controller = route?.drive;
+    if (route == null || controller == null || !_started) return;
+    final navigator = route.navigator!;
+    final open = velocity.abs() > 400 ? velocity < 0 : _value > 0.5;
+    // The rest of the way at the speed it was going, within bounds.
+    final rest = open ? 1 - _value : _value;
+    final ms = (rest * extent / math.max(velocity.abs(), 1600) * 1000)
+        .clamp(120.0, 360.0)
+        .round();
+    final duration = Duration(milliseconds: ms);
+    if (open) {
+      controller.animateTo(1, duration: duration, curve: Curves.easeOutCubic);
+    } else {
+      // Pops from where it is, then goes down at the finger's pace.
+      navigator.pop();
+      if (controller.isAnimating) {
+        controller.animateBack(
+          0,
+          duration: duration,
+          curve: Curves.easeOutCubic,
+        );
+      }
+    }
+    if (controller.isAnimating) {
+      late final AnimationStatusListener done;
+      done = (status) {
+        if (status.isAnimating) return;
+        navigator.didStopUserGesture();
+        controller.removeStatusListener(done);
+      };
+      controller.addStatusListener(done);
+    } else {
+      navigator.didStopUserGesture();
+    }
+  }
 }
 
 /// Clips Now Playing to the morphing [shape].
@@ -221,6 +369,28 @@ class _MorphState extends State<_Morph> {
         final full = Offset.zero & size;
         final from = NowPlayingTransition.anchorRect;
         final done = t >= 1;
+
+        if (from == null && FormFactor.touch) {
+          // A phone: the page slides up from the bottom, opaque throughout,
+          // so moving it costs no offscreen layer. While dragged it sits
+          // exactly under the finger.
+          final drag = Navigator.of(context).userGestureInProgress;
+          final p = drag
+              ? widget.animation.value
+              : widget.animation.isCompleted
+              ? 1.0
+              : t;
+          // Clipped while it moves: the flowing backdrop paints a little
+          // past its bounds, which would show above the page's top edge.
+          return Transform.translate(
+            offset: Offset(0, (1 - p) * size.height),
+            child: ClipRect(
+              key: NowPlayingTransition.clipKey,
+              clipBehavior: p >= 1 ? Clip.none : Clip.hardEdge,
+              child: child,
+            ),
+          );
+        }
 
         if (from == null) {
           // No island: a subtle fade and rise from below. The layer stays
