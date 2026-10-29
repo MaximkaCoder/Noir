@@ -28,7 +28,8 @@ void main() {
       '../Song.mp3',
       '../../files/Song.mp3',
       '/data/user/0/app.noir.player/files/Song.mp3',
-      r'C:\Users\x\Song.mp3',
+      // A backslash only separates directories on Windows.
+      if (Platform.isWindows) r'C:\Users\x\Song.mp3',
       'sub/dir/Song.mp3',
     ]) {
       expect(name(raw), p.join(dir.path, 'Song.mp3'), reason: raw);
