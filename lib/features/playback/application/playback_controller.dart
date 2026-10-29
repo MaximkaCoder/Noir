@@ -26,6 +26,8 @@ import 'package:noir/integrations/local_audio/local_audio_engine.dart';
 import 'package:noir/integrations/local_audio/mix_runner.dart';
 import 'package:noir/integrations/youtube_music/innertube_client.dart';
 import 'package:noir/integrations/youtube_music/ytm_models.dart';
+import 'package:noir/integrations/youtube_playback/android_youtube_engine.dart';
+import 'package:noir/integrations/youtube_playback/embedded_player.dart';
 import 'package:noir/integrations/youtube_playback/youtube_embed_engine.dart';
 import 'package:noir/shared/models/media.dart';
 import 'package:noir/shared/models/playback.dart';
@@ -56,7 +58,9 @@ final playbackEngineProvider = Provider<PlaybackEngine>((ref) {
     if (YouTubeEmbedEngine.isSupported)
       MediaSource.youtube: YouTubeEmbedEngine(
         pageDir: Directory(p.join(dirs.artwork.parent.path, 'yt_player')),
-      ),
+      )
+    else if (AndroidYouTubeEngine.isSupported)
+      MediaSource.youtube: AndroidYouTubeEngine(),
   }, files: ref.watch(audioFilesProvider));
   ref.onDispose(engine.dispose);
   return engine;
@@ -64,10 +68,10 @@ final playbackEngineProvider = Provider<PlaybackEngine>((ref) {
 
 /// The embedded YouTube player, for the video layer. Null when this platform
 /// has no YouTube engine (or in tests with a fake engine).
-final youTubeEngineProvider = Provider<YouTubeEmbedEngine?>((ref) {
+final youTubeEngineProvider = Provider<EmbeddedYouTubePlayer?>((ref) {
   final engine = ref.watch(playbackEngineProvider);
   return engine is RoutingEngine
-      ? engine.engineFor(MediaSource.youtube) as YouTubeEmbedEngine?
+      ? engine.engineFor(MediaSource.youtube) as EmbeddedYouTubePlayer?
       : null;
 });
 

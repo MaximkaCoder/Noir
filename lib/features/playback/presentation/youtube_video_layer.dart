@@ -10,7 +10,6 @@ import 'package:noir/core/widgets/buttons.dart';
 import 'package:noir/core/widgets/glass_surface.dart';
 import 'package:noir/features/playback/application/playback_controller.dart';
 import 'package:noir/features/settings/presentation/settings_controller.dart';
-import 'package:webview_windows/webview_windows.dart';
 
 /// Where Now Playing wants the video (global coordinates), or null.
 final videoSlotProvider = NotifierProvider<_VideoSlot, Rect?>(_VideoSlot.new);
@@ -108,13 +107,7 @@ class _YouTubeVideoLayerState extends ConsumerState<YouTubeVideoLayer> {
                     child: ColoredBox(
                       color: Colors.black,
                       child: ready
-                          ? Webview(
-                              engine.controller,
-                              // The player needs no camera, microphone,
-                              // location or notifications.
-                              permissionRequested: (_, _, _) =>
-                                  WebviewPermissionDecision.deny,
-                            )
+                          ? engine.buildView(context)
                           : const Center(
                               child: SizedBox.square(
                                 dimension: 20,

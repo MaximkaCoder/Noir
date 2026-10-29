@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:noir/features/playback/domain/playback_engine.dart';
+import 'package:noir/integrations/youtube_playback/embedded_player.dart';
 import 'package:noir/shared/models/media.dart';
 import 'package:noir/shared/models/playback.dart';
 import 'package:path/path.dart' as p;
@@ -20,7 +21,7 @@ import 'package:webview_windows/webview_windows.dart';
 /// (≥200×200) while playing — the UI pauses it when hidden — there is no
 /// background or audio-only playback, and the player is never modified
 /// beyond documented parameters.
-class YouTubeEmbedEngine implements PlaybackEngine {
+class YouTubeEmbedEngine implements EmbeddedYouTubePlayer {
   YouTubeEmbedEngine({required this._pageDir});
 
   static const host = 'app.noir.player';
@@ -44,8 +45,8 @@ class YouTubeEmbedEngine implements PlaybackEngine {
   final _position = StreamController<Duration>.broadcast();
   final _duration = StreamController<Duration?>.broadcast();
 
-  /// True once the WebView and the IFrame API are ready.
-  final ready = ValueNotifier<bool>(false);
+  @override
+  final ValueNotifier<bool> ready = ValueNotifier(false);
   Completer<void>? _initializing;
   StreamSubscription<dynamic>? _messages;
   StreamSubscription<String>? _urls;
@@ -182,6 +183,13 @@ class YouTubeEmbedEngine implements PlaybackEngine {
     153 => "YouTube didn't accept NOIR's player identification.",
     _ => "This video can't be played right now.",
   };
+
+  @override
+  Widget buildView(BuildContext context) => Webview(
+    controller,
+    // The player needs no camera, microphone, location or notifications.
+    permissionRequested: (_, _, _) => WebviewPermissionDecision.deny,
+  );
 
   Future<void> _js(String script) async {
     await _ensureReady();
