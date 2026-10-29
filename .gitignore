@@ -53,6 +53,7 @@ app.*.map.json
 
 # Secrets and local OAuth configuration — never commit
 *.env
+.env.*
 config/
 client_secret*.json
 *credentials*.json
@@ -66,8 +67,9 @@ key.properties
 spikes/**/build/
 spikes/**/.dart_tool/
 
-# Agent worktrees
+# Agent worktrees and local agent settings
 .claude/worktrees/
+.claude/settings.local.json
 
 # Optional local-only modules and their tests (see tool/run.ps1)
 lib/private/
