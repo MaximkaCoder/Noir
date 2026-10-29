@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:noir/app/theme/design_tokens.dart';
+import 'package:noir/core/platform/form_factor.dart';
 import 'package:noir/core/widgets/liquid_glass.dart';
 
 /// NOIR's material: the same Liquid Glass as the player island
@@ -78,7 +79,10 @@ class _GlassSurfaceState extends State<GlassSurface> {
   Widget build(BuildContext context) {
     final c = context.noir;
     final active = widget.selected || (widget.interactive && _hovered);
-    final refract = widget.refract && GlassFade.settled(context);
+    // Phones skip the lens shader: it samples the backdrop again every
+    // frame a menu or popover animates, which a phone's GPU felt.
+    final refract =
+        widget.refract && GlassFade.settled(context) && !FormFactor.touch;
 
     Widget content = LiquidGlassMaterial(
       borderRadius: widget.borderRadius,

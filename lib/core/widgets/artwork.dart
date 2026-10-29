@@ -60,10 +60,12 @@ class Artwork extends StatelessWidget {
             width: size,
             height: size,
             fit: BoxFit.cover,
-            // Google art is square. Other images may be wide, and a
-            // width-only decode would leave them short of `size` once
-            // cropped to a square: decode those whole.
+            // Google art is square. Other images (YouTube thumbnails) are
+            // wide: decoded by height they still cover the square once
+            // cropped, instead of being decoded whole (up to 1280×720 for
+            // a 48 px row).
             cacheWidth: googleArt ? artBucket(px) : null,
+            cacheHeight: googleArt ? null : artBucket(px),
             gaplessPlayback: true,
             semanticLabel: semanticLabel,
             errorBuilder: (_, _, _) => placeholder,
@@ -129,7 +131,7 @@ Future<void> precacheArtwork(
       NetworkImage(resizeGoogleArt(path, px)),
     );
   } else {
-    image = NetworkImage(path);
+    image = ResizeImage.resizeIfNeeded(null, artBucket(px), NetworkImage(path));
   }
   await precacheImage(image, context, onError: (_, _) {});
 }
