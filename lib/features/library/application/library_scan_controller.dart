@@ -150,7 +150,7 @@ class LibraryScanController extends Notifier<ScanState> {
     await dir.create(recursive: true);
     final paths = <String>[];
     for (final f in files) {
-      final target = File(_freeName(dir.path, f.name));
+      final target = File(freeName(dir.path, f.name));
       final sink = target.openWrite();
       await sink.addStream(f.readAsByteStream());
       await sink.close();
@@ -159,14 +159,25 @@ class LibraryScanController extends Notifier<ScanState> {
     return paths;
   }
 
-  /// `Song.mp3` -> `Song (2).mp3` when the name is taken.
-  static String _freeName(String dir, String name) {
+  /// `Song.mp3` -> `Song (2).mp3` when the name is taken. The name comes
+  /// from whichever app served the file, so only its last part is used:
+  /// `../x` or an absolute path would otherwise write outside [dir].
+  @visibleForTesting
+  static String freeName(String dir, String rawName) {
+    final base = p.basename(rawName);
+    final name =
+        base.isEmpty || base == '.' || base == '..' || p.isAbsolute(base)
+        ? 'track'
+        : base;
     var candidate = p.join(dir, name);
     for (var i = 2; File(candidate).existsSync(); i++) {
       candidate = p.join(
         dir,
         '${p.basenameWithoutExtension(name)} ($i)${p.extension(name)}',
       );
+    }
+    if (!p.isWithin(dir, candidate)) {
+      throw ArgumentError.value(rawName, 'rawName', 'not a file name');
     }
     return candidate;
   }
