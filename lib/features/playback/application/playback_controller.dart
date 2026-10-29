@@ -21,6 +21,7 @@ import 'package:noir/features/playback/domain/transition_plan.dart';
 import 'package:noir/features/settings/data/settings_repository.dart';
 import 'package:noir/features/settings/domain/app_settings.dart';
 import 'package:noir/features/settings/presentation/settings_controller.dart';
+import 'package:noir/integrations/local_audio/audio_deck.dart';
 import 'package:noir/integrations/local_audio/local_audio_engine.dart';
 import 'package:noir/integrations/local_audio/mix_runner.dart';
 import 'package:noir/integrations/youtube_music/innertube_client.dart';
@@ -35,14 +36,22 @@ final audioFilesProvider = Provider<AudioFileProvider>(
   (ref) => const NoAudioFiles(),
 );
 
+/// The local player's decks; the engine's default ones when null.
+final audioDeckFactoryProvider = Provider<AudioDeck Function()?>((ref) => null);
+
 /// How the local player runs a transition; plain crossfades when null.
 final mixRunnerFactoryProvider = Provider<MixRunnerFactory?>((ref) => null);
 
 final playbackEngineProvider = Provider<PlaybackEngine>((ref) {
   final dirs = ref.watch(appDirectoriesProvider);
+  final decks = ref.watch(audioDeckFactoryProvider);
   final engine = RoutingEngine({
     MediaSource.local: LocalAudioEngine(
       runner: ref.watch(mixRunnerFactoryProvider),
+      deckFactory: decks,
+      audioSession: true,
+      // The default decks look after audio focus themselves.
+      handleAudioFocus: decks != null,
     ),
     if (YouTubeEmbedEngine.isSupported)
       MediaSource.youtube: YouTubeEmbedEngine(

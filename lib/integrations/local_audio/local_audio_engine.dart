@@ -17,10 +17,16 @@ import 'package:noir/shared/models/playback.dart';
 /// track can be mixed in while the current one plays out. Only the active
 /// deck's events and position are forwarded.
 class LocalAudioEngine implements PlaybackEngine, MixingEngine {
+  /// [audioSession] sets up the OS audio session (on by default with the
+  /// default decks). [handleAudioFocus] makes the engine itself take audio
+  /// focus and give way to calls and other apps, for decks that don't do
+  /// that themselves (just_audio does; libmpv doesn't).
   LocalAudioEngine({
     AudioDeck Function()? deckFactory,
     MixClock? clock,
     MixRunnerFactory? runner,
+    bool? audioSession,
+    this.handleAudioFocus = false,
   }) : _clock = clock ?? RealMixClock(),
        _makeRunner = runner ?? CrossfadeRunner.new {
     final make = deckFactory ?? defaultDeck;
@@ -28,8 +34,10 @@ class LocalAudioEngine implements PlaybackEngine, MixingEngine {
     _standby = make();
     _bind(_active);
     _ticker = Timer.periodic(_positionPeriod, (_) => _emitPosition());
-    if (deckFactory == null) unawaited(_configureSession());
+    if (audioSession ?? deckFactory == null) unawaited(_configureSession());
   }
+
+  final bool handleAudioFocus;
 
   /// The libmpv deck where media_kit runs it, just_audio elsewhere.
   static AudioDeck defaultDeck() =>
@@ -59,6 +67,12 @@ class LocalAudioEngine implements PlaybackEngine, MixingEngine {
   final _duration = StreamController<Duration?>.broadcast();
   final List<StreamSubscription<Object?>> _subs = [];
   StreamSubscription<void>? _noisySub;
+  StreamSubscription<AudioInterruptionEvent>? _interruptionSub;
+  AudioSession? _session;
+
+  /// Paused by an interruption that said playback may resume after it.
+  bool _resumeAfterInterruption = false;
+  bool _ducked = false;
 
   double _volume = 1;
   PlaybackStatus? _lastStatus;
@@ -98,6 +112,12 @@ class LocalAudioEngine implements PlaybackEngine, MixingEngine {
       await session.configure(const AudioSessionConfiguration.music());
       // Headphones unplugged: pause instead of blasting through speakers.
       _noisySub = session.becomingNoisyEventStream.listen((_) => pause());
+      if (handleAudioFocus) {
+        _session = session;
+        _interruptionSub = session.interruptionEventStream.listen(
+          onInterruption,
+        );
+      }
     } on Object catch (e) {
       // Not every desktop platform implements audio sessions.
       debugPrint('Audio session unavailable: ${e.runtimeType}');
@@ -180,12 +200,43 @@ class LocalAudioEngine implements PlaybackEngine, MixingEngine {
   @override
   Future<void> play() async {
     await _settle();
+    _resumeAfterInterruption = false;
+    // Other apps pause or duck for us; their sounds get through to
+    // [onInterruption] in turn.
+    if (handleAudioFocus) await _session?.setActive(true);
     await _active.play();
+  }
+
+  /// A call, an alarm or another app's audio: duck under a short sound,
+  /// pause for anything else, and carry on afterwards when the OS says so.
+  @visibleForTesting
+  void onInterruption(AudioInterruptionEvent event) {
+    if (event.begin) {
+      switch (event.type) {
+        case AudioInterruptionType.duck:
+          _ducked = true;
+          if (_runner == null) unawaited(_active.setLevel(_volume, gain: 0.3));
+        case AudioInterruptionType.pause || AudioInterruptionType.unknown:
+          if (!_active.playing) return;
+          _resumeAfterInterruption = event.type == AudioInterruptionType.pause;
+          unawaited(_settle().then((_) => _active.pause()));
+      }
+      return;
+    }
+    if (_ducked) {
+      _ducked = false;
+      if (_runner == null) unawaited(_active.setLevel(_volume));
+    }
+    if (_resumeAfterInterruption) {
+      _resumeAfterInterruption = false;
+      unawaited(_settle().then((_) => _active.play()));
+    }
   }
 
   @override
   Future<void> pause() async {
     await _settle();
+    _resumeAfterInterruption = false;
     await _active.pause();
   }
 
@@ -294,6 +345,7 @@ class LocalAudioEngine implements PlaybackEngine, MixingEngine {
     _ticker.cancel();
     _runner?.settle();
     await _noisySub?.cancel();
+    await _interruptionSub?.cancel();
     for (final s in _subs) {
       await s.cancel();
     }
