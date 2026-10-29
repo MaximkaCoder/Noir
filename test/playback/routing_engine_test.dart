@@ -110,6 +110,14 @@ void main() {
       expect(youtube.calls, ['load video @0']);
     });
 
+    test('with a player for the source, never waits for a file', () async {
+      files.later['video'] = '/cache/video.webm';
+      await router.load(track('video', MediaSource.youtube));
+
+      expect(youtube.calls, ['load video @0']);
+      expect(files.askedNow, isEmpty);
+    });
+
     test('never consults the provider for local tracks', () async {
       files.files['song'] = 'elsewhere';
       await router.load(track('song', MediaSource.local));
@@ -152,6 +160,42 @@ void main() {
 
       expect(local.calls, ['load v1 @0', 'stop']);
       expect(youtube.calls, ['load v2 @0', 'play']);
+    });
+  });
+
+  // Platforms without the embedded player: a track plays once its file is
+  // there, and looking ahead never makes a transition wait.
+  group('without a player for the source', () {
+    late FakeAudioFiles files;
+
+    setUp(() {
+      files = FakeAudioFiles();
+      router = RoutingEngine({MediaSource.local: local}, files: files);
+      events = [];
+      router.events.listen(events.add);
+    });
+
+    test('loads the file fetched for it', () async {
+      files.later['video'] = '/cache/video.webm';
+      expect(await router.load(track('video', MediaSource.youtube)), isTrue);
+
+      expect(files.askedNow, ['video']);
+      expect(local.loaded!.uri, '/cache/video.webm');
+    });
+
+    test('fails when there is no file to get', () async {
+      expect(await router.load(track('video', MediaSource.youtube)), isFalse);
+      await pumpEventQueue();
+      expect(events.whereType<EngineFailed>(), hasLength(1));
+    });
+
+    test('a look ahead does not fetch', () async {
+      files.later['next'] = '/cache/next.webm';
+      expect(
+        await router.canMixInto(track('next', MediaSource.youtube)),
+        isFalse,
+      );
+      expect(files.askedNow, isEmpty);
     });
   });
 }

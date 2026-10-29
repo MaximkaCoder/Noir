@@ -22,6 +22,16 @@ class FakeAudioFiles implements AudioFileProvider {
     return files[track.uri];
   }
 
+  /// What [fileNow] hands out, keyed by track uri.
+  final later = <String, String>{};
+  final askedNow = <String>[];
+
+  @override
+  Future<String?> fileNow(Track track) async {
+    askedNow.add(track.uri);
+    return files[track.uri] ?? later[track.uri];
+  }
+
   @override
   void prefetch(List<Track> next) =>
       prefetched.add([for (final t in next) t.title]);

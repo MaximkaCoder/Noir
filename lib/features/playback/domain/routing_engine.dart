@@ -43,6 +43,9 @@ class RoutingEngine implements PlaybackEngine, MixingEngine {
 
   /// A file lookup slower than this is ignored, so playback never waits.
   static const _lookupTimeout = Duration(seconds: 2);
+
+  /// How long a track nothing else can play may wait for its file.
+  static const _fileNowTimeout = Duration(minutes: 2);
   final _subs = <StreamSubscription<Object?>>[];
   final _events = StreamController<EngineEvent>.broadcast();
   final _position = StreamController<Duration>.broadcast();
@@ -64,14 +67,38 @@ class RoutingEngine implements PlaybackEngine, MixingEngine {
   Duration? get currentDuration => _active.currentDuration;
 
   /// The engine for [track] and the track as that engine should see it.
-  Future<(PlaybackEngine, Track)?> _route(Track track) async {
+  /// [wait]: a track nothing here can play waits for its file (only when it
+  /// is to play now, never for a look ahead).
+  Future<(PlaybackEngine, Track)?> _route(
+    Track track, {
+    bool wait = false,
+  }) async {
     final local = _engines[MediaSource.local];
     if (track.source != MediaSource.local && local != null) {
       final path = await _lookup(track);
       if (path != null) return (local, track.copyWith(uri: path));
     }
     final engine = _engines[track.source];
+    if (wait &&
+        engine == null &&
+        local != null &&
+        track.source != MediaSource.local) {
+      // No player for this source here: wait for a file instead.
+      final path = await _fileNow(track);
+      return path == null ? null : (local, track.copyWith(uri: path));
+    }
     return engine == null ? null : (engine, track);
+  }
+
+  Future<String?> _fileNow(Track track) async {
+    try {
+      return await _files
+          .fileNow(track)
+          .timeout(_fileNowTimeout, onTimeout: () => null);
+    } on Object catch (e) {
+      debugPrint('Audio file fetch failed: ${e.runtimeType}');
+      return null;
+    }
   }
 
   Future<String?> _lookup(Track track) async {
@@ -128,7 +155,7 @@ class RoutingEngine implements PlaybackEngine, MixingEngine {
 
   @override
   Future<bool> load(Track track, {Duration start = Duration.zero}) async {
-    final route = await _route(track);
+    final route = await _route(track, wait: true);
     if (route == null) {
       _events.add(
         const EngineFailed('This kind of item cannot be played here.'),

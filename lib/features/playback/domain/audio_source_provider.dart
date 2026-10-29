@@ -11,6 +11,11 @@ abstract interface class AudioFileProvider {
   /// now. Consulted on every load, so it must answer quickly.
   Future<String?> cachedFile(Track track);
 
+  /// A playable local file for [track], got right away if need be. Asked
+  /// only where nothing else can play the track (no remote player on this
+  /// platform), so it may take a while; null when there is none to get.
+  Future<String?> fileNow(Track track);
+
   /// Hint: [next] is likely to play soon, most likely first.
   void prefetch(List<Track> next);
 
@@ -36,6 +41,9 @@ class NoAudioFiles implements AudioFileProvider {
 
   @override
   Future<String?> cachedFile(Track track) async => null;
+
+  @override
+  Future<String?> fileNow(Track track) async => null;
 
   @override
   void prefetch(List<Track> next) {}
