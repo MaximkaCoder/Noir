@@ -10,6 +10,9 @@
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"/>
+    <!-- YouTube Music, Google sign-in and artwork. Flutter adds this only
+         to debug and profile builds. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
     
     <application
         android:label="NOIR"
