@@ -25,6 +25,10 @@ class FakeHttp implements HttpClientAdapter {
   FakeHttp(this.handler);
 
   FakeReply Function(FakeRequest request) handler;
+
+  /// Holds a request back until the returned future completes, to stage
+  /// what happens while it is in flight.
+  Future<void>? Function(FakeRequest request)? hold;
   final requests = <FakeRequest>[];
 
   Dio dio() => Dio()..httpClientAdapter = this;
@@ -41,6 +45,7 @@ class FakeHttp implements HttpClientAdapter {
     }
     final request = FakeRequest(options, utf8.decode(bytes));
     requests.add(request);
+    await hold?.call(request);
     final reply = handler(request);
     return ResponseBody.fromString(
       jsonEncode(reply.json),

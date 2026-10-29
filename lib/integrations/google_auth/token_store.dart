@@ -9,6 +9,7 @@ class StoredAccount {
     required this.refreshToken,
     required this.scopes,
     required this.connectedAt,
+    this.subject,
     this.email,
     this.name,
   });
@@ -17,6 +18,7 @@ class StoredAccount {
     refreshToken: json['refreshToken']! as String,
     scopes: (json['scopes']! as List<Object?>).cast<String>(),
     connectedAt: DateTime.parse(json['connectedAt']! as String),
+    subject: json['sub'] as String?,
     email: json['email'] as String?,
     name: json['name'] as String?,
   );
@@ -24,6 +26,9 @@ class StoredAccount {
   final String refreshToken;
   final List<String> scopes;
   final DateTime connectedAt;
+
+  /// Google's id for the account; unlike the email it never changes.
+  final String? subject;
   final String? email;
   final String? name;
 
@@ -31,6 +36,7 @@ class StoredAccount {
     'refreshToken': refreshToken,
     'scopes': scopes,
     'connectedAt': connectedAt.toIso8601String(),
+    'sub': subject,
     'email': email,
     'name': name,
   };

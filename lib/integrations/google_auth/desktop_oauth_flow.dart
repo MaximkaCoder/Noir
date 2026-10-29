@@ -37,22 +37,23 @@ class OAuthTokens {
   final String? idToken;
   final List<String> scopes;
 
-  /// Name and email from the ID token. The token came straight from Google
-  /// over TLS, so its payload is only decoded for display, not trusted for
-  /// authorization decisions.
-  ({String? email, String? name}) get identity {
+  /// Account id (`sub`), name and email from the ID token. The token came
+  /// straight from Google over TLS, so its payload is decoded, not verified.
+  ({String? subject, String? email, String? name}) get identity {
+    const none = (subject: null, email: null, name: null);
     final parts = idToken?.split('.');
-    if (parts == null || parts.length != 3) return (email: null, name: null);
+    if (parts == null || parts.length != 3) return none;
     try {
       final payload = jsonDecode(
         utf8.decode(base64Url.decode(base64Url.normalize(parts[1]))),
       ) as Map<String, Object?>;
       return (
+        subject: payload['sub'] as String?,
         email: payload['email'] as String?,
         name: payload['name'] as String?,
       );
     } on Object {
-      return (email: null, name: null);
+      return none;
     }
   }
 }

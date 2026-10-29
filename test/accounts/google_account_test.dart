@@ -273,6 +273,48 @@ void main() {
         expect(store.account!.refreshToken, 'refresh-1');
       });
 
+      test('the same email on another account id is rejected', () async {
+        http.handler = (_) => ok({
+          ...tokenJson(),
+          'id_token': fakeIdToken({'sub': '111', 'email': 'me@example.com'}),
+        });
+        await service.connect();
+        expect(store.account!.subject, '111');
+        http.handler = (r) => r.uri.path.endsWith('revoke')
+            ? ok({})
+            : ok({
+                ...tokenJson(scope: writeGrant),
+                'refresh_token': 'other-refresh',
+                'id_token': fakeIdToken({
+                  'sub': '222',
+                  'email': 'me@example.com',
+                }),
+              });
+        await expectLater(
+          service.requestWriteAccess(),
+          throwsA(isA<OAuthFailed>()),
+        );
+        expect(http.requests.last.form['token'], 'other-refresh');
+        expect(store.account!.refreshToken, 'refresh-1');
+      });
+
+      test('a grant that names no account is rejected', () async {
+        await service.connect();
+        http.handler = (r) => r.uri.path.endsWith('revoke')
+            ? ok({})
+            : ok({
+                ...tokenJson(scope: writeGrant),
+                'refresh_token': 'other-refresh',
+                'id_token': fakeIdToken({}),
+              });
+        await expectLater(
+          service.requestWriteAccess(),
+          throwsA(isA<OAuthFailed>()),
+        );
+        expect(http.requests.last.form['token'], 'other-refresh');
+        expect(store.account!.refreshToken, 'refresh-1');
+      });
+
       test('a different Google account is rejected and revoked', () async {
         await service.connect();
         http.handler = (r) => r.uri.path.endsWith('revoke')
@@ -290,6 +332,38 @@ void main() {
         expect(store.account!.refreshToken, 'refresh-1');
         expect(service.current.canSaveToPlaylists, isFalse);
       });
+    });
+
+    test('a refresh still running at disconnect does not reconnect', () async {
+      await service.connect();
+      final release = Completer<void>();
+      Future<void>? holdRefresh(FakeRequest r) =>
+          r.form['grant_type'] == 'refresh_token' ? release.future : null;
+      http
+        ..hold = holdRefresh
+        ..handler = (_) => ok(tokenJson(refresh: false));
+      final pending = service.accessToken(forceRefresh: true);
+      await pumpEventQueue();
+      await service.disconnect();
+      release.complete();
+
+      await expectLater(pending, throwsA(isA<OAuthReauthRequired>()));
+      expect(service.current.status, AccountStatus.disconnected);
+      expect(store.account, isNull);
+      await expectLater(
+        service.accessToken(),
+        throwsA(isA<OAuthReauthRequired>()),
+      );
+    });
+
+    test('reconnecting revokes the grant it replaces', () async {
+      await service.connect();
+      http.handler = (r) => r.uri.path.endsWith('revoke')
+          ? ok({})
+          : ok({...tokenJson(), 'refresh_token': 'refresh-2'});
+      await service.connect();
+      expect(store.account!.refreshToken, 'refresh-2');
+      expect(http.requests.last.form['token'], 'refresh-1');
     });
 
     test('disconnect revokes at Google and forgets credentials', () async {

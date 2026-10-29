@@ -112,6 +112,10 @@ class GoogleAccountService implements AccountConnectionService {
     status: AccountStatus.disconnected,
   );
   OAuthTokens? _access;
+
+  /// Bumped on disconnect, so a refresh or upgrade still in flight then
+  /// does not bring the account back.
+  int _session = 0;
   Future<String>? _refreshing;
   Future<void>? _upgrading;
 
@@ -153,10 +157,16 @@ class GoogleAccountService implements AccountConnectionService {
         refreshToken: refreshToken,
         scopes: tokens.scopes,
         connectedAt: DateTime.now(),
+        subject: identity.subject,
         email: identity.email,
         name: identity.name,
       );
+      final replaced = await _store.read();
       await _store.write(account);
+      // Reconnecting replaces the old grant; don't leave it valid at Google.
+      if (replaced != null && replaced.refreshToken != refreshToken) {
+        await _flow.revoke(replaced.refreshToken);
+      }
       _access = tokens;
       _emit(_connected(account));
     } on OAuthException catch (e) {
@@ -185,6 +195,7 @@ class GoogleAccountService implements AccountConnectionService {
       _upgrading ??= _upgrade().whenComplete(() => _upgrading = null);
 
   Future<void> _upgrade() async {
+    final session = _session;
     final account = await _store.read();
     if (account == null || _state.status != AccountStatus.connected) {
       throw const OAuthReauthRequired();
@@ -206,10 +217,18 @@ class GoogleAccountService implements AccountConnectionService {
     if (!GoogleOAuthConfig.grantsWrite(tokens.scopes)) {
       throw const OAuthWriteDeclined();
     }
+    if (session != _session) {
+      // Disconnected meanwhile.
+      await _flow.revoke(tokens.refreshToken ?? tokens.accessToken);
+      throw const OAuthCancelled();
+    }
     final identity = tokens.identity;
-    if (identity.email != null &&
-        account.email != null &&
-        identity.email != account.email) {
+    // Accounts saved before the id was kept fall back to the email. Without
+    // either to compare, it can't be shown to be the same account.
+    final sameAccount = account.subject != null && identity.subject != null
+        ? identity.subject == account.subject
+        : identity.email != null && identity.email == account.email;
+    if (!sameAccount) {
       // A grant for some other account: give it back, keep the current one.
       await _flow.revoke(tokens.refreshToken ?? tokens.accessToken);
       throw OAuthFailed(
@@ -221,6 +240,7 @@ class GoogleAccountService implements AccountConnectionService {
       refreshToken: tokens.refreshToken ?? account.refreshToken,
       scopes: tokens.scopes,
       connectedAt: account.connectedAt,
+      subject: account.subject ?? identity.subject,
       email: account.email ?? identity.email,
       name: account.name ?? identity.name,
     );
@@ -231,6 +251,7 @@ class GoogleAccountService implements AccountConnectionService {
 
   @override
   Future<void> disconnect() async {
+    _session++;
     final account = await _store.read();
     if (account != null) await _flow.revoke(account.refreshToken);
     await _store.delete();
@@ -253,13 +274,15 @@ class GoogleAccountService implements AccountConnectionService {
   }
 
   Future<String> _refresh() async {
+    final session = _session;
     final account = await _store.read();
     if (account == null) throw const OAuthReauthRequired();
+    final OAuthTokens tokens;
     try {
-      final tokens = await _flow.refresh(account.refreshToken);
-      _access = tokens;
-      return tokens.accessToken;
+      tokens = await _flow.refresh(account.refreshToken);
     } on OAuthReauthRequired {
+      // Disconnected meanwhile: the account is gone, not expired.
+      if (session != _session) rethrow;
       _access = null;
       _emit(
         AccountConnection(
@@ -271,6 +294,9 @@ class GoogleAccountService implements AccountConnectionService {
       );
       rethrow;
     }
+    if (session != _session) throw const OAuthReauthRequired();
+    _access = tokens;
+    return tokens.accessToken;
   }
 
   AccountConnection _connected(StoredAccount a) => AccountConnection(
