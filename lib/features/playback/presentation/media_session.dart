@@ -3,7 +3,11 @@ import 'dart:async';
 import 'package:audio_service/audio_service.dart' as svc;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:noir/features/artwork/application/artwork_providers.dart';
+import 'package:noir/features/artwork/domain/art_urls.dart';
+import 'package:noir/features/artwork/domain/resolved_art.dart';
 import 'package:noir/features/playback/application/playback_controller.dart';
+import 'package:noir/shared/models/media.dart';
 import 'package:noir/shared/models/playback.dart';
 
 /// Connects NOIR's single playback controller to the OS media session
@@ -41,6 +45,10 @@ class _NoirAudioHandler extends svc.BaseAudioHandler with svc.SeekHandler {
 
   final ProviderContainer _container;
   late final StreamSubscription<Duration> _positionSub;
+
+  /// Album art lookup for the current YouTube track.
+  ProviderSubscription<ResolvedArt?>? _artSub;
+  String? _artVideoId;
   Duration _lastPublished = Duration.zero;
   DateTime _lastPublishedAt = DateTime.now();
 
@@ -67,7 +75,7 @@ class _NoirAudioHandler extends svc.BaseAudioHandler with svc.SeekHandler {
       artist: track.artist,
       album: track.album,
       duration: track.duration,
-      artUri: track.artworkPath == null ? null : Uri.file(track.artworkPath!),
+      artUri: _artFor(track),
     );
     if (mediaItem.value != item) mediaItem.add(item);
 
@@ -102,6 +110,26 @@ class _NoirAudioHandler extends svc.BaseAudioHandler with svc.SeekHandler {
     );
   }
 
+  /// YouTube: the square album art (544 px) once it is found, the video
+  /// thumbnail until then; the art file of a local track.
+  Uri? _artFor(Track track) {
+    final videoId = track.source == MediaSource.youtube ? track.uri : null;
+    if (videoId != _artVideoId) {
+      _artSub?.close();
+      _artSub = null;
+      _artVideoId = videoId;
+      if (videoId != null) {
+        _artSub = _container.listen<ResolvedArt?>(
+          resolvedArtProvider(videoId),
+          (_, _) => _publish(_container.read(playbackProvider)),
+        );
+      }
+    }
+    final art = _artSub?.read()?.squareUrl(544) ?? track.artwork;
+    if (art == null) return null;
+    return isRemoteImage(art) ? Uri.tryParse(art) : Uri.file(art);
+  }
+
   @override
   Future<void> play() => _ctrl.resume();
 
@@ -121,6 +149,7 @@ class _NoirAudioHandler extends svc.BaseAudioHandler with svc.SeekHandler {
   Future<void> stop() async {
     await _ctrl.pause();
     await _positionSub.cancel();
+    _artSub?.close();
     await super.stop();
   }
 }

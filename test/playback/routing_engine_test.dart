@@ -79,6 +79,8 @@ void main() {
         {MediaSource.local: local, MediaSource.youtube: youtube},
         files: files,
         inBackground: () => background,
+        restartAfter: Duration.zero,
+        restartTimeout: Duration.zero,
       );
       events = [];
       router.events.listen(events.add);
@@ -97,14 +99,31 @@ void main() {
       for (final e in events.whereType<EngineStatusChanged>()) e.status,
     ];
 
-    test('in the background, a player that stops by itself hands the track '
-        'to its file', () async {
-      files.later['video'] = '/cache/video.webm';
-      await playVideo();
-
+    /// The player stops by itself in the background.
+    Future<void> suspend() async {
       background = true;
       youtube.emit(const EngineStatusChanged(PlaybackStatus.paused));
       await pumpEventQueue();
+    }
+
+    test('in the background, a player that stops by itself is started '
+        'again', () async {
+      files.later['video'] = '/cache/video.webm';
+      await playVideo();
+
+      await suspend();
+
+      expect(youtube.calls.last, 'play');
+      expect(statuses(), [PlaybackStatus.buffering, PlaybackStatus.playing]);
+      expect(local.calls, isEmpty);
+    });
+
+    test('when it stops again, the track carries on from its file', () async {
+      files.later['video'] = '/cache/video.webm';
+      await playVideo();
+
+      await suspend();
+      await suspend();
 
       expect(youtube.calls.last, 'stop');
       expect(local.calls, ['load video @42', 'play']);
@@ -113,15 +132,28 @@ void main() {
       expect(statuses().last, PlaybackStatus.playing);
     });
 
+    test('when it does not play again, the file takes over', () async {
+      files.later['video'] = '/cache/video.webm';
+      await playVideo();
+      youtube.silentPlay = true;
+
+      await suspend();
+
+      expect(local.calls, ['load video @42', 'play']);
+    });
+
     test('keeps the track going until its file is there', () async {
       final file = files.waits['video'] = Completer<void>();
       files.later['video'] = '/cache/video.webm';
       await playVideo();
 
-      background = true;
-      youtube.emit(const EngineStatusChanged(PlaybackStatus.paused));
-      await pumpEventQueue();
-      expect(statuses(), [PlaybackStatus.buffering]);
+      await suspend();
+      await suspend();
+      expect(statuses(), [
+        PlaybackStatus.buffering,
+        PlaybackStatus.playing,
+        PlaybackStatus.buffering,
+      ]);
       expect(local.calls, isEmpty);
 
       file.complete();
@@ -132,9 +164,8 @@ void main() {
     test('pauses after all when the file cannot be got', () async {
       await playVideo();
 
-      background = true;
-      youtube.emit(const EngineStatusChanged(PlaybackStatus.paused));
-      await pumpEventQueue();
+      await suspend();
+      await suspend();
 
       expect(statuses().last, PlaybackStatus.paused);
       expect(local.calls, isEmpty);

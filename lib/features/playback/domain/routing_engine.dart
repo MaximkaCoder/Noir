@@ -14,13 +14,16 @@ import 'package:noir/shared/models/playback.dart';
 /// A non-local track for which [AudioFileProvider] has a local file plays
 /// on the local engine; otherwise on the engine for its source. Its file is
 /// fetched meanwhile: when the remote player stops by itself while the app
-/// is out of sight (Android's web view does), the track carries on from
-/// that file where it stopped.
+/// is out of sight (Android's web view does), it is started again once;
+/// if it stops again or doesn't play, the track carries on from that file
+/// where it stopped.
 class RoutingEngine implements PlaybackEngine, MixingEngine {
   RoutingEngine(
     this._engines, {
     this._files = const NoAudioFiles(),
     this._inBackground = _never,
+    this._restartAfter = const Duration(milliseconds: 300),
+    this._restartTimeout = const Duration(seconds: 3),
   }) : _active = _engines.values.first {
     for (final MapEntry(key: source, value: engine) in _engines.entries) {
       _subs
@@ -31,12 +34,15 @@ class RoutingEngine implements PlaybackEngine, MixingEngine {
                 when _handingOver) {
               return; // The file loading, about to play.
             }
+            if (e case EngineStatusChanged(:final status)) {
+              _remotePlaying = status == PlaybackStatus.playing;
+            }
             if (e case EngineStatusChanged(status: PlaybackStatus.paused)
                 when _suspended()) {
               // Not a pause anyone asked for: still "playing" (so the OS
-              // keeps the app running) until the file takes over.
+              // keeps the app running) until it plays again.
               _events.add(const EngineStatusChanged(PlaybackStatus.buffering));
-              unawaited(_handOver());
+              unawaited(_restarted ? _handOver() : _restart());
               return;
             }
             _events.add(e);
@@ -59,6 +65,8 @@ class RoutingEngine implements PlaybackEngine, MixingEngine {
   final Map<MediaSource, PlaybackEngine> _engines;
   final AudioFileProvider _files;
   final bool Function() _inBackground;
+  final Duration _restartAfter;
+  final Duration _restartTimeout;
   PlaybackEngine _active;
 
   static bool _never() => false;
@@ -67,6 +75,11 @@ class RoutingEngine implements PlaybackEngine, MixingEngine {
   Track? _remote;
   Future<String?>? _remoteFile;
   bool _handingOver = false;
+
+  /// Whether the remote player was started again after stopping by itself
+  /// (once per track), and whether it plays now.
+  bool _restarted = false;
+  bool _remotePlaying = false;
 
   /// Whether playing was asked for last (not a pause or stop).
   bool _wantsPlay = false;
@@ -209,10 +222,25 @@ class RoutingEngine implements PlaybackEngine, MixingEngine {
     final remote = local != null && !identical(next, local);
     _remote = remote ? track : null;
     _remoteFile = remote ? _fileNow(track) : null;
+    _restarted = false;
     return await _active.load(routed, start: start);
   }
 
   bool _suspended() => _remote != null && _wantsPlay && _inBackground();
+
+  /// Starts the remote player again, which plays on in the background once
+  /// the web view is shown again; the file takes over if it doesn't.
+  Future<void> _restart() async {
+    _restarted = true;
+    final ticket = _loads;
+    final engine = _active;
+    bool current() => ticket == _loads && identical(engine, _active);
+    await Future<void>.delayed(_restartAfter);
+    if (!current() || !_wantsPlay) return;
+    await engine.play();
+    await Future<void>.delayed(_restartTimeout);
+    if (current() && _wantsPlay && !_remotePlaying) await _handOver();
+  }
 
   /// Moves the remote track onto the local engine once its file is there,
   /// from where the remote player stopped.
@@ -220,7 +248,9 @@ class RoutingEngine implements PlaybackEngine, MixingEngine {
     final track = _remote;
     final file = _remoteFile;
     final local = _engines[MediaSource.local];
-    if (track == null || file == null || local == null) return;
+    if (track == null || file == null || local == null || _handingOver) {
+      return;
+    }
     final ticket = _loads;
     _handingOver = true;
     try {
