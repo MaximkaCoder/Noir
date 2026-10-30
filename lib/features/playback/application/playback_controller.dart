@@ -3,7 +3,6 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/widgets.dart' show AppLifecycleState, WidgetsBinding;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:noir/features/discover/application/discover_providers.dart';
 import 'package:noir/features/discover/application/dislikes.dart';
@@ -27,7 +26,6 @@ import 'package:noir/integrations/local_audio/local_audio_engine.dart';
 import 'package:noir/integrations/local_audio/mix_runner.dart';
 import 'package:noir/integrations/youtube_music/innertube_client.dart';
 import 'package:noir/integrations/youtube_music/ytm_models.dart';
-import 'package:noir/integrations/youtube_playback/android_youtube_engine.dart';
 import 'package:noir/integrations/youtube_playback/embedded_player.dart';
 import 'package:noir/integrations/youtube_playback/youtube_embed_engine.dart';
 import 'package:noir/shared/models/media.dart';
@@ -48,26 +46,21 @@ final mixRunnerFactoryProvider = Provider<MixRunnerFactory?>((ref) => null);
 final playbackEngineProvider = Provider<PlaybackEngine>((ref) {
   final dirs = ref.watch(appDirectoriesProvider);
   final decks = ref.watch(audioDeckFactoryProvider);
-  final engine = RoutingEngine(
-    {
-      MediaSource.local: LocalAudioEngine(
-        runner: ref.watch(mixRunnerFactoryProvider),
-        deckFactory: decks,
-        audioSession: true,
-        // The default decks look after audio focus themselves.
-        handleAudioFocus: decks != null,
+  // Android has no YouTube player: Chromium stops it once the app is out of
+  // sight, so a song there plays from its file, once fetched.
+  final engine = RoutingEngine({
+    MediaSource.local: LocalAudioEngine(
+      runner: ref.watch(mixRunnerFactoryProvider),
+      deckFactory: decks,
+      audioSession: true,
+      // The default decks look after audio focus themselves.
+      handleAudioFocus: decks != null,
+    ),
+    if (YouTubeEmbedEngine.isSupported)
+      MediaSource.youtube: YouTubeEmbedEngine(
+        pageDir: Directory(p.join(dirs.artwork.parent.path, 'yt_player')),
       ),
-      if (YouTubeEmbedEngine.isSupported)
-        MediaSource.youtube: YouTubeEmbedEngine(
-          pageDir: Directory(p.join(dirs.artwork.parent.path, 'yt_player')),
-        )
-      else if (AndroidYouTubeEngine.isSupported)
-        MediaSource.youtube: AndroidYouTubeEngine(),
-    },
-    files: ref.watch(audioFilesProvider),
-    inBackground: () =>
-        WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed,
-  );
+  }, files: ref.watch(audioFilesProvider));
   ref.onDispose(engine.dispose);
   return engine;
 });
@@ -684,11 +677,7 @@ class PlaybackController extends Notifier<PlaybackState> {
   void _onEngineEvent(EngineEvent event) {
     switch (event) {
       case EngineStatusChanged(:final status):
-        // The engine may have moved the track to another player.
-        state = state.copyWith(
-          status: status,
-          capabilities: _engine.capabilities,
-        );
+        state = state.copyWith(status: status);
       case EngineCompleted():
         unawaited(_onCompleted());
       case EngineFailed(:final message, :final unplayable):

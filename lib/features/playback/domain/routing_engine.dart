@@ -12,40 +12,15 @@ import 'package:noir/shared/models/playback.dart';
 /// and position are forwarded; switching sources stops the other engine.
 ///
 /// A non-local track for which [AudioFileProvider] has a local file plays
-/// on the local engine; otherwise on the engine for its source. Its file is
-/// fetched meanwhile: when the remote player stops by itself while the app
-/// is out of sight (Android's web view does), it is started again once;
-/// if it stops again or doesn't play, the track carries on from that file
-/// where it stopped.
+/// on the local engine; otherwise on the engine for its source.
 class RoutingEngine implements PlaybackEngine, MixingEngine {
-  RoutingEngine(
-    this._engines, {
-    this._files = const NoAudioFiles(),
-    this._inBackground = _never,
-    this._restartAfter = const Duration(milliseconds: 300),
-    this._restartTimeout = const Duration(seconds: 3),
-  }) : _active = _engines.values.first {
+  RoutingEngine(this._engines, {this._files = const NoAudioFiles()})
+    : _active = _engines.values.first {
     for (final MapEntry(key: source, value: engine) in _engines.entries) {
       _subs
         ..add(
           engine.events.listen((e) {
-            if (!identical(engine, _active)) return;
-            if (e case EngineStatusChanged(status: PlaybackStatus.paused)
-                when _handingOver) {
-              return; // The file loading, about to play.
-            }
-            if (e case EngineStatusChanged(:final status)) {
-              _remotePlaying = status == PlaybackStatus.playing;
-            }
-            if (e case EngineStatusChanged(status: PlaybackStatus.paused)
-                when _suspended()) {
-              // Not a pause anyone asked for: still "playing" (so the OS
-              // keeps the app running) until it plays again.
-              _events.add(const EngineStatusChanged(PlaybackStatus.buffering));
-              unawaited(_restarted ? _handOver() : _restart());
-              return;
-            }
-            _events.add(e);
+            if (identical(engine, _active)) _events.add(e);
           }),
         )
         ..add(
@@ -64,25 +39,7 @@ class RoutingEngine implements PlaybackEngine, MixingEngine {
 
   final Map<MediaSource, PlaybackEngine> _engines;
   final AudioFileProvider _files;
-  final bool Function() _inBackground;
-  final Duration _restartAfter;
-  final Duration _restartTimeout;
   PlaybackEngine _active;
-
-  static bool _never() => false;
-
-  /// The track the active remote player plays, and its file being fetched.
-  Track? _remote;
-  Future<String?>? _remoteFile;
-  bool _handingOver = false;
-
-  /// Whether the remote player was started again after stopping by itself
-  /// (once per track), and whether it plays now.
-  bool _restarted = false;
-  bool _remotePlaying = false;
-
-  /// Whether playing was asked for last (not a pause or stop).
-  bool _wantsPlay = false;
 
   /// A file lookup slower than this is ignored, so playback never waits.
   static const _lookupTimeout = Duration(seconds: 2);
@@ -132,6 +89,8 @@ class RoutingEngine implements PlaybackEngine, MixingEngine {
       // No player for this source here: wait for a file instead. What
       // played so far stops meanwhile; it isn't what was asked for.
       await _active.stop();
+      // The stop reports idle; it is loading until the file is there.
+      _events.add(const EngineStatusChanged(PlaybackStatus.loading));
       final path = await _fileNow(track);
       return path == null ? null : (local, track.copyWith(uri: path));
     }
@@ -218,80 +177,17 @@ class RoutingEngine implements PlaybackEngine, MixingEngine {
       await _active.stop();
       _active = next;
     }
-    final local = _engines[MediaSource.local];
-    final remote = local != null && !identical(next, local);
-    _remote = remote ? track : null;
-    _remoteFile = remote ? _fileNow(track) : null;
-    _restarted = false;
     return await _active.load(routed, start: start);
   }
 
-  bool _suspended() => _remote != null && _wantsPlay && _inBackground();
-
-  /// Starts the remote player again, which plays on in the background once
-  /// the web view is shown again; the file takes over if it doesn't.
-  Future<void> _restart() async {
-    _restarted = true;
-    final ticket = _loads;
-    final engine = _active;
-    bool current() => ticket == _loads && identical(engine, _active);
-    await Future<void>.delayed(_restartAfter);
-    if (!current() || !_wantsPlay) return;
-    await engine.play();
-    await Future<void>.delayed(_restartTimeout);
-    if (current() && _wantsPlay && !_remotePlaying) await _handOver();
-  }
-
-  /// Moves the remote track onto the local engine once its file is there,
-  /// from where the remote player stopped.
-  Future<void> _handOver() async {
-    final track = _remote;
-    final file = _remoteFile;
-    final local = _engines[MediaSource.local];
-    if (track == null || file == null || local == null || _handingOver) {
-      return;
-    }
-    final ticket = _loads;
-    _handingOver = true;
-    try {
-      final path = await file;
-      if (ticket != _loads) return;
-      if (path == null || !_wantsPlay) {
-        _events.add(const EngineStatusChanged(PlaybackStatus.paused));
-        return;
-      }
-      final at = _active.currentPosition;
-      await _active.stop();
-      _active = local;
-      _remote = null;
-      _remoteFile = null;
-      if (await local.load(track.copyWith(uri: path), start: at)) {
-        await local.play();
-      }
-    } finally {
-      _handingOver = false;
-    }
-  }
-
   @override
-  Future<void> play() {
-    _wantsPlay = true;
-    return _active.play();
-  }
-
+  Future<void> play() => _active.play();
   @override
-  Future<void> pause() {
-    _wantsPlay = false;
-    return _active.pause();
-  }
-
+  Future<void> pause() => _active.pause();
   @override
   Future<void> seek(Duration position) => _active.seek(position);
   @override
-  Future<void> stop() {
-    _wantsPlay = false;
-    return _active.stop();
-  }
+  Future<void> stop() => _active.stop();
 
   @override
   Future<void> setVolume(double volume) async {

@@ -19,9 +19,6 @@ class FakeEngine implements PlaybackEngine, MixingEngine {
   /// Paths for which load() reports a failure.
   final failing = <String>{};
 
-  /// play() reports nothing, as a player that doesn't start.
-  bool silentPlay = false;
-
   @override
   PlaybackCapabilities get capabilities => const PlaybackCapabilities(
     canSeek: true,
@@ -68,7 +65,7 @@ class FakeEngine implements PlaybackEngine, MixingEngine {
   @override
   Future<void> play() async {
     calls.add('play');
-    if (!silentPlay) emit(const EngineStatusChanged(PlaybackStatus.playing));
+    emit(const EngineStatusChanged(PlaybackStatus.playing));
   }
 
   @override
