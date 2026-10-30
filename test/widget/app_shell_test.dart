@@ -7,6 +7,8 @@ import 'package:noir/app/router.dart';
 import 'package:noir/app/shell/adaptive_shell.dart';
 import 'package:noir/app/shell/sidebar.dart';
 import 'package:noir/app/theme/app_theme.dart';
+import 'package:noir/app/theme/design_tokens.dart';
+import 'package:noir/core/platform/form_factor.dart';
 import 'package:noir/core/widgets/artwork.dart';
 import 'package:noir/core/widgets/buttons.dart';
 import 'package:noir/core/widgets/glass_surface.dart';
@@ -857,6 +859,41 @@ void main() {
       expect(find.text('Added to queue'), findsOneWidget);
       await tester.pumpAndSettle();
       expect(find.text('Added to queue'), findsNothing);
+      expect(app.container.read(playbackProvider).queue, isNotEmpty);
+    });
+
+    testWidgets('on a phone the track menu slides up as an opaque sheet', (
+      tester,
+    ) async {
+      FormFactor.touch = true;
+      addTearDown(() => FormFactor.touch = false);
+      final app = await TestApp.pump(tester, size: const Size(400, 800));
+      app.container.read(routerProvider).go('/library?tab=tracks');
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byTooltip('More').first);
+      await tester.pump();
+      await tester.pump(NoirMotion.slow ~/ 2);
+      final item = find.text('Add to queue');
+      // Sliding up, not fading in.
+      expect(tester.getTopLeft(item).dy, greaterThan(500));
+      expect(
+        find.ancestor(of: item, matching: find.byType(GlassFade)),
+        findsNothing,
+      );
+      await tester.pumpAndSettle();
+
+      final sheet = find.ancestor(of: item, matching: find.byType(Material));
+      expect(tester.getRect(sheet.first).bottom, 800);
+      expect(tester.getRect(sheet.first).width, 400);
+      expect(
+        find.ancestor(of: item, matching: find.byType(GlassSurface)),
+        findsNothing,
+      );
+
+      await tester.tap(item);
+      await tester.pumpAndSettle();
+      expect(item, findsNothing);
       expect(app.container.read(playbackProvider).queue, isNotEmpty);
     });
   });

@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:noir/app/theme/design_tokens.dart';
-import 'package:noir/app/theme/glass_theme.dart';
 import 'package:noir/core/platform/form_factor.dart';
 import 'package:noir/core/widgets/buttons.dart';
 import 'package:noir/core/widgets/menus.dart';
@@ -60,7 +59,13 @@ class MixModeButton extends ConsumerWidget {
       size: size,
       onPressed: () {
         if (FormFactor.touch) {
-          unawaited(_showSheet(context));
+          unawaited(
+            showNoirSheet<void>(
+              context,
+              label: 'Close transitions',
+              child: const _MixPanel(width: double.infinity),
+            ),
+          );
           return;
         }
         final box = context.findRenderObject()! as RenderBox;
@@ -73,46 +78,6 @@ class MixModeButton extends ConsumerWidget {
           ),
         );
       },
-    );
-  }
-
-  /// A phone: an opaque sheet up from the bottom, timed like the queue
-  /// sheet. The popover's fade over glass stuttered there.
-  static Future<void> _showSheet(BuildContext context) {
-    final fx = NoirEffects.of(context);
-    return showGeneralDialog<void>(
-      context: context,
-      barrierDismissible: true,
-      barrierLabel: 'Close transitions',
-      barrierColor: Colors.black.withValues(alpha: 0.3),
-      transitionDuration: fx.motion(NoirMotion.slow),
-      pageBuilder: (context, _, _) => Align(
-        alignment: Alignment.bottomCenter,
-        child: Material(
-          color: context.noir.background,
-          borderRadius: const BorderRadius.vertical(
-            top: Radius.circular(NoirRadii.xl),
-          ),
-          clipBehavior: Clip.antiAlias,
-          child: const SafeArea(
-            top: false,
-            child: Padding(
-              padding: EdgeInsets.only(top: NoirSpacing.sm),
-              child: _MixPanel(width: double.infinity),
-            ),
-          ),
-        ),
-      ),
-      transitionBuilder: (context, animation, _, child) => SlideTransition(
-        position: Tween(begin: const Offset(0, 1), end: Offset.zero).animate(
-          CurvedAnimation(
-            parent: animation,
-            curve: NoirMotion.emphasized,
-            reverseCurve: Curves.easeInCubic,
-          ),
-        ),
-        child: child,
-      ),
     );
   }
 }

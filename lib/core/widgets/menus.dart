@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:noir/app/theme/design_tokens.dart';
 import 'package:noir/app/theme/glass_theme.dart';
+import 'package:noir/core/platform/form_factor.dart';
 import 'package:noir/core/widgets/buttons.dart';
 import 'package:noir/core/widgets/glass_surface.dart';
 import 'package:noir/core/widgets/liquid_press.dart';
@@ -22,12 +23,20 @@ class NoirMenuItem<T> {
 
 /// NOIR's context menu: a small elevated panel next to [anchor] (global
 /// coordinates; a zero-size rect for a pointer position) that fades and
-/// scales in. Returns the chosen value, or null when dismissed.
+/// scales in; on a phone, a [showNoirSheet]. Returns the chosen value, or
+/// null when dismissed.
 Future<T?> showNoirMenu<T>(
   BuildContext context, {
   required Rect anchor,
   required List<NoirMenuItem<T>> items,
 }) {
+  if (FormFactor.touch) {
+    return showNoirSheet<T>(
+      context,
+      label: 'Close menu',
+      child: _MenuPanel<T>(items: items, sheet: true),
+    );
+  }
   final fx = NoirEffects.of(context);
   return Navigator.of(context, rootNavigator: true).push(
     _MenuRoute<T>(
@@ -59,6 +68,56 @@ Future<void> showNoirPopover(
       ),
       duration: fx.motion(NoirMotion.medium),
       reverseDuration: fx.motion(NoirMotion.fast),
+    ),
+  );
+}
+
+/// A phone's menu: an opaque sheet up from the bottom, timed like the queue
+/// sheet (a popover fading in over glass stuttered there). [label] names
+/// the barrier that closes it. Pop the route to close it.
+Future<T?> showNoirSheet<T>(
+  BuildContext context, {
+  required Widget child,
+  required String label,
+}) {
+  final fx = NoirEffects.of(context);
+  return showGeneralDialog<T>(
+    context: context,
+    barrierDismissible: true,
+    barrierLabel: label,
+    barrierColor: Colors.black.withValues(alpha: 0.3),
+    transitionDuration: fx.motion(NoirMotion.slow),
+    pageBuilder: (context, _, _) => Align(
+      alignment: Alignment.bottomCenter,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.sizeOf(context).height * 0.85,
+        ),
+        child: Material(
+          color: context.noir.background,
+          borderRadius: const BorderRadius.vertical(
+            top: Radius.circular(NoirRadii.xl),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.only(top: NoirSpacing.sm),
+              child: child,
+            ),
+          ),
+        ),
+      ),
+    ),
+    transitionBuilder: (context, animation, _, child) => SlideTransition(
+      position: Tween(begin: const Offset(0, 1), end: Offset.zero).animate(
+        CurvedAnimation(
+          parent: animation,
+          curve: NoirMotion.emphasized,
+          reverseCurve: Curves.easeInCubic,
+        ),
+      ),
+      child: child,
     ),
   );
 }
@@ -184,82 +243,89 @@ class _MenuLayout extends SingleChildLayoutDelegate {
 }
 
 class _MenuPanel<T> extends StatelessWidget {
-  const _MenuPanel({required this.items});
+  const _MenuPanel({required this.items, this.sheet = false});
 
   final List<NoirMenuItem<T>> items;
+
+  /// In a [showNoirSheet]: full width, opaque, rows sized for fingers.
+  final bool sheet;
 
   @override
   Widget build(BuildContext context) {
     final c = context.noir;
     final t = Theme.of(context).textTheme;
     final fx = NoirEffects.of(context);
+    final Widget list = SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(vertical: NoirSpacing.xs),
+      child: _width(
+        Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            for (final (i, item) in items.indexed)
+              LiquidPress(
+                pressedScale: 0.98,
+                bubbleScale: 1,
+                child: InkWell(
+                  autofocus: i == 0 && !sheet,
+                  onTap: () => Navigator.of(context).pop(item.value),
+                  hoverColor: c.hover,
+                  focusColor: c.selected,
+                  hoverDuration: fx.motion(NoirMotion.fast),
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(minHeight: sheet ? 52 : 40),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: NoirSpacing.lg,
+                        vertical: NoirSpacing.sm,
+                      ),
+                      child: Row(
+                        children: [
+                          if (item.icon != null) ...[
+                            Icon(item.icon, size: 18),
+                            const SizedBox(width: NoirSpacing.md),
+                          ],
+                          Expanded(
+                            child: Text(item.label, style: t.bodyMedium),
+                          ),
+                          if (item.checked) ...[
+                            const SizedBox(width: NoirSpacing.md),
+                            Icon(
+                              Icons.check_rounded,
+                              size: 18,
+                              color: c.textPrimary,
+                              semanticLabel: 'Selected',
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
     return Semantics(
       scopesRoute: true,
       namesRoute: true,
       explicitChildNodes: true,
       label: 'Menu',
-      // Liquid Glass with a scrim, so items stay legible on clear glass.
-      child: GlassSurface(
-        borderRadius: NoirRadii.mdAll,
-        floating: true,
-        shadow: 0.6,
-        fillOpacity: 4,
-        child: Material(
-          type: MaterialType.transparency,
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(vertical: NoirSpacing.xs),
-            child: IntrinsicWidth(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  for (final (i, item) in items.indexed)
-                    LiquidPress(
-                      pressedScale: 0.98,
-                      bubbleScale: 1,
-                      child: InkWell(
-                        autofocus: i == 0,
-                        onTap: () => Navigator.of(context).pop(item.value),
-                        hoverColor: c.hover,
-                        focusColor: c.selected,
-                        hoverDuration: fx.motion(NoirMotion.fast),
-                        child: ConstrainedBox(
-                          constraints: const BoxConstraints(minHeight: 40),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: NoirSpacing.lg,
-                              vertical: NoirSpacing.sm,
-                            ),
-                            child: Row(
-                              children: [
-                                if (item.icon != null) ...[
-                                  Icon(item.icon, size: 18),
-                                  const SizedBox(width: NoirSpacing.md),
-                                ],
-                                Expanded(
-                                  child: Text(item.label, style: t.bodyMedium),
-                                ),
-                                if (item.checked) ...[
-                                  const SizedBox(width: NoirSpacing.md),
-                                  Icon(
-                                    Icons.check_rounded,
-                                    size: 18,
-                                    color: c.textPrimary,
-                                    semanticLabel: 'Selected',
-                                  ),
-                                ],
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                ],
-              ),
+      child: sheet
+          ? list
+          // Liquid Glass with a scrim, so items stay legible on clear glass.
+          : GlassSurface(
+              borderRadius: NoirRadii.mdAll,
+              floating: true,
+              shadow: 0.6,
+              fillOpacity: 4,
+              child: Material(type: MaterialType.transparency, child: list),
             ),
-          ),
-        ),
-      ),
     );
   }
+
+  /// As wide as the widest item; a sheet's full width.
+  Widget _width(Widget column) =>
+      sheet ? column : IntrinsicWidth(child: column);
 }
