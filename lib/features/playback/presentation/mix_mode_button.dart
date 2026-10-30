@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:noir/app/theme/design_tokens.dart';
+import 'package:noir/app/theme/glass_theme.dart';
+import 'package:noir/core/platform/form_factor.dart';
 import 'package:noir/core/widgets/buttons.dart';
 import 'package:noir/core/widgets/menus.dart';
 import 'package:noir/core/widgets/reveal.dart';
@@ -57,6 +59,10 @@ class MixModeButton extends ConsumerWidget {
       active: mode != TransitionMode.off,
       size: size,
       onPressed: () {
+        if (FormFactor.touch) {
+          unawaited(_showSheet(context));
+          return;
+        }
         final box = context.findRenderObject()! as RenderBox;
         unawaited(
           showNoirPopover(
@@ -69,10 +75,52 @@ class MixModeButton extends ConsumerWidget {
       },
     );
   }
+
+  /// A phone: an opaque sheet up from the bottom, timed like the queue
+  /// sheet. The popover's fade over glass stuttered there.
+  static Future<void> _showSheet(BuildContext context) {
+    final fx = NoirEffects.of(context);
+    return showGeneralDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: 'Close transitions',
+      barrierColor: Colors.black.withValues(alpha: 0.3),
+      transitionDuration: fx.motion(NoirMotion.slow),
+      pageBuilder: (context, _, _) => Align(
+        alignment: Alignment.bottomCenter,
+        child: Material(
+          color: context.noir.background,
+          borderRadius: const BorderRadius.vertical(
+            top: Radius.circular(NoirRadii.xl),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: const SafeArea(
+            top: false,
+            child: Padding(
+              padding: EdgeInsets.only(top: NoirSpacing.sm),
+              child: _MixPanel(width: double.infinity),
+            ),
+          ),
+        ),
+      ),
+      transitionBuilder: (context, animation, _, child) => SlideTransition(
+        position: Tween(begin: const Offset(0, 1), end: Offset.zero).animate(
+          CurvedAnimation(
+            parent: animation,
+            curve: NoirMotion.emphasized,
+            reverseCurve: Curves.easeInCubic,
+          ),
+        ),
+        child: child,
+      ),
+    );
+  }
 }
 
 class _MixPanel extends ConsumerWidget {
-  const _MixPanel();
+  const _MixPanel({this.width = 300});
+
+  final double width;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -96,7 +144,7 @@ class _MixPanel extends ConsumerWidget {
       explicitChildNodes: true,
       label: 'Transitions',
       child: SizedBox(
-        width: 300,
+        width: width,
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: NoirSpacing.xs),
           child: Column(

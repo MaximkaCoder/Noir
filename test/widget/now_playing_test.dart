@@ -37,6 +37,7 @@ import 'package:noir/features/playback/application/playback_controller.dart';
 import 'package:noir/features/playback/application/transition_status.dart';
 import 'package:noir/features/playback/domain/transition_plan.dart';
 import 'package:noir/features/playback/presentation/mini_players.dart';
+import 'package:noir/features/playback/presentation/mix_mode_button.dart';
 import 'package:noir/features/playback/presentation/now_playing_route.dart';
 import 'package:noir/features/playback/presentation/now_playing_screen.dart';
 import 'package:noir/features/playback/presentation/playback_controls.dart';
@@ -211,6 +212,36 @@ void main() {
     testWidgets('no More menu', (tester) async {
       await pumpNowPlaying(tester, size: phone);
       expect(_inPlayer(find.byTooltip('More')), findsNothing);
+    });
+
+    testWidgets('transitions open as an opaque sheet from the bottom', (
+      tester,
+    ) async {
+      final app = await pumpNowPlaying(tester, size: phone);
+      await tester.tap(_inPlayer(find.byType(MixModeButton)).first);
+      await tester.pump();
+      await tester.pump(NoirMotion.slow ~/ 2);
+      // Sliding up, not fading in.
+      final panel = find.text('TRANSITIONS');
+      expect(tester.getTopLeft(panel).dy, greaterThan(600));
+      await tester.pumpAndSettle();
+
+      expect(tester.getBottomLeft(panel).dy, lessThan(900));
+      final sheet = find.ancestor(of: panel, matching: find.byType(Material));
+      expect(tester.getRect(sheet.first).bottom, 900);
+      expect(tester.getRect(sheet.first).width, 448);
+      expect(
+        find.ancestor(of: panel, matching: find.byType(GlassSurface)),
+        findsNothing,
+      );
+
+      await tester.tap(find.text('Off'));
+      await tester.pumpAndSettle();
+      expect(
+        app.container.read(settingsProvider).transitionMode,
+        TransitionMode.off,
+      );
+      expect(panel, findsNothing);
     });
 
     testWidgets('swiping the cover left plays the next song, right the '
