@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart' show AppLifecycleState, WidgetsBinding;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:noir/features/discover/application/discover_providers.dart';
 import 'package:noir/features/discover/application/dislikes.dart';
@@ -47,21 +48,26 @@ final mixRunnerFactoryProvider = Provider<MixRunnerFactory?>((ref) => null);
 final playbackEngineProvider = Provider<PlaybackEngine>((ref) {
   final dirs = ref.watch(appDirectoriesProvider);
   final decks = ref.watch(audioDeckFactoryProvider);
-  final engine = RoutingEngine({
-    MediaSource.local: LocalAudioEngine(
-      runner: ref.watch(mixRunnerFactoryProvider),
-      deckFactory: decks,
-      audioSession: true,
-      // The default decks look after audio focus themselves.
-      handleAudioFocus: decks != null,
-    ),
-    if (YouTubeEmbedEngine.isSupported)
-      MediaSource.youtube: YouTubeEmbedEngine(
-        pageDir: Directory(p.join(dirs.artwork.parent.path, 'yt_player')),
-      )
-    else if (AndroidYouTubeEngine.isSupported)
-      MediaSource.youtube: AndroidYouTubeEngine(),
-  }, files: ref.watch(audioFilesProvider));
+  final engine = RoutingEngine(
+    {
+      MediaSource.local: LocalAudioEngine(
+        runner: ref.watch(mixRunnerFactoryProvider),
+        deckFactory: decks,
+        audioSession: true,
+        // The default decks look after audio focus themselves.
+        handleAudioFocus: decks != null,
+      ),
+      if (YouTubeEmbedEngine.isSupported)
+        MediaSource.youtube: YouTubeEmbedEngine(
+          pageDir: Directory(p.join(dirs.artwork.parent.path, 'yt_player')),
+        )
+      else if (AndroidYouTubeEngine.isSupported)
+        MediaSource.youtube: AndroidYouTubeEngine(),
+    },
+    files: ref.watch(audioFilesProvider),
+    inBackground: () =>
+        WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed,
+  );
   ref.onDispose(engine.dispose);
   return engine;
 });
@@ -678,7 +684,11 @@ class PlaybackController extends Notifier<PlaybackState> {
   void _onEngineEvent(EngineEvent event) {
     switch (event) {
       case EngineStatusChanged(:final status):
-        state = state.copyWith(status: status);
+        // The engine may have moved the track to another player.
+        state = state.copyWith(
+          status: status,
+          capabilities: _engine.capabilities,
+        );
       case EngineCompleted():
         unawaited(_onCompleted());
       case EngineFailed(:final message, :final unplayable):

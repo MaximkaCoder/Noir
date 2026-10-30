@@ -12,15 +12,34 @@ import 'package:noir/shared/models/playback.dart';
 /// and position are forwarded; switching sources stops the other engine.
 ///
 /// A non-local track for which [AudioFileProvider] has a local file plays
-/// on the local engine; otherwise on the engine for its source.
+/// on the local engine; otherwise on the engine for its source. Its file is
+/// fetched meanwhile: when the remote player stops by itself while the app
+/// is out of sight (Android's web view does), the track carries on from
+/// that file where it stopped.
 class RoutingEngine implements PlaybackEngine, MixingEngine {
-  RoutingEngine(this._engines, {this._files = const NoAudioFiles()})
-    : _active = _engines.values.first {
+  RoutingEngine(
+    this._engines, {
+    this._files = const NoAudioFiles(),
+    this._inBackground = _never,
+  }) : _active = _engines.values.first {
     for (final MapEntry(key: source, value: engine) in _engines.entries) {
       _subs
         ..add(
           engine.events.listen((e) {
-            if (identical(engine, _active)) _events.add(e);
+            if (!identical(engine, _active)) return;
+            if (e case EngineStatusChanged(status: PlaybackStatus.paused)
+                when _handingOver) {
+              return; // The file loading, about to play.
+            }
+            if (e case EngineStatusChanged(status: PlaybackStatus.paused)
+                when _suspended()) {
+              // Not a pause anyone asked for: still "playing" (so the OS
+              // keeps the app running) until the file takes over.
+              _events.add(const EngineStatusChanged(PlaybackStatus.buffering));
+              unawaited(_handOver());
+              return;
+            }
+            _events.add(e);
           }),
         )
         ..add(
@@ -39,7 +58,18 @@ class RoutingEngine implements PlaybackEngine, MixingEngine {
 
   final Map<MediaSource, PlaybackEngine> _engines;
   final AudioFileProvider _files;
+  final bool Function() _inBackground;
   PlaybackEngine _active;
+
+  static bool _never() => false;
+
+  /// The track the active remote player plays, and its file being fetched.
+  Track? _remote;
+  Future<String?>? _remoteFile;
+  bool _handingOver = false;
+
+  /// Whether playing was asked for last (not a pause or stop).
+  bool _wantsPlay = false;
 
   /// A file lookup slower than this is ignored, so playback never waits.
   static const _lookupTimeout = Duration(seconds: 2);
@@ -175,17 +205,63 @@ class RoutingEngine implements PlaybackEngine, MixingEngine {
       await _active.stop();
       _active = next;
     }
+    final local = _engines[MediaSource.local];
+    final remote = local != null && !identical(next, local);
+    _remote = remote ? track : null;
+    _remoteFile = remote ? _fileNow(track) : null;
     return await _active.load(routed, start: start);
   }
 
+  bool _suspended() => _remote != null && _wantsPlay && _inBackground();
+
+  /// Moves the remote track onto the local engine once its file is there,
+  /// from where the remote player stopped.
+  Future<void> _handOver() async {
+    final track = _remote;
+    final file = _remoteFile;
+    final local = _engines[MediaSource.local];
+    if (track == null || file == null || local == null) return;
+    final ticket = _loads;
+    _handingOver = true;
+    try {
+      final path = await file;
+      if (ticket != _loads) return;
+      if (path == null || !_wantsPlay) {
+        _events.add(const EngineStatusChanged(PlaybackStatus.paused));
+        return;
+      }
+      final at = _active.currentPosition;
+      await _active.stop();
+      _active = local;
+      _remote = null;
+      _remoteFile = null;
+      if (await local.load(track.copyWith(uri: path), start: at)) {
+        await local.play();
+      }
+    } finally {
+      _handingOver = false;
+    }
+  }
+
   @override
-  Future<void> play() => _active.play();
+  Future<void> play() {
+    _wantsPlay = true;
+    return _active.play();
+  }
+
   @override
-  Future<void> pause() => _active.pause();
+  Future<void> pause() {
+    _wantsPlay = false;
+    return _active.pause();
+  }
+
   @override
   Future<void> seek(Duration position) => _active.seek(position);
   @override
-  Future<void> stop() => _active.stop();
+  Future<void> stop() {
+    _wantsPlay = false;
+    return _active.stop();
+  }
 
   @override
   Future<void> setVolume(double volume) async {

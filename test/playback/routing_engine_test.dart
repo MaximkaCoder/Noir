@@ -70,13 +70,97 @@ void main() {
 
   group('with an audio file provider', () {
     late FakeAudioFiles files;
+    var background = false;
 
     setUp(() {
       files = FakeAudioFiles();
-      router = RoutingEngine({
-        MediaSource.local: local,
-        MediaSource.youtube: youtube,
-      }, files: files);
+      background = false;
+      router = RoutingEngine(
+        {MediaSource.local: local, MediaSource.youtube: youtube},
+        files: files,
+        inBackground: () => background,
+      );
+      events = [];
+      router.events.listen(events.add);
+    });
+
+    Future<void> playVideo() async {
+      await router.load(track('video', MediaSource.youtube));
+      await router.play();
+      youtube.tick(const Duration(seconds: 42));
+      await pumpEventQueue();
+      events.clear();
+      local.calls.clear();
+    }
+
+    List<PlaybackStatus> statuses() => [
+      for (final e in events.whereType<EngineStatusChanged>()) e.status,
+    ];
+
+    test('in the background, a player that stops by itself hands the track '
+        'to its file', () async {
+      files.later['video'] = '/cache/video.webm';
+      await playVideo();
+
+      background = true;
+      youtube.emit(const EngineStatusChanged(PlaybackStatus.paused));
+      await pumpEventQueue();
+
+      expect(youtube.calls.last, 'stop');
+      expect(local.calls, ['load video @42', 'play']);
+      expect(local.loaded!.uri, '/cache/video.webm');
+      expect(statuses(), isNot(contains(PlaybackStatus.paused)));
+      expect(statuses().last, PlaybackStatus.playing);
+    });
+
+    test('keeps the track going until its file is there', () async {
+      final file = files.waits['video'] = Completer<void>();
+      files.later['video'] = '/cache/video.webm';
+      await playVideo();
+
+      background = true;
+      youtube.emit(const EngineStatusChanged(PlaybackStatus.paused));
+      await pumpEventQueue();
+      expect(statuses(), [PlaybackStatus.buffering]);
+      expect(local.calls, isEmpty);
+
+      file.complete();
+      await pumpEventQueue();
+      expect(local.calls, ['load video @42', 'play']);
+    });
+
+    test('pauses after all when the file cannot be got', () async {
+      await playVideo();
+
+      background = true;
+      youtube.emit(const EngineStatusChanged(PlaybackStatus.paused));
+      await pumpEventQueue();
+
+      expect(statuses().last, PlaybackStatus.paused);
+      expect(local.calls, isEmpty);
+    });
+
+    test('a pause asked for is a pause, in the background too', () async {
+      files.later['video'] = '/cache/video.webm';
+      await playVideo();
+
+      background = true;
+      await router.pause();
+      await pumpEventQueue();
+
+      expect(statuses(), [PlaybackStatus.paused]);
+      expect(local.calls, isEmpty);
+    });
+
+    test('in sight, the player stopping by itself is a pause', () async {
+      files.later['video'] = '/cache/video.webm';
+      await playVideo();
+
+      youtube.emit(const EngineStatusChanged(PlaybackStatus.paused));
+      await pumpEventQueue();
+
+      expect(statuses(), [PlaybackStatus.paused]);
+      expect(local.calls, isEmpty);
     });
 
     test('plays a provided file on the local engine', () async {
@@ -111,11 +195,13 @@ void main() {
     });
 
     test('with a player for the source, never waits for a file', () async {
+      files.waits['video'] = Completer<void>();
       files.later['video'] = '/cache/video.webm';
       await router.load(track('video', MediaSource.youtube));
 
       expect(youtube.calls, ['load video @0']);
-      expect(files.askedNow, isEmpty);
+      // Fetched meanwhile, for when the player stops in the background.
+      expect(files.askedNow, ['video']);
     });
 
     test('never consults the provider for local tracks', () async {
