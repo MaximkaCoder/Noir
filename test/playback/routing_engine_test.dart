@@ -118,6 +118,46 @@ void main() {
       expect(files.askedNow, isEmpty);
     });
 
+    group('when the embedded player fails on a song', () {
+      setUp(() {
+        events = [];
+        router.events.listen(events.add);
+      });
+
+      Future<void> failAt42({bool playing = true}) async {
+        await router.load(track('video', MediaSource.youtube));
+        if (playing) await router.play();
+        youtube.tick(const Duration(seconds: 42));
+        local.calls.clear();
+        youtube.emit(const EngineFailed('no'));
+        await pumpEventQueue();
+      }
+
+      test('plays it from its file, where it stopped', () async {
+        files.later['video'] = '/cache/video.webm';
+        await failAt42();
+
+        expect(youtube.calls.last, 'stop');
+        expect(local.calls, ['load video @42', 'play']);
+        expect(local.loaded!.uri, '/cache/video.webm');
+        expect(events.whereType<EngineFailed>(), isEmpty);
+      });
+
+      test('a paused song stays paused', () async {
+        files.later['video'] = '/cache/video.webm';
+        await failAt42(playing: false);
+
+        expect(local.calls, ['load video @42']);
+      });
+
+      test('reports the failure when there is no file', () async {
+        await failAt42();
+
+        expect(local.calls, isNot(contains(startsWith('load'))));
+        expect(events.whereType<EngineFailed>().single.message, 'no');
+      });
+    });
+
     test('never consults the provider for local tracks', () async {
       files.files['song'] = 'elsewhere';
       await router.load(track('song', MediaSource.local));

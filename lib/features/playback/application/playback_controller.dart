@@ -677,7 +677,11 @@ class PlaybackController extends Notifier<PlaybackState> {
   void _onEngineEvent(EngineEvent event) {
     switch (event) {
       case EngineStatusChanged(:final status):
-        state = state.copyWith(status: status);
+        // The engine may have moved the track to another player.
+        state = state.copyWith(
+          status: status,
+          capabilities: _engine.capabilities,
+        );
       case EngineCompleted():
         unawaited(_onCompleted());
       case EngineFailed(:final message, :final unplayable):

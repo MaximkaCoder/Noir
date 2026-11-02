@@ -181,7 +181,7 @@ class YouTubeEmbedEngine implements EmbeddedYouTubePlayer {
     100 => 'This video is no longer available.',
     2 => "This video link isn't valid.",
     153 => "YouTube didn't accept NOIR's player identification.",
-    _ => "This video can't be played right now.",
+    _ => "This video can't be played right now (YouTube error $code).",
   };
 
   @override

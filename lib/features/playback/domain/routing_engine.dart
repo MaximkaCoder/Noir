@@ -12,7 +12,8 @@ import 'package:noir/shared/models/playback.dart';
 /// and position are forwarded; switching sources stops the other engine.
 ///
 /// A non-local track for which [AudioFileProvider] has a local file plays
-/// on the local engine; otherwise on the engine for its source.
+/// on the local engine; otherwise on the engine for its source. When that
+/// engine fails on it, it plays from its file instead, if one can be got.
 class RoutingEngine implements PlaybackEngine, MixingEngine {
   RoutingEngine(this._engines, {this._files = const NoAudioFiles()})
     : _active = _engines.values.first {
@@ -20,7 +21,12 @@ class RoutingEngine implements PlaybackEngine, MixingEngine {
       _subs
         ..add(
           engine.events.listen((e) {
-            if (identical(engine, _active)) _events.add(e);
+            if (!identical(engine, _active)) return;
+            if (e is EngineFailed && _remote != null) {
+              unawaited(_fallBack(e));
+              return;
+            }
+            _events.add(e);
           }),
         )
         ..add(
@@ -40,6 +46,12 @@ class RoutingEngine implements PlaybackEngine, MixingEngine {
   final Map<MediaSource, PlaybackEngine> _engines;
   final AudioFileProvider _files;
   PlaybackEngine _active;
+
+  /// The track the active non-local engine plays.
+  Track? _remote;
+
+  /// Whether playing was asked for last (not a pause or stop).
+  bool _wantsPlay = false;
 
   /// A file lookup slower than this is ignored, so playback never waits.
   static const _lookupTimeout = Duration(seconds: 2);
@@ -177,17 +189,49 @@ class RoutingEngine implements PlaybackEngine, MixingEngine {
       await _active.stop();
       _active = next;
     }
+    _remote = identical(next, _engines[MediaSource.local]) ? null : track;
     return await _active.load(routed, start: start);
   }
 
+  /// Plays the remote track [failure] is about from its file, from where
+  /// it stopped; reports [failure] when there is no file.
+  Future<void> _fallBack(EngineFailed failure) async {
+    final track = _remote!;
+    _remote = null;
+    final local = _engines[MediaSource.local];
+    if (local == null) return _events.add(failure);
+    final ticket = _loads;
+    final at = _active.currentPosition;
+    _events.add(const EngineStatusChanged(PlaybackStatus.loading));
+    final path = await _fileNow(track);
+    if (ticket != _loads) return; // Another song was asked for meanwhile.
+    if (path == null) return _events.add(failure);
+    await _active.stop();
+    _active = local;
+    if (await local.load(track.copyWith(uri: path), start: at) && _wantsPlay) {
+      await local.play();
+    }
+  }
+
   @override
-  Future<void> play() => _active.play();
+  Future<void> play() {
+    _wantsPlay = true;
+    return _active.play();
+  }
+
   @override
-  Future<void> pause() => _active.pause();
+  Future<void> pause() {
+    _wantsPlay = false;
+    return _active.pause();
+  }
+
   @override
   Future<void> seek(Duration position) => _active.seek(position);
   @override
-  Future<void> stop() => _active.stop();
+  Future<void> stop() {
+    _wantsPlay = false;
+    return _active.stop();
+  }
 
   @override
   Future<void> setVolume(double volume) async {
