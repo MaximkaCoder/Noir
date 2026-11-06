@@ -78,13 +78,39 @@ match.
 No account, file path or listening history is sent. Answers are kept in
 memory for the last 50 songs and are gone when NOIR quits.
 
-## Google / YouTube (future version)
+## Google account (optional)
 
-When account support ships, NOIR will contact only Google, only after you
-connect, using the scopes described in [oauth-flow.md](oauth-flow.md). Data
-from YouTube will be cached at most 30 days and deleted when you disconnect.
-NOIR's privacy policy will link the Google Privacy Policy and the YouTube Terms
-of Service, as Google's policies require.
+Signing in with Google is optional. You sign in on Google's own page in
+your browser; NOIR never sees your password. Details of the flow are in
+[oauth-flow.md](oauth-flow.md).
+
+- **Permissions asked:** your name, email and Google account id (`openid
+  email profile`) and read-only access to your YouTube account
+  (`youtube.readonly`). Write access is asked separately, only when you use
+  a feature that needs it (see below).
+- **Read from YouTube:** your playlists and the videos in them, your liked
+  videos, and the title, channel, duration and thumbnail of those videos.
+  NOIR doesn't read subscriptions, watch history, comments or anything
+  else.
+- **Stored on this device:** your name, email and account id, and a copy
+  of the playlists and videos above so the library opens offline. That copy
+  is refreshed while you stay connected and anything not refreshed for 30
+  days is deleted.
+- **Sign-in tokens** stay on this device, in the system's secure storage
+  (Windows Credential Manager, Android Keystore, Apple Keychain), and are
+  sent only to Google.
+- **Shared with:** nobody. Data from your Google account goes only between
+  your device and Google. NOIR has no server, and doesn't use the data for
+  ads or to train AI models.
+- **Disconnect** in Settings → Accounts revokes NOIR's access at Google and
+  deletes the account data and the YouTube copy from this device. You can
+  also remove NOIR's access at https://myaccount.google.com/permissions.
+
+NOIR's use of information received from Google APIs adheres to the
+[Google API Services User Data Policy](https://developers.google.com/terms/api-services-user-data-policy),
+including the Limited Use requirements. See also the
+[Google Privacy Policy](https://policies.google.com/privacy) and the
+[YouTube Terms of Service](https://www.youtube.com/t/terms).
 
 ## Written to your YouTube account
 
