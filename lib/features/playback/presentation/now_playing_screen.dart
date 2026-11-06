@@ -493,8 +493,9 @@ class _ArtworkBackdropState extends State<_ArtworkBackdrop>
   late final _flow = FlowClock(
     period: const Duration(seconds: 36),
     // Each step repaints the whole page: a phone's GPU gets fewer. The
-    // motion is slow enough not to show it.
-    fps: FormFactor.touch ? 10 : 30,
+    // motion is slow enough not to show it. At 30 a desktop GPU drew
+    // 8–9 W more than with the page still; at 15, 4 W.
+    fps: FormFactor.touch ? 10 : 15,
   );
   late final AppLifecycleListener _lifecycle;
 

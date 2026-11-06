@@ -1044,7 +1044,8 @@ void main() {
       List<Rect> dots(Finder within) {
         final found = find.descendant(
           of: within,
-          matching: find.byKey(WindowControls.dotKey),
+          matching: find.byKey(WindowControls.dotKey, skipOffstage: false),
+          skipOffstage: false,
         );
         return [
           for (var i = 0; i < found.evaluate().length; i++)
@@ -1052,7 +1053,8 @@ void main() {
         ];
       }
 
-      final shell = dots(find.byType(TopBar));
+      // The shell is offstage under the open player, but laid out.
+      final shell = dots(find.byType(TopBar, skipOffstage: false));
       final player = dots(find.byType(NowPlayingScreen));
       expect(shell, hasLength(3));
       expect(player, shell);

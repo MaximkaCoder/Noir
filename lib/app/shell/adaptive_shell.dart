@@ -12,7 +12,6 @@ import 'package:noir/app/shell/navigation_history.dart';
 import 'package:noir/app/shell/sidebar.dart';
 import 'package:noir/app/theme/design_tokens.dart';
 import 'package:noir/app/theme/glass_theme.dart';
-import 'package:noir/core/platform/form_factor.dart';
 import 'package:noir/core/platform/window_controls.dart';
 import 'package:noir/core/widgets/glass_surface.dart';
 import 'package:noir/core/widgets/liquid_press.dart';
@@ -90,29 +89,53 @@ class AdaptiveShell extends ConsumerWidget {
   }
 }
 
-/// On phones, the shell isn't painted while Now Playing covers it all. The
-/// page is see-through for its opening, so the shell under it was painted
-/// again with every frame the player drew.
-class _UnderPlayer extends StatelessWidget {
+/// The shell isn't painted while Now Playing covers it all. The page is
+/// see-through for its opening, so the shell under it was painted again
+/// with every frame the player drew (2 W more on a desktop GPU).
+/// Offstage still lays it out, so the island Now Playing closes into keeps
+/// its place.
+class _UnderPlayer extends StatefulWidget {
   const _UnderPlayer({required this.child});
 
   final Widget child;
 
   @override
-  Widget build(BuildContext context) {
-    if (!FormFactor.touch) return child;
-    return ValueListenableBuilder<double>(
-      valueListenable: NowPlayingTransition.coverage,
-      child: child,
-      builder: (context, coverage, child) {
-        final hidden = coverage >= 1;
-        return TickerMode(
-          enabled: !hidden,
-          child: Offstage(offstage: hidden, child: child),
-        );
-      },
-    );
+  State<_UnderPlayer> createState() => _UnderPlayerState();
+}
+
+class _UnderPlayerState extends State<_UnderPlayer> {
+  bool _hidden = NowPlayingTransition.coverage.value >= 1;
+
+  @override
+  void initState() {
+    super.initState();
+    NowPlayingTransition.coverage.addListener(_sync);
   }
+
+  @override
+  void dispose() {
+    NowPlayingTransition.coverage.removeListener(_sync);
+    super.dispose();
+  }
+
+  void _sync() {
+    final hidden = NowPlayingTransition.coverage.value >= 1;
+    if (hidden == _hidden || !mounted) return;
+    // A new island resets the coverage while it is being built, inside
+    // this shell: show it once that frame is done.
+    final scheduler = SchedulerBinding.instance;
+    if (scheduler.schedulerPhase == SchedulerPhase.persistentCallbacks) {
+      scheduler.addPostFrameCallback((_) => _sync());
+      return;
+    }
+    setState(() => _hidden = hidden);
+  }
+
+  @override
+  Widget build(BuildContext context) => TickerMode(
+    enabled: !_hidden,
+    child: Offstage(offstage: _hidden, child: widget.child),
+  );
 }
 
 /// Branch content with the desktop top bar above it.

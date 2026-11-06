@@ -314,8 +314,8 @@ void main() {
       await tester.pumpAndSettle();
       expect(_morphRect(tester), full);
       expect(find.byType(NowPlayingScreen), findsOneWidget);
-      // Hidden behind the page: no double image.
-      expect(_islandOpacity(tester), 0);
+      // Hidden behind the page, not even painted: no double image.
+      expect(find.byType(PlayerIsland), findsNothing);
 
       await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await tester.pump();
@@ -355,7 +355,7 @@ void main() {
       await tester.pump();
       await tester.pump();
       expect(_morphRect(tester), const Rect.fromLTWH(0, 0, 1360, 860));
-      expect(_islandOpacity(tester), 0);
+      expect(find.byType(PlayerIsland), findsNothing);
 
       await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await tester.pump();
