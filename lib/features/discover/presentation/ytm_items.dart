@@ -4,8 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:noir/core/widgets/artwork.dart';
-import 'package:noir/core/widgets/menus.dart';
-import 'package:noir/features/discover/presentation/dislike_actions.dart';
 import 'package:noir/features/discover/presentation/ytm_artist_screen.dart';
 import 'package:noir/features/playback/application/playback_controller.dart';
 import 'package:noir/features/search/application/music_search_controller.dart';
@@ -13,6 +11,7 @@ import 'package:noir/features/search/application/search_controller.dart';
 import 'package:noir/integrations/youtube_music/innertube_client.dart';
 import 'package:noir/integrations/youtube_music/ytm_models.dart';
 import 'package:noir/shared/widgets/media_tiles.dart';
+import 'package:noir/shared/widgets/track_menu.dart';
 
 /// "Artist", "Album · Daft Punk · 2013", … under a YouTube Music item.
 String ytmSubtitle(YtmItem item) => switch (item) {
@@ -97,38 +96,7 @@ Future<void> showYtmTrackMenu(
   WidgetRef ref,
   YtmTrackItem item,
   Offset position,
-) async {
-  final playback = ref.read(playbackProvider.notifier);
-  final action = await showNoirMenu<String>(
-    context,
-    anchor: position & Size.zero,
-    items: [
-      const NoirMenuItem('radio', 'Start radio', icon: Icons.radio_rounded),
-      const NoirMenuItem(
-        'next',
-        'Play next',
-        icon: Icons.playlist_play_rounded,
-      ),
-      const NoirMenuItem(
-        'queue',
-        'Add to queue',
-        icon: Icons.queue_music_rounded,
-      ),
-      ...dislikeMenuItems(item.track),
-    ],
-  );
-  if (!context.mounted) return;
-  switch (action) {
-    case 'radio':
-      unawaited(playback.startRadio(item.track));
-    case 'next':
-      playback.playNext(item.track);
-    case 'queue':
-      playback.addToQueue([item.track]);
-    default:
-      await runDislikeAction(context, ref, action, item.track);
-  }
-}
+) => showTrackMenu(context, ref, item.track, position);
 
 /// A YouTube Music item as a [MediaTile] for horizontal shelves.
 class YtmTile extends ConsumerWidget {

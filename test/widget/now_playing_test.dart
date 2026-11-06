@@ -323,6 +323,21 @@ void main() {
     });
   });
 
+  testWidgets('right-clicking the song opens its menu, with playlists', (
+    tester,
+  ) async {
+    await pumpNowPlaying(tester);
+    expect(find.text('Add to playlist…'), findsNothing);
+
+    await tester.tap(
+      find.text('Ash & Ember').hitTestable().first,
+      buttons: kSecondaryButton,
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Add to playlist…'), findsOneWidget);
+    expect(find.text('Start radio'), findsOneWidget);
+  });
+
   group('queue sheet', () {
     testWidgets('no inline "Up next" card; the queue button opens a sheet', (
       tester,

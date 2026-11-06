@@ -21,6 +21,7 @@ import 'package:noir/features/queue/presentation/queue_panel.dart';
 import 'package:noir/features/youtube/presentation/save_button.dart';
 import 'package:noir/shared/models/media.dart';
 import 'package:noir/shared/models/playback.dart';
+import 'package:noir/shared/widgets/track_menu.dart';
 
 void openNowPlaying(BuildContext context) => context.push('/now-playing');
 
@@ -293,16 +294,16 @@ class _FavoriteButton extends ConsumerWidget {
 /// Artwork, title and artist (opens Now Playing) over a hairline progress
 /// along the capsule's bottom edge. The whole block is the hover target, so
 /// the 2 px line never has to be hit precisely to reveal the times.
-class _IslandNowPlaying extends StatefulWidget {
+class _IslandNowPlaying extends ConsumerStatefulWidget {
   const _IslandNowPlaying(this.state);
 
   final PlaybackState state;
 
   @override
-  State<_IslandNowPlaying> createState() => _IslandNowPlayingState();
+  ConsumerState<_IslandNowPlaying> createState() => _IslandNowPlayingState();
 }
 
-class _IslandNowPlayingState extends State<_IslandNowPlaying> {
+class _IslandNowPlayingState extends ConsumerState<_IslandNowPlaying> {
   /// Height of the progress line's hit area; mirrored above the content so
   /// it stays centered on the capsule's axis.
   static const double _lineBox = 12;
@@ -337,6 +338,14 @@ class _IslandNowPlayingState extends State<_IslandNowPlaying> {
               label: 'Now playing. Open player',
               child: GestureDetector(
                 onTap: () => openNowPlaying(context),
+                onSecondaryTapUp: (d) => unawaited(
+                  showTrackMenu(
+                    context,
+                    ref,
+                    state.current!.track,
+                    d.globalPosition,
+                  ),
+                ),
                 child: MouseRegion(
                   cursor: SystemMouseCursors.click,
                   child: Row(

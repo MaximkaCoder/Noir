@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:noir/app/theme/app_theme.dart';
@@ -7,22 +5,13 @@ import 'package:noir/app/theme/design_tokens.dart';
 import 'package:noir/app/theme/glass_theme.dart';
 import 'package:noir/core/formatters.dart';
 import 'package:noir/core/widgets/artwork.dart';
-import 'package:noir/core/widgets/dialogs.dart';
-import 'package:noir/core/widgets/menus.dart';
-import 'package:noir/features/accounts/domain/account_connection.dart';
-import 'package:noir/features/analysis/application/analysis_providers.dart';
-import 'package:noir/features/analysis/presentation/track_analysis_dialog.dart';
-import 'package:noir/features/discover/presentation/dislike_actions.dart';
 import 'package:noir/features/playback/application/playback_controller.dart';
 import 'package:noir/features/playback/application/unplayable_tracks.dart';
-import 'package:noir/features/playlists/presentation/add_to_playlist.dart';
 import 'package:noir/features/settings/domain/app_settings.dart';
 import 'package:noir/features/settings/presentation/settings_controller.dart';
-import 'package:noir/features/youtube/application/youtube_providers.dart';
-import 'package:noir/features/youtube/presentation/add_to_youtube_playlist.dart';
 import 'package:noir/features/youtube/presentation/save_button.dart';
 import 'package:noir/shared/models/media.dart';
-import 'package:url_launcher/url_launcher.dart';
+import 'package:noir/shared/widgets/track_menu.dart';
 
 /// A track in any list: number or artwork, title/artist, duration, and a
 /// context menu (right-click, long-press, or the "more" button).
@@ -204,96 +193,15 @@ class _TrackRowState extends ConsumerState<TrackRow> {
         _ => false,
       };
 
-  Future<void> _showMenu(Offset position) async {
-    final track = widget.track;
-    final playback = ref.read(playbackProvider.notifier);
-    final youTube =
-        track.source == MediaSource.youtube &&
-        ref.read(accountServiceProvider).current.isConnected;
-    final action = await showNoirMenu<String>(
-      context,
-      anchor: position & Size.zero,
-      items: [
-        const NoirMenuItem('play', 'Play', icon: Icons.play_arrow_rounded),
-        const NoirMenuItem(
-          'next',
-          'Play next',
-          icon: Icons.playlist_play_rounded,
-        ),
-        const NoirMenuItem(
-          'queue',
-          'Add to queue',
-          icon: Icons.queue_music_rounded,
-        ),
-        const NoirMenuItem('radio', 'Start radio', icon: Icons.radio_rounded),
-        if (track.localId != null || youTube)
-          const NoirMenuItem(
-            'playlist',
-            'Add to playlist…',
-            icon: Icons.playlist_add_rounded,
-          ),
-        if (track.localId != null)
-          NoirMenuItem(
-            'favorite',
-            track.isFavorite ? 'Remove from favorites' : 'Add to favorites',
-            icon: track.isFavorite
-                ? Icons.favorite_rounded
-                : Icons.favorite_border_rounded,
-          ),
-        if (track.source == MediaSource.youtube)
-          const NoirMenuItem(
-            'open',
-            'Open in YouTube Music',
-            icon: Icons.open_in_new_rounded,
-          ),
-        if (ref.read(analysisRunnerProvider) != null)
-          const NoirMenuItem(
-            'analysis',
-            'Show analysis',
-            icon: Icons.graphic_eq_rounded,
-          ),
-        ...dislikeMenuItems(track),
-        if (widget.onRemove != null)
-          NoirMenuItem(
-            'remove',
-            widget.removeLabel,
-            icon: Icons.remove_circle_outline,
-          ),
-      ],
-    );
-    if (!mounted) return;
-    switch (action) {
-      case 'play':
-        widget.onPlay();
-      case 'next':
-        playback.playNext(track);
-        showToast(context, 'Playing next: ${track.title}');
-      case 'queue':
-        playback.addToQueue([track]);
-        showToast(context, 'Added to queue');
-      case 'radio':
-        unawaited(playback.startRadio(track));
-      case 'playlist' when youTube:
-        await addToYouTubePlaylist(context, ref, track);
-      case 'playlist':
-        await addToPlaylist(context, ref, [track]);
-      case 'favorite':
-        unawaited(playback.toggleFavorite(track));
-      case 'open':
-        unawaited(
-          launchUrl(
-            youTubeMusicUrl(videoId: track.uri),
-            mode: LaunchMode.externalApplication,
-          ),
-        );
-      case 'analysis':
-        unawaited(showTrackAnalysis(context, track));
-      case 'remove':
-        widget.onRemove?.call();
-      default:
-        await runDislikeAction(context, ref, action, track);
-    }
-  }
+  Future<void> _showMenu(Offset position) => showTrackMenu(
+    context,
+    ref,
+    widget.track,
+    position,
+    onPlay: widget.onPlay,
+    onRemove: widget.onRemove,
+    removeLabel: widget.removeLabel,
+  );
 }
 
 class _MoreButton extends StatelessWidget {

@@ -77,3 +77,6 @@ test/private/
 android/app/local-only.gradle
 android/app/proguard-local-only.pro
 android/app/src/localOnly/
+
+# Drafts for posts about NOIR, kept out of the repo
+promo/

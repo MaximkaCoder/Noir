@@ -47,6 +47,7 @@ import 'package:noir/features/youtube/presentation/youtube_cover.dart';
 import 'package:noir/integrations/youtube_music/ytm_models.dart';
 import 'package:noir/shared/models/media.dart';
 import 'package:noir/shared/models/playback.dart';
+import 'package:noir/shared/widgets/track_menu.dart';
 
 /// NOIR's signature screen: large artwork over a blurred wash of itself,
 /// title, progress, transport, and optionally time-synced lyrics. The queue
@@ -1614,6 +1615,10 @@ class _LargeArtworkState extends ConsumerState<_LargeArtwork>
     if (NoirEffects.of(context).animations) _flash.forward(from: 0);
   }
 
+  void _menu(Offset position) => unawaited(
+    showTrackMenu(context, ref, widget.state.current!.track, position),
+  );
+
   @override
   Widget build(BuildContext context) {
     final track = widget.state.current!.track;
@@ -1659,6 +1664,8 @@ class _LargeArtworkState extends ConsumerState<_LargeArtwork>
         cursor: SystemMouseCursors.click,
         child: GestureDetector(
           onTap: _toggle,
+          onSecondaryTapUp: (d) => _menu(d.globalPosition),
+          onLongPressStart: (d) => _menu(d.globalPosition),
           onHorizontalDragUpdate: FormFactor.touch
               ? (d) => _dragBy(d.delta.dx)
               : null,
@@ -1928,9 +1935,13 @@ class _TrackDetails extends ConsumerWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
       children: [
-        _TrackChange(
-          trackId: mixing ? 'mixing ${track.id}' : track.id,
-          child: details,
+        GestureDetector(
+          onSecondaryTapUp: (d) =>
+              unawaited(showTrackMenu(context, ref, track, d.globalPosition)),
+          child: _TrackChange(
+            trackId: mixing ? 'mixing ${track.id}' : track.id,
+            child: details,
+          ),
         ),
         if (failed) ...[
           const SizedBox(height: 12),
