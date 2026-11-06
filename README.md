@@ -29,6 +29,17 @@ rather than a browser tab. It also plays your own audio files.
 <sub>Screenshots from the Windows build. Lyrics are blurred in the image on
 purpose.</sub>
 
+## Why this exists
+
+NOIR is a pet project, and also a pitch. I listen to YouTube Music all day
+on a Windows PC and wanted an app that feels like it belongs on the
+computer. Google hasn't made one, so I built what I'd like it to look like,
+to show that a native YouTube Music for Windows can scroll a long playlist
+smoothly and still have everything the website has.
+
+If you work on YouTube Music: I'd be glad if an official Windows app made
+NOIR unnecessary. Take any idea from here.
+
 ## Why NOIR
 
 - It's a native app, not a browser tab. Long playlists scroll smoothly, and
