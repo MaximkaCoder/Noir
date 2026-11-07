@@ -80,3 +80,8 @@ android/app/src/localOnly/
 
 # Drafts for posts about NOIR, kept out of the repo
 promo/
+
+# Agent skills installed locally (HyperFrames etc.)
+.agents/
+.claude/
+skills-lock.json

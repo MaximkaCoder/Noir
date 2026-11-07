@@ -3,6 +3,7 @@
 # <img src="docs/logo.svg" width="40" alt=""> NOIR
 
 [![Build](https://img.shields.io/github/actions/workflow/status/MaximkaCoder/Noir/ci.yml?branch=main&style=for-the-badge&label=build)](https://github.com/MaximkaCoder/Noir/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/MaximkaCoder/Noir?style=for-the-badge&label=release)](https://github.com/MaximkaCoder/Noir/releases/latest)
 [![Platform](https://img.shields.io/badge/platform-windows-0078D4?style=for-the-badge)](#platforms)
 [![Flutter](https://img.shields.io/badge/flutter-3.47.8-02569B?style=for-the-badge)](https://flutter.dev)
 [![License](https://img.shields.io/badge/license-MIT-lightgrey?style=for-the-badge)](LICENSE)
@@ -25,10 +26,16 @@ YouTube Data API for your account. What changes is the app around it: a
 native interface that answers the moment you click, built for a computer
 rather than a browser tab. It also plays your own audio files.
 
-![NOIR on Windows: Home, Now Playing with lyrics, search, an album, settings](docs/screenshots/noir.jpg)
+![NOIR on Windows: Home, Now Playing with synced lyrics, an album, a playlist on this PC, the light theme](docs/screenshots/noir.jpg)
 
-<sub>Screenshots from the Windows build. Lyrics are blurred in the image on
-purpose.</sub>
+<sub>Screenshots from the Windows build with a fresh profile.</sub>
+
+## Download
+
+The Windows build is on the [Releases](https://github.com/MaximkaCoder/Noir/releases/latest)
+page: unpack the zip and run `noir.exe`. It needs Windows 10 or 11 (64-bit) and
+the WebView2 Runtime, which most PCs already have. Google sign-in is not part of
+the public build yet; everything else works without an account.
 
 ## Why this exists
 
@@ -81,7 +88,8 @@ Between tracks NOIR can do a plain crossfade or a "smart" transition that
 picks the moment and the type of blend for each pair of songs. Disco goes
 further, like a DJ set: each song plays for two or three minutes and the
 next one comes in on its drop. All three work on tracks played through
-NOIR's own audio player.
+NOIR's own audio player. The public build has the crossfade; Smart and Disco
+are not in it yet.
 
 Surprise me, next to Shuffle on a playlist, starts on a random song and then
 keeps choosing whichever song from that playlist mixes best into the one

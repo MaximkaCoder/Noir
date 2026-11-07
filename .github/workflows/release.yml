@@ -1,0 +1,58 @@
+name: Release
+
+# Push a tag that matches pubspec.yaml's version, e.g. `git tag v1.0.0`.
+on:
+  push:
+    tags: ["v*"]
+
+env:
+  FLUTTER_VERSION: 3.47.8
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    permissions:
+      contents: write # creates the release and uploads the zip
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Tag matches pubspec version
+        shell: bash
+        run: |
+          version=$(grep -m1 '^version:' pubspec.yaml | sed 's/version: *//; s/+.*//')
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match pubspec version $version" >&2
+            exit 1
+          fi
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - run: flutter pub get --enforce-lockfile
+      - run: dart run build_runner build
+      - run: flutter test
+      - run: flutter build windows --release
+      - name: Zip
+        shell: pwsh
+        run: |
+          $name = "NOIR-$env:GITHUB_REF_NAME-windows-x64.zip"
+          Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath $name
+          "ZIP=$name" | Out-File -FilePath $env:GITHUB_ENV -Append
+      - name: Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          notes=".github/release-notes/$GITHUB_REF_NAME.md"
+          if [ -f "$notes" ]; then
+            gh release create "$GITHUB_REF_NAME" "$ZIP" --repo "$GITHUB_REPOSITORY" \
+              --title "NOIR $GITHUB_REF_NAME" --notes-file "$notes"
+          else
+            gh release create "$GITHUB_REF_NAME" "$ZIP" --repo "$GITHUB_REPOSITORY" \
+              --title "NOIR $GITHUB_REF_NAME" --generate-notes
+          fi
