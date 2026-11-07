@@ -21,9 +21,8 @@ final favoritesProvider = Provider<AsyncValue<List<Track>>>((ref) {
   final (s, f) = (songs.value, files.value);
   if (s == null || f == null) return const AsyncLoading();
   return AsyncData(
-    [...s, ...f]..sort(
-      (a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()),
-    ),
+    [...s, ...f]
+      ..sort((a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase())),
   );
 });
 
