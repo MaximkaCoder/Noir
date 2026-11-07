@@ -5,6 +5,7 @@
 [![Build](https://img.shields.io/github/actions/workflow/status/MaximkaCoder/Noir/ci.yml?branch=main&style=for-the-badge&label=build)](https://github.com/MaximkaCoder/Noir/actions/workflows/ci.yml)
 [![Platform](https://img.shields.io/badge/platform-windows-0078D4?style=for-the-badge)](#platforms)
 [![Flutter](https://img.shields.io/badge/flutter-3.47.8-02569B?style=for-the-badge)](https://flutter.dev)
+[![License](https://img.shields.io/badge/license-MIT-lightgrey?style=for-the-badge)](LICENSE)
 [![Code style](https://img.shields.io/badge/code_style-very__good__analysis-4DD0C7?style=for-the-badge)](https://pub.dev/packages/very_good_analysis)
 
 [![Secrets](https://img.shields.io/badge/gitleaks-scanned-8A3FFC)](https://github.com/gitleaks/gitleaks)
@@ -86,7 +87,11 @@ Surprise me, next to Shuffle on a playlist, starts on a random song and then
 keeps choosing whichever song from that playlist mixes best into the one
 playing.
 
-Connect a Google account and NOIR syncs your YouTube playlists and liked
+No account is needed for any of this. Without one, playlists live on your
+computer and hold YouTube Music songs and local files side by side, and the
+heart keeps a song in Favorites on this device.
+
+Connect a Google account and NOIR also syncs your YouTube playlists and liked
 music both ways. Adding a song to a playlist or removing it in NOIR changes
 the playlist on YouTube. The heart saves to a playlist you choose, or to
 Liked music, which likes the song on YouTube.
@@ -98,6 +103,8 @@ The rest:
   with integrated graphics.
 - Windows media keys and the Windows media flyout work while the window is
   in the background.
+- An edge player: while NOIR is in the background, a small player sits at
+  the edge of the screen with the cover, play/pause, skip and the heart.
 - Dark, light and system themes; comfortable and compact density.
 
 ## How NOIR talks to YouTube Music
@@ -206,5 +213,7 @@ after a write.
 What is missing on purpose, and why: [docs/limitations.md](docs/limitations.md).
 How YouTube fits in: [docs/youtube-capability-matrix.md](docs/youtube-capability-matrix.md).
 
-Inter is © The Inter Project Authors, SIL Open Font License 1.1
-(`assets/fonts/Inter-LICENSE.txt`).
+## License
+
+[MIT](LICENSE). Inter is © The Inter Project Authors, SIL Open Font License
+1.1 (`assets/fonts/Inter-LICENSE.txt`).
