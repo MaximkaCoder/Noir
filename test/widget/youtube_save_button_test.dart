@@ -1,9 +1,11 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noir/app/theme/app_theme.dart';
 import 'package:noir/core/database/database_provider.dart';
 import 'package:noir/features/accounts/domain/account_connection.dart';
+import 'package:noir/features/library/application/library_providers.dart';
 import 'package:noir/features/playback/application/playback_controller.dart';
 import 'package:noir/features/settings/domain/app_settings.dart';
 import 'package:noir/features/settings/presentation/settings_controller.dart';
@@ -130,13 +132,44 @@ void main() {
     );
   });
 
-  testWidgets('the heart is hidden while no account is connected', (
+  testWidgets('without an account the heart keeps the song on this device', (
     tester,
   ) async {
     final h = await _Harness.pump(tester);
     h.account.set(AccountStatus.disconnected);
     await tester.pumpAndSettle();
     expect(find.byTooltip('Save to NOIR Likes'), findsNothing);
+    final calls = h.http.requests.length;
+
+    await tester.runAsync(() async {
+      await tester.tap(find.byTooltip('Add to favorites (this device)'));
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    });
+    await tester.pumpAndSettle();
+    expect(
+      find.byTooltip('Remove from favorites (this device)'),
+      findsOneWidget,
+    );
+    final saved = await tester.runAsync(
+      () => h.container.read(favoriteSongsProvider.future),
+    );
+    expect(saved!.single.title, 'Night Song');
+    expect(h.http.requests, hasLength(calls));
+  });
+
+  testWidgets('without an account a YouTube song goes to local playlists', (
+    tester,
+  ) async {
+    final h = await _Harness.pump(tester);
+    h.account.set(AccountStatus.disconnected);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Night Song'), buttons: kSecondaryButton);
+    await tester.pumpAndSettle();
+    expect(find.text('Add to favorites'), findsOneWidget);
+    await tester.tap(find.text('Add to playlist…'));
+    await tester.pumpAndSettle();
+    expect(find.text('New playlist…'), findsOneWidget);
   });
 
   testWidgets('without a target the heart opens the playlist picker', (

@@ -38,13 +38,35 @@ class Playlists extends Table {
   DateTimeColumn get lastOpenedAt => dateTime().nullable()();
 }
 
+/// A song in a local playlist: a local file ([trackId]) or a song from
+/// YouTube Music ([media]), so playlists work without a Google account.
 class PlaylistEntries extends Table {
   IntColumn get id => integer().autoIncrement()();
   IntColumn get playlistId =>
       integer().references(Playlists, #id, onDelete: KeyAction.cascade)();
-  IntColumn get trackId =>
-      integer().references(Tracks, #id, onDelete: KeyAction.cascade)();
+  IntColumn get trackId => integer().nullable().references(
+    Tracks,
+    #id,
+    onDelete: KeyAction.cascade,
+  )();
+
+  /// The song as `Track` JSON when it isn't a local file.
+  TextColumn get media => text().nullable()();
   IntColumn get position => integer()();
+}
+
+/// Hearted songs that aren't local files (those carry `Tracks.isFavorite`).
+/// Kept on this device, with or without a Google account.
+class FavoriteSongs extends Table {
+  /// `Track.id`, e.g. `yt:<videoId>`.
+  TextColumn get id => text()();
+
+  /// The song as `Track` JSON.
+  TextColumn get media => text()();
+  DateTimeColumn get addedAt => dateTime()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {id};
 }
 
 /// Plays started inside NOIR. Stays on this device.

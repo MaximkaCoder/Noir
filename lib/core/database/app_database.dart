@@ -13,6 +13,7 @@ part 'app_database.g.dart';
     LibraryFolders,
     Playlists,
     PlaylistEntries,
+    FavoriteSongs,
     PlayHistory,
     SearchHistory,
     KeyValues,
@@ -37,7 +38,7 @@ class AppDatabase extends _$AppDatabase {
   );
 
   @override
-  int get schemaVersion => 4;
+  int get schemaVersion => 5;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -67,6 +68,14 @@ class AppDatabase extends _$AppDatabase {
           // v3 → v4: playlist item ids, to remove saved songs on YouTube.
           await m.addColumn(ytPlaylistItems, ytPlaylistItems.itemId);
         }
+      }
+      if (from < 5) {
+        // v4 → v5: YouTube songs in local playlists and favorites. The
+        // entries table is rebuilt so its track id may be null.
+        await m.alterTable(
+          TableMigration(playlistEntries, newColumns: [playlistEntries.media]),
+        );
+        await m.createTable(favoriteSongs);
       }
     },
     beforeOpen: (details) async {

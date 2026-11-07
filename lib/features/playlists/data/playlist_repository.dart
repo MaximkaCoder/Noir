@@ -20,12 +20,16 @@ class PlaylistRepository {
 
   Stream<List<Playlist>> watchPlaylists() => _db
       .customSelect(
+        // A YouTube song keeps its length and cover in its JSON.
         'SELECT p.id, p.name, p.updated_at, COUNT(e.id) AS n, '
-        'COALESCE(SUM(t.duration_ms), 0) AS ms, '
+        'COALESCE(SUM(COALESCE(t.duration_ms, '
+        r"json_extract(e.media, '$.duration'))), 0) AS ms, "
         '(SELECT GROUP_CONCAT(art, char(31)) FROM (SELECT DISTINCT '
-        't2.artwork_path AS art FROM playlist_entries e2 '
-        'JOIN tracks t2 ON t2.id = e2.track_id '
-        'WHERE e2.playlist_id = p.id AND t2.artwork_path IS NOT NULL '
+        'COALESCE(t2.artwork_path, '
+        r"json_extract(e2.media, '$.artworkUrl')) AS art "
+        'FROM playlist_entries e2 '
+        'LEFT JOIN tracks t2 ON t2.id = e2.track_id '
+        'WHERE e2.playlist_id = p.id AND art IS NOT NULL '
         'ORDER BY e2.position LIMIT 4)) AS arts '
         'FROM playlists p '
         'LEFT JOIN playlist_entries e ON e.playlist_id = p.id '
@@ -57,7 +61,7 @@ class PlaylistRepository {
     final e = _db.playlistEntries;
     final query =
         _db.select(e).join([
-            innerJoin(_db.tracks, _db.tracks.id.equalsExp(e.trackId)),
+            leftOuterJoin(_db.tracks, _db.tracks.id.equalsExp(e.trackId)),
           ])
           ..where(e.playlistId.equals(playlistId))
           ..orderBy([OrderingTerm.asc(e.position)]);
@@ -66,7 +70,9 @@ class PlaylistRepository {
         for (final row in rows)
           (
             entryId: row.readTable(e).id,
-            track: row.readTable(_db.tracks).toTrack(),
+            track:
+                row.readTableOrNull(_db.tracks)?.toTrack() ??
+                mediaTrack(row.readTable(e).media!),
           ),
       ],
     );
@@ -101,7 +107,8 @@ class PlaylistRepository {
         PlaylistsCompanion(lastOpenedAt: Value(DateTime.now())),
       );
 
-  Future<void> addTracks(int playlistId, List<int> trackIds) =>
+  /// Appends [tracks]: local files by id, other songs as their JSON.
+  Future<void> addTracks(int playlistId, List<Track> tracks) =>
       _db.transaction(() async {
         final e = _db.playlistEntries;
         final maxPos = e.position.max();
@@ -113,12 +120,14 @@ class PlaylistRepository {
                 .getSingle();
         var pos = (last ?? -1) + 1;
         await _db.batch((b) {
-          for (final trackId in trackIds) {
+          for (final track in tracks) {
+            final localId = track.localId;
             b.insert(
               e,
               PlaylistEntriesCompanion.insert(
                 playlistId: playlistId,
-                trackId: trackId,
+                trackId: Value(localId),
+                media: Value(localId == null ? mediaJson(track) : null),
                 position: pos++,
               ),
             );

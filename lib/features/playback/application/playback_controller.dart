@@ -487,12 +487,16 @@ class PlaybackController extends Notifier<PlaybackState> {
 
   /// Local favorite. Never synchronized to any provider.
   Future<void> toggleFavorite(Track track) async {
+    final library = ref.read(libraryRepositoryProvider);
     final id = track.localId;
-    if (id == null) return;
+    if (id == null) {
+      // Songs that aren't files keep their heart in a table of their own.
+      final favorite = !await library.isFavoriteSong(track.id);
+      await library.setFavoriteSong(track, favorite: favorite);
+      return;
+    }
     final favorite = !track.isFavorite;
-    await ref
-        .read(libraryRepositoryProvider)
-        .setFavorite(id, favorite: favorite);
+    await library.setFavorite(id, favorite: favorite);
     state = state.copyWith(
       queue: [
         for (final q in state.queue)

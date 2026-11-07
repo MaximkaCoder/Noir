@@ -20,14 +20,14 @@ Future<int?> createPlaylist(BuildContext context, WidgetRef ref) async {
   return await ref.read(playlistRepositoryProvider).create(name);
 }
 
-/// Lets the user pick (or create) a local playlist for [tracks].
+/// Lets the user pick (or create) a local playlist for [tracks]: local
+/// files and songs from YouTube Music alike, no account needed.
 Future<void> addToPlaylist(
   BuildContext context,
   WidgetRef ref,
   List<Track> tracks,
 ) async {
-  final ids = [for (final t in tracks) ?t.localId];
-  if (ids.isEmpty) return;
+  if (tracks.isEmpty) return;
   const newPlaylist = -1;
   final chosen = await showGlassDialog<int>(
     context,
@@ -80,11 +80,11 @@ Future<void> addToPlaylist(
       ? await createPlaylist(context, ref)
       : chosen;
   if (id == null || !context.mounted) return;
-  await ref.read(playlistRepositoryProvider).addTracks(id, ids);
+  await ref.read(playlistRepositoryProvider).addTracks(id, tracks);
   if (context.mounted) {
     showToast(
       context,
-      ids.length == 1 ? 'Added to playlist' : 'Added ${ids.length} songs',
+      tracks.length == 1 ? 'Added to playlist' : 'Added ${tracks.length} songs',
     );
   }
 }

@@ -7,6 +7,7 @@ import 'package:noir/features/playlists/data/playlist_repository.dart';
 import 'package:noir/features/search/data/search_history_repository.dart';
 import 'package:noir/features/settings/data/settings_repository.dart';
 import 'package:noir/features/settings/domain/app_settings.dart';
+import 'package:noir/shared/models/media.dart';
 import 'package:path/path.dart' as p;
 
 import '../helpers/test_database.dart';
@@ -86,11 +87,8 @@ void main() {
         trackRow('2.mp3', title: 'Two', artworkPath: 'b.jpg'),
         trackRow('3.mp3', title: 'Three'),
       ]);
-      final ids = [
-        for (final t in await library.watchTracks().first) t.localId!,
-      ];
       final id = await playlists.create('  Focus  ');
-      await playlists.addTracks(id, ids);
+      await playlists.addTracks(id, await library.watchTracks().first);
 
       var entries = await playlists.watchTracks(id).first;
       await playlists.reorder(
@@ -108,17 +106,59 @@ void main() {
       expect(summary.artworkPaths, ['a.jpg']);
     });
 
+    test('YouTube songs sit in a playlist next to local files', () async {
+      final playlists = PlaylistRepository(db);
+      await library.upsertScanned([trackRow('1.mp3', title: 'One')]);
+      const song = Track(
+        id: 'yt:v1',
+        source: MediaSource.youtube,
+        title: 'Night Song',
+        uri: 'v1',
+        artist: 'Mara Vale',
+        duration: Duration(minutes: 4),
+        artworkUrl: 'https://i.ytimg.com/vi/v1/hq.jpg',
+      );
+      final id = await playlists.create('Mixed');
+      await playlists.addTracks(id, [
+        song,
+        ...await library.watchTracks().first,
+      ]);
+
+      final entries = await playlists.watchTracks(id).first;
+      expect(entries.map((e) => e.track.title), ['Night Song', 'One']);
+      expect(entries.first.track, song);
+      final summary = (await playlists.watchPlaylists().first).single;
+      expect(summary.trackCount, 2);
+      expect(summary.totalDuration, const Duration(minutes: 7));
+      expect(summary.artworkPaths, [song.artworkUrl]);
+    });
+
     test('deleting a track removes it from playlists (cascade)', () async {
       final playlists = PlaylistRepository(db);
       await library.upsertScanned([trackRow('1.mp3')]);
-      final trackId = (await library.watchTracks().first).single.localId!;
       final id = await playlists.create('P');
-      await playlists.addTracks(id, [trackId]);
+      await playlists.addTracks(id, await library.watchTracks().first);
 
       await library.removePaths(['1.mp3']);
 
       expect(await playlists.watchTracks(id).first, isEmpty);
     });
+  });
+
+  test('songs from YouTube can be favorites without an account', () async {
+    const song = Track(
+      id: 'yt:v1',
+      source: MediaSource.youtube,
+      title: 'Night Song',
+      uri: 'v1',
+    );
+    await library.setFavoriteSong(song, favorite: true);
+    expect(await library.isFavoriteSong('yt:v1'), isTrue);
+    expect(await library.watchFavoriteSongs().first, [
+      song.copyWith(isFavorite: true),
+    ]);
+    await library.setFavoriteSong(song, favorite: false);
+    expect(await library.watchFavoriteSongs().first, isEmpty);
   });
 
   test('history returns distinct tracks, most recent first', () async {

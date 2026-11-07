@@ -7,13 +7,16 @@ import 'package:noir/app/theme/glass_theme.dart';
 import 'package:noir/core/widgets/buttons.dart';
 import 'package:noir/core/widgets/dialogs.dart';
 import 'package:noir/features/accounts/domain/account_connection.dart';
+import 'package:noir/features/library/application/library_providers.dart';
+import 'package:noir/features/playback/application/playback_controller.dart';
 import 'package:noir/features/youtube/application/youtube_save.dart';
 import 'package:noir/features/youtube/presentation/save_target_picker.dart';
 import 'package:noir/shared/models/media.dart';
 
 /// Heart for a YouTube song: saves it to (or removes it from) the playlist
-/// chosen in Settings → Accounts. Never a YouTube like. Hidden for local
-/// tracks and while no Google account is connected.
+/// chosen in Settings → Accounts. Never a YouTube like. Without a Google
+/// account it keeps the song in Favorites on this device. Hidden for local
+/// tracks.
 class YouTubeSaveButton extends ConsumerWidget {
   const YouTubeSaveButton(
     this.track, {
@@ -35,13 +38,19 @@ class YouTubeSaveButton extends ConsumerWidget {
     final account =
         ref.watch(accountConnectionProvider).value ??
         ref.watch(accountServiceProvider).current;
-    if (!account.isConnected) return const SizedBox.shrink();
+    final local = !account.isConnected;
 
-    final saved = ref.watch(youTubeSavedProvider(track.uri));
-    final title = ref.watch(saveTargetTitleProvider);
+    final saved = local
+        ? ref.watch(isFavoriteSongProvider(track.id))
+        : ref.watch(youTubeSavedProvider(track.uri));
+    final title = local ? null : ref.watch(saveTargetTitleProvider);
     final visible = saved || showWhenUnsaved;
     final fx = NoirEffects.of(context);
-    final tooltip = saved
+    final tooltip = local
+        ? saved
+              ? 'Remove from favorites (this device)'
+              : 'Add to favorites (this device)'
+        : saved
         ? 'Remove from $title'
         : title == null
         ? 'Save to a YouTube playlist'
@@ -68,8 +77,11 @@ class YouTubeSaveButton extends ConsumerWidget {
               tooltip: tooltip,
               active: saved,
               size: size,
-              onPressed: () =>
-                  unawaited(toggleYouTubeSave(context, ref, track)),
+              onPressed: () => unawaited(
+                local
+                    ? ref.read(playbackProvider.notifier).toggleFavorite(track)
+                    : toggleYouTubeSave(context, ref, track),
+              ),
             ),
           ),
         ),

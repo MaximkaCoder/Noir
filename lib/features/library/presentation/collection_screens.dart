@@ -194,9 +194,7 @@ class FavoritesScreen extends ConsumerWidget {
       header: (tracks) => CollectionHeader(
         eyebrow: 'On this device',
         artwork: (s) => ArtworkCollage(
-          paths: <String>{for (final t in tracks) ?t.artworkPath}
-              .take(4)
-              .toList(),
+          paths: <String>{for (final t in tracks) ?t.artwork}.take(4).toList(),
           size: s,
           radius: 16,
         ),

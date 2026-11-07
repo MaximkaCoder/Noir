@@ -8,6 +8,7 @@ import 'package:noir/features/accounts/domain/account_connection.dart';
 import 'package:noir/features/analysis/application/analysis_providers.dart';
 import 'package:noir/features/analysis/presentation/track_analysis_dialog.dart';
 import 'package:noir/features/discover/presentation/dislike_actions.dart';
+import 'package:noir/features/library/application/library_providers.dart';
 import 'package:noir/features/playback/application/playback_controller.dart';
 import 'package:noir/features/playlists/presentation/add_to_playlist.dart';
 import 'package:noir/features/youtube/application/youtube_providers.dart';
@@ -31,6 +32,9 @@ Future<void> showTrackMenu(
   final youTube =
       track.source == MediaSource.youtube &&
       ref.read(accountServiceProvider).current.isConnected;
+  final favorite = track.localId != null
+      ? track.isFavorite
+      : ref.read(isFavoriteSongProvider(track.id));
   final action = await showNoirMenu<String>(
     context,
     anchor: position & Size.zero,
@@ -48,17 +52,18 @@ Future<void> showTrackMenu(
         icon: Icons.queue_music_rounded,
       ),
       const NoirMenuItem('radio', 'Start radio', icon: Icons.radio_rounded),
-      if (track.localId != null || youTube)
-        const NoirMenuItem(
-          'playlist',
-          'Add to playlist…',
-          icon: Icons.playlist_add_rounded,
-        ),
-      if (track.localId != null)
+      const NoirMenuItem(
+        'playlist',
+        'Add to playlist…',
+        icon: Icons.playlist_add_rounded,
+      ),
+      // With an account the heart saves to YouTube instead (see
+      // YouTubeSaveButton).
+      if (!youTube)
         NoirMenuItem(
           'favorite',
-          track.isFavorite ? 'Remove from favorites' : 'Add to favorites',
-          icon: track.isFavorite
+          favorite ? 'Remove from favorites' : 'Add to favorites',
+          icon: favorite
               ? Icons.favorite_rounded
               : Icons.favorite_border_rounded,
         ),

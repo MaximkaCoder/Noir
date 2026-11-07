@@ -42,7 +42,7 @@ void main() {
     final playlists = PlaylistRepository(app.db);
     final id = await playlists.create('Mix');
     await playlists.addTracks(id, [
-      for (final r in await app.db.select(app.db.tracks).get()) r.id,
+      for (final r in await app.db.select(app.db.tracks).get()) r.toTrack(),
     ]);
     app.container.read(routerProvider).go('/library/playlist/$id');
     await tester.pumpAndSettle();

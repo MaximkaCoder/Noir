@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:noir/features/accounts/domain/account_connection.dart';
 import 'package:noir/features/artwork/application/artwork_providers.dart';
 import 'package:noir/features/edge_player/edge_snapshot.dart';
+import 'package:noir/features/library/application/library_providers.dart';
 import 'package:noir/features/playback/application/playback_controller.dart';
 import 'package:noir/features/settings/domain/app_settings.dart';
 import 'package:noir/features/settings/presentation/settings_controller.dart';
@@ -56,14 +57,15 @@ final edgeSnapshotProvider = Provider<EdgeSnapshot>((ref) {
   var liked = false;
   String? art;
   if (track.source == MediaSource.youtube) {
-    // The heart saves to the chosen YouTube playlist, as in the app.
+    // The heart saves to the chosen YouTube playlist, as in the app, or
+    // to Favorites on this device without an account.
     final account =
         ref.watch(accountConnectionProvider).value ??
         ref.watch(accountServiceProvider).current;
-    if (account.isConnected) {
-      canLike = true;
-      liked = ref.watch(youTubeSavedProvider(track.uri));
-    }
+    canLike = true;
+    liked = account.isConnected
+        ? ref.watch(youTubeSavedProvider(track.uri))
+        : ref.watch(isFavoriteSongProvider(track.id));
     art = ref.watch(resolvedArtProvider(track.uri))?.squareUrl(544);
   } else if (track.localId != null) {
     canLike = true;
@@ -258,7 +260,8 @@ class EdgePlayerBridge with WindowListener {
   Future<void> _like() async {
     final track = _container.read(playbackProvider).current?.track;
     if (track == null) return;
-    if (track.source != MediaSource.youtube) {
+    if (track.source != MediaSource.youtube ||
+        !_container.read(accountServiceProvider).current.isConnected) {
       await _container.read(playbackProvider.notifier).toggleFavorite(track);
       return;
     }

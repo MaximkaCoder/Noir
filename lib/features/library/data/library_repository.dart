@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:drift/drift.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:noir/core/database/app_database.dart';
@@ -28,6 +30,14 @@ extension TrackRecordX on TrackRecord {
     isFavorite: isFavorite,
   );
 }
+
+/// A song that isn't a local file, as stored in [PlaylistEntries.media] and
+/// [FavoriteSongs.media]. The favorite flag lives in the table, not here.
+String mediaJson(Track track) =>
+    jsonEncode(track.copyWith(isFavorite: false).toJson());
+
+Track mediaTrack(String json) =>
+    Track.fromJson(jsonDecode(json) as Map<String, Object?>);
 
 /// Local library metadata. Everything here comes from files the user chose.
 class LibraryRepository {
@@ -169,6 +179,39 @@ class LibraryRepository {
       (_db.update(_t)..where((t) => t.id.equals(trackId))).write(
         TracksCompanion(isFavorite: Value(favorite)),
       );
+
+  /// Hearted songs that aren't local files, newest first.
+  Stream<List<Track>> watchFavoriteSongs() {
+    final f = _db.favoriteSongs;
+    final query = _db.select(f)..orderBy([(f) => OrderingTerm.desc(f.addedAt)]);
+    return query.watch().map(
+      (rows) => [
+        for (final r in rows) mediaTrack(r.media).copyWith(isFavorite: true),
+      ],
+    );
+  }
+
+  Future<void> setFavoriteSong(Track track, {required bool favorite}) {
+    final f = _db.favoriteSongs;
+    if (!favorite) {
+      return (_db.delete(f)..where((r) => r.id.equals(track.id))).go();
+    }
+    return _db
+        .into(f)
+        .insertOnConflictUpdate(
+          FavoriteSongsCompanion.insert(
+            id: track.id,
+            media: mediaJson(track),
+            addedAt: DateTime.now(),
+          ),
+        );
+  }
+
+  Future<bool> isFavoriteSong(String id) async =>
+      await (_db.select(
+        _db.favoriteSongs,
+      )..where((r) => r.id.equals(id))).getSingleOrNull() !=
+      null;
 
   /// Inserts new files and refreshes metadata of known ones, keeping
   /// user state (favorite flag, added date).
