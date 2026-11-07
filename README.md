@@ -213,6 +213,10 @@ after a write.
 What is missing on purpose, and why: [docs/limitations.md](docs/limitations.md).
 How YouTube fits in: [docs/youtube-capability-matrix.md](docs/youtube-capability-matrix.md).
 
+## Contact
+
+noir.support.mail@gmail.com, or open an issue.
+
 ## License
 
 [MIT](LICENSE). Inter is © The Inter Project Authors, SIL Open Font License

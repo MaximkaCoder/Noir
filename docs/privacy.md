@@ -135,3 +135,7 @@ NOIR never deletes playlists and never writes anything in the background. On thi
 device it remembers which playlist you chose (deleted when you disconnect).
 You can withdraw the permission at https://myaccount.google.com/permissions
 or by disconnecting in Settings.
+
+## Contact
+
+Questions about your data or this policy: noir.support.mail@gmail.com
