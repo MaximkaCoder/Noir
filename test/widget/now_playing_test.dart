@@ -1213,6 +1213,26 @@ void main() {
       await tester.pump(const Duration(seconds: 2));
       expect(flowAt(tester), isNot(first));
 
+      // Window behind another one, then minimized: it holds still.
+      for (final state in [
+        AppLifecycleState.inactive,
+        AppLifecycleState.hidden,
+      ]) {
+        tester.binding.handleAppLifecycleStateChanged(state);
+        await tester.pump();
+        final still = flowAt(tester);
+        await tester.pump(const Duration(seconds: 2));
+        expect(flowAt(tester), still, reason: '$state');
+      }
+      // Back in front: it flows again.
+      tester.binding
+        ..handleAppLifecycleStateChanged(AppLifecycleState.inactive)
+        ..handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+      final resumed = flowAt(tester);
+      await tester.pump(const Duration(seconds: 2));
+      expect(flowAt(tester), isNot(resumed));
+
       // Animations off: it holds still.
       app.container
           .read(settingsProvider.notifier)

@@ -458,9 +458,9 @@ class _RenderContentGate extends RenderProxyBox {
 ///
 /// The colours flow like a liquid: copies of the bitmap drift and turn
 /// slowly over one another ([ArtworkFlowPainter]), on a 36 s loop. Still with
-/// Animations off and while the app is hidden. It flows in Performance mode
-/// too: it only redraws a tiny bitmap three times a step, at [FlowClock]'s
-/// pace.
+/// Animations off and while the window is not focused. It flows in
+/// Performance mode too: it only redraws a tiny bitmap three times a step,
+/// at [FlowClock]'s pace.
 class _ArtworkBackdrop extends StatefulWidget {
   const _ArtworkBackdrop({required this.source, required this.baked});
 
@@ -538,18 +538,16 @@ class _ArtworkBackdropState extends State<_ArtworkBackdrop>
     super.dispose();
   }
 
-  /// Flows while there is artwork, motion is wanted and the app is shown.
+  /// Flows while there is artwork, motion is wanted and the window is in
+  /// front: a window behind another one, or minimized, keeps the GPU idle.
   void _syncFlow() {
     final fx = NoirEffects.of(context);
     final state = SchedulerBinding.instance.lifecycleState;
-    final visible =
-        state != AppLifecycleState.hidden &&
-        state != AppLifecycleState.paused &&
-        state != AppLifecycleState.detached;
+    final focused = state == null || state == AppLifecycleState.resumed;
     final run =
         NowPlayingScreen.flowEnabled &&
         fx.animations &&
-        visible &&
+        focused &&
         (_shown != null || _previous != null);
     if (run) {
       _flow.start();
