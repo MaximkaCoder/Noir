@@ -1,11 +1,14 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noir/core/database/database_provider.dart';
 import 'package:noir/core/platform/window_controls.dart';
 import 'package:noir/core/widgets/smooth_scroll.dart';
 import 'package:noir/features/home/application/pinned_playlists.dart';
+import 'package:noir/features/settings/domain/app_settings.dart';
+import 'package:noir/features/settings/presentation/settings_controller.dart';
 
 import '../helpers/test_database.dart';
 
@@ -66,12 +69,78 @@ void main() {
   });
 
   group('window dots', () {
+    Future<void> pumpControls(
+      WidgetTester tester, {
+      WindowButtons style = WindowButtons.dots,
+    }) => tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          initialSettingsProvider.overrideWithValue(
+            AppSettings(windowButtons: style),
+          ),
+        ],
+        child: const MaterialApp(home: Center(child: WindowControls())),
+      ),
+    );
+
+    /// The window_manager calls the buttons make.
+    List<String> recordWindowCalls() {
+      final calls = <String>[];
+      const channel = MethodChannel('window_manager');
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            ..setMockMethodCallHandler(channel, (call) async {
+              calls.add(call.method);
+              return false;
+            });
+      addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+      return calls;
+    }
+
+    testWidgets('a click near a dot edge still presses it', (tester) async {
+      final calls = recordWindowCalls();
+      await pumpControls(tester);
+      final dot = tester.getCenter(find.byKey(WindowControls.dotKey).first);
+      // Off the painted 12 px dot, inside its 20×24 target.
+      await tester.tapAt(dot + const Offset(8, 9));
+      await tester.pump();
+      expect(calls, contains('minimize'));
+    });
+
+    testWidgets('Windows style: glyphs, a red close under the pointer', (
+      tester,
+    ) async {
+      final calls = recordWindowCalls();
+      await pumpControls(tester, style: WindowButtons.windows);
+      expect(find.byKey(WindowControls.dotKey), findsNothing);
+      expect(find.byKey(WindowControls.buttonKey), findsNWidgets(3));
+      Color? fillOf(String tooltip) {
+        final button = find.descendant(
+          of: find.byTooltip(tooltip),
+          matching: find.byKey(WindowControls.buttonKey),
+        );
+        final box = tester.widget<AnimatedContainer>(button).decoration;
+        return (box! as BoxDecoration).color;
+      }
+
+      expect(fillOf('Close')!.a, 0, reason: 'no strip behind the buttons');
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      addTearDown(mouse.removePointer);
+      await mouse.addPointer(location: Offset.zero);
+      await mouse.moveTo(tester.getCenter(find.byTooltip('Close')));
+      await tester.pumpAndSettle();
+      expect(fillOf('Close'), const Color(0xFFC42B1C));
+      expect(fillOf('Minimize')!.a, 0);
+
+      await tester.tapAt(tester.getTopLeft(find.byTooltip('Maximize')));
+      await tester.pump();
+      expect(calls, contains('maximize'));
+    });
+
     testWidgets('only the hovered dot lights up, then fades back', (
       tester,
     ) async {
-      await tester.pumpWidget(
-        const MaterialApp(home: Center(child: WindowControls())),
-      );
+      await pumpControls(tester);
       Color? colorOf(String tooltip) {
         final dot = find.descendant(
           of: find.byTooltip(tooltip),

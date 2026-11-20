@@ -3,6 +3,7 @@ import 'dart:math';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noir/core/database/database_provider.dart';
+import 'package:noir/features/discover/application/dislikes.dart';
 import 'package:noir/features/discover/application/for_you.dart';
 import 'package:noir/integrations/youtube_music/ytm_models.dart';
 import 'package:noir/shared/models/media.dart';
@@ -23,6 +24,53 @@ List<String> uris(YtmShelf shelf) => [
 
 void main() {
   final now = DateTime(2026, 10, 25, 12);
+
+  group('taste radio', () {
+    test('artist affinity is relative to the most played artist', () {
+      final affinity = artistAffinity([
+        TasteSeed(yt('a', artist: 'Mara'), 2),
+        TasteSeed(yt('b', artist: 'mara'), 2),
+        TasteSeed(yt('c', artist: 'Ode'), 1),
+      ]);
+      expect(affinity, {'mara': 1.0, 'ode': 0.25});
+    });
+
+    test('songs several radios suggest and loved artists rise', () {
+      final radio = [
+        yt('r1', artist: 'X'),
+        yt('r2', artist: 'Y'),
+        yt('both', artist: 'Z'),
+        yt('loved', artist: 'Mara'),
+      ];
+      final extra = [
+        [yt('both', artist: 'Z'), yt('e1', artist: 'W')],
+      ];
+      final ranked = tasteRadio(
+        radio,
+        extra: extra,
+        affinity: const {'mara': 1},
+      ).map((t) => t.uri).toList();
+      expect(ranked.indexOf('both'), lessThan(ranked.indexOf('r2')));
+      expect(ranked.indexOf('loved'), lessThan(ranked.indexOf('r2')));
+      expect(ranked, containsAll(['r1', 'e1']));
+      expect(ranked.toSet(), hasLength(ranked.length), reason: 'no repeats');
+    });
+
+    test('skips queued and hidden songs, spreads an artist out', () {
+      final ranked = tasteRadio(
+        [
+          yt('a1', artist: 'A'),
+          yt('a2', artist: 'A'),
+          yt('q', artist: 'Q'),
+          yt('b1', artist: 'B'),
+          yt('no', artist: 'Gone'),
+        ],
+        skip: const {'q'},
+        dislikes: const Dislikes(artists: {'gone': 'Gone'}),
+      ).map((t) => t.uri).toList();
+      expect(ranked, ['a1', 'b1', 'a2']);
+    });
+  });
 
   group('tasteSeeds', () {
     test('repeated recent plays outweigh a single old one', () {

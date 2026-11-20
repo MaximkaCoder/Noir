@@ -9,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:noir/app/shell/sidebar_hidden.dart';
 import 'package:noir/app/theme/design_tokens.dart';
 import 'package:noir/app/theme/glass_theme.dart';
+import 'package:noir/core/platform/window_controls.dart';
 import 'package:noir/core/widgets/buttons.dart';
 import 'package:noir/core/widgets/dialogs.dart';
 import 'package:noir/core/widgets/glass_surface.dart';
@@ -68,6 +69,17 @@ class SettingsScreen extends ConsumerWidget {
                   },
                   onChanged: (d) => set((s) => s.copyWith(density: d)),
                 ),
+                if (usesCustomWindowChrome)
+                  _ChoiceTile<WindowButtons>(
+                    icon: Icons.web_asset_rounded,
+                    title: 'Window buttons',
+                    value: s.windowButtons,
+                    options: const {
+                      WindowButtons.dots: 'Dots',
+                      WindowButtons.windows: 'Windows',
+                    },
+                    onChanged: (b) => set((s) => s.copyWith(windowButtons: b)),
+                  ),
                 const _Section('Effects'),
                 _ToggleTile(
                   icon: Icons.blur_on_rounded,

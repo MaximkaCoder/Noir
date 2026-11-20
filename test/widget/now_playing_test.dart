@@ -338,6 +338,44 @@ void main() {
     expect(find.text('Start radio'), findsOneWidget);
   });
 
+  testWidgets("the playing song's menu: no queueing, a link to copy", (
+    tester,
+  ) async {
+    await pumpNowPlaying(tester, tracks: [ytTrack('v1', title: 'Night Bus')]);
+    await tester.tap(
+      find.text('Night Bus').hitTestable().first,
+      buttons: kSecondaryButton,
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Start radio'), findsOneWidget);
+    expect(find.text('Add to playlist…'), findsOneWidget);
+    expect(find.text('Open in YouTube Music'), findsOneWidget);
+    // The song already plays, and its dislike has a button.
+    for (final label in ['Play next', 'Add to queue', 'Not interested']) {
+      expect(find.text(label), findsNothing, reason: label);
+    }
+
+    String? copied;
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async {
+        if (call.method == 'Clipboard.setData') {
+          copied = (call.arguments as Map)['text'] as String?;
+        }
+        return null;
+      },
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      ),
+    );
+    await tester.tap(find.text('Copy link'));
+    await tester.pumpAndSettle();
+    expect(copied, 'https://music.youtube.com/watch?v=v1');
+  });
+
   group('queue sheet', () {
     testWidgets('no inline "Up next" card; the queue button opens a sheet', (
       tester,
@@ -998,13 +1036,15 @@ void main() {
       tester,
     ) async {
       await tester.pumpWidget(
-        MaterialApp(
-          theme: ThemeData.dark(),
-          home: const Column(
-            children: [
-              WindowControls(key: ValueKey('plain')),
-              WindowControls(key: ValueKey('image'), onImage: true),
-            ],
+        ProviderScope(
+          child: MaterialApp(
+            theme: ThemeData.dark(),
+            home: const Column(
+              children: [
+                WindowControls(key: ValueKey('plain')),
+                WindowControls(key: ValueKey('image'), onImage: true),
+              ],
+            ),
           ),
         ),
       );

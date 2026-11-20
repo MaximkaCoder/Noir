@@ -21,6 +21,7 @@ import 'package:noir/features/playback/domain/transition_plan.dart';
 import 'package:noir/features/settings/data/settings_repository.dart';
 import 'package:noir/features/settings/domain/app_settings.dart';
 import 'package:noir/features/settings/presentation/settings_controller.dart';
+import 'package:noir/features/youtube/data/youtube_repository.dart';
 import 'package:noir/integrations/local_audio/audio_deck.dart';
 import 'package:noir/integrations/local_audio/local_audio_engine.dart';
 import 'package:noir/integrations/local_audio/mix_runner.dart';
@@ -299,7 +300,13 @@ class PlaybackController extends Notifier<PlaybackState> {
   /// Plays [seed], then YouTube Music radio based on it. A local seed is
   /// matched to a YouTube Music song by artist and title; without a match
   /// only the seed plays. Works regardless of [autoplayRadio].
-  Future<void> startRadio(Track seed) async {
+  ///
+  /// [personal] leans the radio to the user's taste ([tasteRadio]): radios
+  /// of a couple of songs they play and like join the seed's, and artists
+  /// they play rise, for as long as the radio goes on. The taste is read
+  /// from this device; YouTube Music is still asked anonymously, one song
+  /// at a time.
+  Future<void> startRadio(Track seed, {bool personal = false}) async {
     _unshuffledUids = null;
     _endSurprise();
     _radio = null;
@@ -309,7 +316,7 @@ class PlaybackController extends Notifier<PlaybackState> {
       shuffle: false,
       message: null,
     );
-    final radio = _fetchRadio(seed: seed);
+    final radio = _fetchRadio(seed: seed, personal: personal);
     await _loadCurrent(autoplay: true);
     await radio;
   }
@@ -763,8 +770,9 @@ class PlaybackController extends Notifier<PlaybackState> {
   /// Appends up to [radioBatch] radio tracks not already queued, seeded by
   /// [seed] or else the last YouTube track in the queue. Returns whether
   /// anything was added. Never throws and never reports to the user: radio
-  /// is a bonus and must not interrupt playback.
-  Future<bool> _fetchRadio({Track? seed}) async {
+  /// is a bonus and must not interrupt playback. [personal]: see
+  /// [startRadio]; a radio that started personal stays so.
+  Future<bool> _fetchRadio({Track? seed, bool personal = false}) async {
     if (state.queue.isEmpty) return false;
     final anchor = state.queue.last.uid;
     try {
@@ -774,8 +782,15 @@ class PlaybackController extends Notifier<PlaybackState> {
           if (q.track.source == MediaSource.youtube) q.track.uri,
       };
       final cursor = _radio;
+      final taste = seed != null && personal ? await _tasteSeeds() : null;
+      final affinity = taste != null
+          ? artistAffinity(taste)
+          : seed == null && cursor?.anchorUid == anchor
+          ? cursor?.affinity
+          : null;
       YtmTrackPage page;
       String? playlistId;
+      var extra = const <List<Track>>[];
       if (seed == null &&
           cursor != null &&
           cursor.anchorUid == anchor &&
@@ -795,14 +810,28 @@ class PlaybackController extends Notifier<PlaybackState> {
             : await _youTubeIdFor(seed, client);
         if (videoId == null) return false;
         seen.add(videoId);
+        // Fetched alongside; never throws.
+        final tasteRadios = taste == null
+            ? null
+            : _tasteRadios(taste, seed!, client);
         page = await client.radio(videoId);
+        if (tasteRadios != null) extra = await tasteRadios;
       }
       final dislikes = ref.read(dislikesProvider);
       final fresh = <Track>[];
       // A page may only repeat what is queued; look a little further.
       for (var pages = 1; ; pages++) {
+        final candidates = affinity == null
+            ? page.tracks
+            : tasteRadio(
+                page.tracks,
+                extra: pages == 1 ? extra : const [],
+                affinity: affinity,
+                dislikes: dislikes,
+                skip: seen,
+              );
         fresh.addAll(
-          page.tracks
+          candidates
               .where((t) => !dislikes.hides(t) && seen.add(t.uri))
               .take(radioBatch - fresh.length),
         );
@@ -823,12 +852,59 @@ class PlaybackController extends Notifier<PlaybackState> {
         anchorUid: state.queue.last.uid,
         continuation: page.continuation,
         playlistId: playlistId,
+        affinity: affinity,
       );
       return true;
     } on Object catch (e) {
       debugPrint('Radio unavailable: ${e.runtimeType}');
       return false;
     }
+  }
+
+  /// The user's taste ([tasteSeeds]) from their plays, likes and
+  /// playlists; empty when it can't be read.
+  Future<List<TasteSeed>> _tasteSeeds() async {
+    try {
+      final repo = ref.read(youTubeRepositoryProvider);
+      return tasteSeeds(
+        plays: await ref.read(youTubePlayLogProvider).read(),
+        likes: await repo.likes(musicOnly: true),
+        playlistTracks: await repo.allPlaylistTracks(),
+        now: DateTime.now(),
+      );
+    } on Object {
+      return const [];
+    }
+  }
+
+  /// Radios of two songs from [taste], not by [seed]'s artist (its own
+  /// radio covers it); a radio that fails is left out.
+  Future<List<List<Track>>> _tasteRadios(
+    List<TasteSeed> taste,
+    Track seed,
+    InnerTubeClient client,
+  ) async {
+    final dislikes = ref.read(dislikesProvider);
+    final artist = seed.artist?.toLowerCase();
+    final picks = pickSeeds(
+      [
+        for (final s in taste)
+          if (s.track.uri != seed.uri &&
+              (artist == null || s.track.artist?.toLowerCase() != artist) &&
+              !dislikes.hides(s.track))
+            s,
+      ],
+      2,
+      Random(),
+    );
+    final radios = await Future.wait([
+      for (final pick in picks)
+        client
+            .radio(pick.uri)
+            .then<List<Track>?>((page) => page.tracks)
+            .catchError((Object _) => null),
+    ]);
+    return [...radios.nonNulls];
   }
 
   /// The YouTube video id for [track]: its own, or the best YouTube Music
@@ -1270,9 +1346,13 @@ class _RadioCursor {
     required this.anchorUid,
     this.continuation,
     this.playlistId,
+    this.affinity,
   });
 
   final int anchorUid;
   final String? continuation;
   final String? playlistId;
+
+  /// A personal radio's leaning ([artistAffinity]); null for a plain one.
+  final Map<String, double>? affinity;
 }

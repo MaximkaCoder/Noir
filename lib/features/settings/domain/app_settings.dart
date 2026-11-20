@@ -44,6 +44,16 @@ enum TransitionMode {
   disco,
 }
 
+/// The look of the minimize, maximize and close buttons NOIR draws in its
+/// frameless window.
+enum WindowButtons {
+  /// Three dots that take their colour under the pointer.
+  dots,
+
+  /// Windows' own glyphs on a faint hover, without a caption strip.
+  windows,
+}
+
 /// Where the edge player docks on Windows: a small player that comes out
 /// from behind the screen edge while NOIR is in the background.
 enum EdgePlayerSide { left, right, top, bottom }
@@ -60,6 +70,9 @@ abstract class AppSettings with _$AppSettings {
     @Default(true) bool animations,
     @Default(Density.comfortable) Density density,
     @Default(PerformanceMode.balanced) PerformanceMode performanceMode,
+    @JsonKey(unknownEnumValue: WindowButtons.dots)
+    @Default(WindowButtons.dots)
+    WindowButtons windowButtons,
 
     /// Transitions apply to tracks played through NOIR's own player
     /// (local files and cached audio).

@@ -176,6 +176,66 @@ List<Track> pickSeeds(List<TasteSeed> seeds, int count, Random random) {
   return picked;
 }
 
+// ---------------------------------------------------------- taste radio --
+
+/// How much the user's taste leans to each artist (lower-cased), 0–1: the
+/// artist whose songs weigh most in [seeds] is 1.
+Map<String, double> artistAffinity(List<TasteSeed> seeds) {
+  final sums = <String, double>{};
+  for (final s in seeds) {
+    final artist = s.track.artist?.toLowerCase();
+    if (artist == null || artist.isEmpty) continue;
+    sums[artist] = (sums[artist] ?? 0) + s.weight;
+  }
+  final top = sums.values.fold<double>(0, max);
+  if (top == 0) return const {};
+  return {for (final e in sums.entries) e.key: e.value / top};
+}
+
+/// A radio that leans to the user's taste: the songs of [radio] (the
+/// chosen song's own radio) and of [extra] radios (of songs the user
+/// loves), ranked by how high they stand in each radio, rising when
+/// several radios suggest them and with how much the user plays their
+/// artist ([affinity]). Songs in [skip] and what [dislikes] hides are left
+/// out; an artist with a disliked song sinks. No artist plays twice in a
+/// row while another can go between.
+List<Track> tasteRadio(
+  List<Track> radio, {
+  List<List<Track>> extra = const [],
+  Map<String, double> affinity = const {},
+  Dislikes dislikes = const Dislikes(),
+  Set<String> skip = const {},
+}) {
+  final scores = <String, double>{};
+  final tracks = <String, Track>{};
+  void rank(List<Track> list, double weight) {
+    for (final (i, t) in list.indexed) {
+      if (t.uri.isEmpty || skip.contains(t.uri) || dislikes.hides(t)) continue;
+      tracks.putIfAbsent(t.uri, () => t);
+      scores[t.uri] = (scores[t.uri] ?? 0) + weight * (1 - i / list.length);
+    }
+  }
+
+  rank(radio, 1);
+  for (final r in extra) {
+    rank(r, 0.6);
+  }
+  double score(Track t) =>
+      (scores[t.uri]! + 0.8 * (affinity[t.artist?.toLowerCase()] ?? 0)) *
+      pow(0.3, dislikes.strikes(t));
+  final ranked = tracks.values.toList()
+    ..sort((a, b) => score(b).compareTo(score(a)));
+  final spread = <Track>[];
+  while (ranked.isNotEmpty) {
+    final last = spread.lastOrNull?.artist?.toLowerCase();
+    final i = ranked.indexWhere(
+      (t) => last == null || t.artist?.toLowerCase() != last,
+    );
+    spread.add(ranked.removeAt(i < 0 ? 0 : i));
+  }
+  return spread;
+}
+
 // ----------------------------------------------------------------- feed --
 
 @immutable

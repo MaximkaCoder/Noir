@@ -57,7 +57,11 @@ void openYtmItem(
 }) {
   switch (item) {
     case YtmTrackItem() when radio:
-      unawaited(ref.read(playbackProvider.notifier).startRadio(item.track));
+      unawaited(
+        ref
+            .read(playbackProvider.notifier)
+            .startRadio(item.track, personal: true),
+      );
     case YtmTrackItem():
       final tracks = [
         for (final s in siblings)

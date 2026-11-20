@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:noir/core/widgets/dialogs.dart';
 import 'package:noir/core/widgets/menus.dart';
@@ -19,6 +20,11 @@ import 'package:url_launcher/url_launcher.dart';
 /// The context menu for [track] at [position] (global): queue, radio,
 /// playlists, favorites and "Not interested". [onPlay] adds "Play" first;
 /// [onRemove] adds a remove action named [removeLabel].
+///
+/// [playing]: the menu of the song Now Playing shows. Queueing the song
+/// that plays makes no sense there, and the heart and "Not interested"
+/// already have their buttons beside the title; it offers a link to copy
+/// instead.
 Future<void> showTrackMenu(
   BuildContext context,
   WidgetRef ref,
@@ -27,6 +33,7 @@ Future<void> showTrackMenu(
   VoidCallback? onPlay,
   VoidCallback? onRemove,
   String removeLabel = 'Remove from playlist',
+  bool playing = false,
 }) async {
   final playback = ref.read(playbackProvider.notifier);
   final youTube =
@@ -41,16 +48,10 @@ Future<void> showTrackMenu(
     items: [
       if (onPlay != null)
         const NoirMenuItem('play', 'Play', icon: Icons.play_arrow_rounded),
-      const NoirMenuItem(
-        'next',
-        'Play next',
-        icon: Icons.playlist_play_rounded,
-      ),
-      const NoirMenuItem(
-        'queue',
-        'Add to queue',
-        icon: Icons.queue_music_rounded,
-      ),
+      if (!playing) ...const [
+        NoirMenuItem('next', 'Play next', icon: Icons.playlist_play_rounded),
+        NoirMenuItem('queue', 'Add to queue', icon: Icons.queue_music_rounded),
+      ],
       const NoirMenuItem('radio', 'Start radio', icon: Icons.radio_rounded),
       const NoirMenuItem(
         'playlist',
@@ -59,7 +60,7 @@ Future<void> showTrackMenu(
       ),
       // With an account the heart saves to YouTube instead (see
       // YouTubeSaveButton).
-      if (!youTube)
+      if (!youTube && !playing)
         NoirMenuItem(
           'favorite',
           favorite ? 'Remove from favorites' : 'Add to favorites',
@@ -67,19 +68,22 @@ Future<void> showTrackMenu(
               ? Icons.favorite_rounded
               : Icons.favorite_border_rounded,
         ),
+      if (track.source == MediaSource.youtube && playing)
+        const NoirMenuItem('share', 'Copy link', icon: Icons.link_rounded),
       if (track.source == MediaSource.youtube)
         const NoirMenuItem(
           'open',
           'Open in YouTube Music',
           icon: Icons.open_in_new_rounded,
         ),
-      if (ref.read(analysisRunnerProvider) != null)
+      if (!playing && ref.read(analysisRunnerProvider) != null)
         const NoirMenuItem(
           'analysis',
           'Show analysis',
           icon: Icons.graphic_eq_rounded,
         ),
-      ...dislikeMenuItems(track),
+      for (final item in dislikeMenuItems(track))
+        if (!playing || item.value != 'dislike') item,
       if (onRemove != null)
         NoirMenuItem('remove', removeLabel, icon: Icons.remove_circle_outline),
     ],
@@ -102,6 +106,11 @@ Future<void> showTrackMenu(
       await addToPlaylist(context, ref, [track]);
     case 'favorite':
       unawaited(playback.toggleFavorite(track));
+    case 'share':
+      await Clipboard.setData(
+        ClipboardData(text: youTubeMusicUrl(videoId: track.uri).toString()),
+      );
+      if (context.mounted) showToast(context, 'Link copied');
     case 'open':
       unawaited(
         launchUrl(

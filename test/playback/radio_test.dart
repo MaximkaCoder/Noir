@@ -4,6 +4,7 @@ import 'package:noir/core/database/app_database.dart';
 import 'package:noir/core/database/database_provider.dart';
 import 'package:noir/features/discover/application/discover_providers.dart';
 import 'package:noir/features/discover/application/dislikes.dart';
+import 'package:noir/features/discover/application/for_you.dart';
 import 'package:noir/features/library/data/library_repository.dart';
 import 'package:noir/features/playback/application/playback_controller.dart';
 import 'package:noir/features/playback/application/unplayable_tracks.dart';
@@ -195,6 +196,34 @@ void main() {
     expect(state().current!.track.uri, 'y1');
     expect(engine.calls, containsAllInOrder(['load Song y1 @0', 'play']));
   });
+
+  test(
+    'a personal radio mixes in the radio of a song the user loves',
+    () async {
+      final loved = ytTrack('fav', artist: 'Loved');
+      final log = container.read(youTubePlayLogProvider);
+      for (var i = 0; i < 3; i++) {
+        await log.record(loved);
+      }
+      ytm
+        ..radioPages['y1'] = YtmTrackPage(tracks: [y1, r1, r2])
+        ..radioPages['fav'] = YtmTrackPage(
+          tracks: [
+            loved,
+            ytTrack('t1', artist: 'Taste'),
+          ],
+        );
+      await controller().startRadio(y1, personal: true);
+      expect(radioCalls(), containsAll(['radio y1', 'radio fav']));
+      expect(uris().first, 'y1');
+      expect(uris(), containsAll(['r1', 'r2', 't1']));
+
+      // A plain radio asks for the seed's radio only.
+      ytm.calls.clear();
+      await controller().startRadio(y1);
+      expect(radioCalls(), ['radio y1']);
+    },
+  );
 
   test('startRadio from a local file matches it on YouTube Music', () async {
     final match = ytTrack('m1', title: 'A', artist: 'Mara Vale');

@@ -1615,7 +1615,13 @@ class _LargeArtworkState extends ConsumerState<_LargeArtwork>
   }
 
   void _menu(Offset position) => unawaited(
-    showTrackMenu(context, ref, widget.state.current!.track, position),
+    showTrackMenu(
+      context,
+      ref,
+      widget.state.current!.track,
+      position,
+      playing: true,
+    ),
   );
 
   @override
@@ -1935,8 +1941,9 @@ class _TrackDetails extends ConsumerWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         GestureDetector(
-          onSecondaryTapUp: (d) =>
-              unawaited(showTrackMenu(context, ref, track, d.globalPosition)),
+          onSecondaryTapUp: (d) => unawaited(
+            showTrackMenu(context, ref, track, d.globalPosition, playing: true),
+          ),
           child: _TrackChange(
             trackId: mixing ? 'mixing ${track.id}' : track.id,
             child: details,

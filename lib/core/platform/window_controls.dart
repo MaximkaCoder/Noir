@@ -2,7 +2,11 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:noir/app/theme/design_tokens.dart';
 import 'package:noir/app/theme/glass_theme.dart';
+import 'package:noir/features/settings/domain/app_settings.dart';
+import 'package:noir/features/settings/presentation/settings_controller.dart';
 import 'package:window_manager/window_manager.dart';
 
 /// True where NOIR draws its own window chrome (frameless window).
@@ -20,27 +24,38 @@ abstract final class TitleBarMetrics {
   static const EdgeInsets padding = EdgeInsets.fromLTRB(24, 12, 20, 4);
 }
 
-/// Minimize / maximize / close as three dots in the top-right corner — the
-/// reference design's look with Windows placement (owner decision, see
-/// docs/design/README.md). Colored while the window is focused, grey
-/// otherwise; symbols appear on hover; each dot has a tooltip.
-class WindowControls extends StatefulWidget {
+/// Minimize / maximize / close in the top-right corner, in the style chosen
+/// in Settings ([AppSettings.windowButtons]):
+///
+/// * dots, the reference design's look with Windows placement (owner
+///   decision, see docs/design/README.md). Grey until the pointer is over
+///   one; symbols appear on hover;
+/// * Windows' glyphs with no strip behind them, only a faint rounded hover
+///   (red for close).
+///
+/// Dimmer while the window is not focused; each button has a tooltip.
+class WindowControls extends ConsumerStatefulWidget {
   const WindowControls({this.onImage = false, super.key});
 
   /// Over artwork or another busy backdrop (Now Playing): the idle dots
   /// become translucent light dots with a dark hairline and a soft shadow
   /// in dark themes (dark-ish dots with a light rim in light themes), so
-  /// they stand out from whatever is behind them.
+  /// they stand out from whatever is behind them; the Windows glyphs turn
+  /// light (dark in light themes) and translucent.
   final bool onImage;
 
   /// Each dot, for tests.
   static const dotKey = ValueKey('window-controls-dot');
 
+  /// Each Windows-style button, for tests.
+  static const buttonKey = ValueKey('window-controls-button');
+
   @override
-  State<WindowControls> createState() => _WindowControlsState();
+  ConsumerState<WindowControls> createState() => _WindowControlsState();
 }
 
-class _WindowControlsState extends State<WindowControls> with WindowListener {
+class _WindowControlsState extends ConsumerState<WindowControls>
+    with WindowListener {
   bool _focused = true;
   bool _maximized = false;
 
@@ -84,6 +99,38 @@ class _WindowControlsState extends State<WindowControls> with WindowListener {
 
   @override
   Widget build(BuildContext context) {
+    final style = ref.watch(settingsProvider.select((s) => s.windowButtons));
+    if (style == WindowButtons.windows) {
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        spacing: 2,
+        children: [
+          _CaptionButton(
+            glyph: _Glyph.minimize,
+            focused: _focused,
+            onImage: widget.onImage,
+            tooltip: 'Minimize',
+            onPressed: windowManager.minimize,
+          ),
+          _CaptionButton(
+            glyph: _maximized ? _Glyph.restore : _Glyph.maximize,
+            focused: _focused,
+            onImage: widget.onImage,
+            tooltip: _maximized ? 'Restore' : 'Maximize',
+            onPressed: () => _maximized
+                ? windowManager.unmaximize()
+                : windowManager.maximize(),
+          ),
+          _CaptionButton(
+            glyph: _Glyph.close,
+            focused: _focused,
+            onImage: widget.onImage,
+            tooltip: 'Close',
+            onPressed: windowManager.close,
+          ),
+        ],
+      );
+    }
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -189,6 +236,10 @@ class _DotState extends State<_Dot> {
             onEnter: (_) => setState(() => _hovered = true),
             onExit: (_) => setState(() => _hovered = false),
             child: GestureDetector(
+              // The whole target takes the click, not only the painted dot:
+              // otherwise a click near its edge lit the dot but went to the
+              // drag area behind it.
+              behavior: HitTestBehavior.opaque,
               onTap: () => unawaited(widget.onPressed()),
               // A 20×24 target around a 12 px dot keeps it easy to hit.
               child: SizedBox(
@@ -241,6 +292,166 @@ class _DotState extends State<_Dot> {
       ),
     );
   }
+}
+
+enum _Glyph { minimize, maximize, restore, close }
+
+/// One Windows-style window button: a thin glyph with nothing behind it
+/// until the pointer comes over it, then a faint rounded fill (close: red
+/// with a white glyph).
+class _CaptionButton extends StatefulWidget {
+  const _CaptionButton({
+    required this.glyph,
+    required this.focused,
+    required this.onImage,
+    required this.tooltip,
+    required this.onPressed,
+  });
+
+  final _Glyph glyph;
+
+  /// Whether the window is focused; unfocused windows dim the glyphs.
+  final bool focused;
+
+  /// See [WindowControls.onImage].
+  final bool onImage;
+  final String tooltip;
+  final Future<void> Function() onPressed;
+
+  @override
+  State<_CaptionButton> createState() => _CaptionButtonState();
+}
+
+class _CaptionButtonState extends State<_CaptionButton> {
+  bool _hovered = false;
+  bool _pressed = false;
+  bool _focusLit = false;
+
+  static const _closeRed = Color(0xFFC42B1C);
+
+  @override
+  Widget build(BuildContext context) {
+    final close = widget.glyph == _Glyph.close;
+    final lit = _hovered || _focusLit;
+    final theme = Theme.of(context);
+    final dark = theme.brightness == Brightness.dark;
+    final ink = widget.onImage
+        ? (dark ? Colors.white : Colors.black)
+        : theme.extension<NoirPalette>()?.textPrimary ??
+              theme.colorScheme.onSurface;
+    final Color fill;
+    final Color glyph;
+    if (close && (lit || _pressed)) {
+      fill = _pressed ? _closeRed.withValues(alpha: 0.8) : _closeRed;
+      glyph = Colors.white;
+    } else {
+      fill = ink.withValues(
+        alpha: _pressed
+            ? (dark ? 0.06 : 0.1)
+            : lit
+            ? (dark ? 0.1 : 0.06)
+            : 0,
+      );
+      glyph = ink.withValues(alpha: widget.focused ? 0.85 : 0.45);
+    }
+    final duration = NoirEffects.of(context)
+        .motion(const Duration(milliseconds: 120));
+    return Tooltip(
+      message: widget.tooltip,
+      child: Semantics(
+        button: true,
+        label: widget.tooltip,
+        child: FocusableActionDetector(
+          mouseCursor: SystemMouseCursors.basic,
+          onShowFocusHighlight: (v) => setState(() => _focusLit = v),
+          actions: {
+            ActivateIntent: CallbackAction<ActivateIntent>(
+              onInvoke: (_) => unawaited(widget.onPressed()),
+            ),
+          },
+          child: MouseRegion(
+            onEnter: (_) => setState(() => _hovered = true),
+            onExit: (_) => setState(() {
+              _hovered = false;
+              _pressed = false;
+            }),
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTapDown: (_) => setState(() => _pressed = true),
+              onTapCancel: () => setState(() => _pressed = false),
+              onTapUp: (_) => setState(() => _pressed = false),
+              onTap: () => unawaited(widget.onPressed()),
+              child: AnimatedContainer(
+                key: WindowControls.buttonKey,
+                duration: duration,
+                curve: Curves.easeOut,
+                width: 40,
+                height: 30,
+                decoration: BoxDecoration(
+                  color: fill,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Center(
+                  child: CustomPaint(
+                    size: const Size.square(10),
+                    painter: _GlyphPainter(widget.glyph, glyph),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Windows' caption glyphs as hairlines in a 10 px square.
+class _GlyphPainter extends CustomPainter {
+  const _GlyphPainter(this.glyph, this.color);
+
+  final _Glyph glyph;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1;
+    switch (glyph) {
+      case _Glyph.minimize:
+        canvas.drawLine(const Offset(0, 5.5), const Offset(10, 5.5), paint);
+      case _Glyph.maximize:
+        canvas.drawRRect(
+          RRect.fromLTRBR(0.5, 0.5, 9.5, 9.5, const Radius.circular(1.5)),
+          paint,
+        );
+      case _Glyph.restore:
+        canvas
+          ..drawRRect(
+            RRect.fromLTRBR(0.5, 2.5, 7.5, 9.5, const Radius.circular(1)),
+            paint,
+          )
+          ..drawPath(
+            Path()
+              ..moveTo(2.5, 2.5)
+              ..lineTo(2.5, 0.5)
+              ..lineTo(9.5, 0.5)
+              ..lineTo(9.5, 7.5)
+              ..lineTo(7.5, 7.5),
+            paint,
+          );
+      case _Glyph.close:
+        canvas
+          ..drawLine(Offset.zero, const Offset(10, 10), paint)
+          ..drawLine(const Offset(10, 0), const Offset(0, 10), paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_GlyphPainter old) =>
+      old.glyph != glyph || old.color != color;
 }
 
 /// Drag region for moving a frameless window; double-click maximizes.
