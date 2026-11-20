@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:noir/integrations/youtube_music/innertube_client.dart';
 import 'package:noir/integrations/youtube_music/ytm_models.dart';
+import 'package:noir/shared/models/media.dart';
 
 /// Anonymous YouTube Music client for discovery.
 ///
@@ -266,7 +267,9 @@ class YtmCollectionController extends AsyncNotifier<YtmCollection> {
   YtmCollectionController(this.target);
 
   final YtmCollectionRef target;
-  bool _loadingMore = false;
+
+  /// The page being loaded.
+  Future<bool>? _loading;
 
   @override
   Future<YtmCollection> build() {
@@ -281,10 +284,39 @@ class YtmCollectionController extends AsyncNotifier<YtmCollection> {
   /// Returns false when there is nothing more, a page is already loading,
   /// or the request failed.
   Future<bool> loadMore() async {
+    if (_loading != null) return false;
+    final loading = _loading = _loadMore();
+    try {
+      return await loading;
+    } finally {
+      _loading = null;
+    }
+  }
+
+  /// Loads the pages not loaded yet, up to [limit] tracks, and returns
+  /// every track: playing or shuffling a long playlist goes through all of
+  /// it. Stops at a page that fails, with what it has.
+  Future<List<Track>> loadAll({int limit = 1000}) async {
+    while (true) {
+      final current = state.value;
+      if (current == null ||
+          current.continuation == null ||
+          current.tracks.length >= limit) {
+        break;
+      }
+      if (_loading case final loading?) {
+        if (!await loading) break;
+      } else if (!await loadMore()) {
+        break;
+      }
+    }
+    return state.value?.tracks ?? const [];
+  }
+
+  Future<bool> _loadMore() async {
     final current = state.value;
     final token = current?.continuation;
-    if (current == null || token == null || _loadingMore) return false;
-    _loadingMore = true;
+    if (current == null || token == null) return false;
     try {
       final page = await ref.read(innerTubeClientProvider).playlistMore(token);
       if (!ref.mounted) return false;
@@ -303,8 +335,28 @@ class YtmCollectionController extends AsyncNotifier<YtmCollection> {
       return true;
     } on InnerTubeException {
       return false;
-    } finally {
-      _loadingMore = false;
     }
   }
+}
+
+/// Every track of playlist [id], following its pages up to [limit] tracks;
+/// what was loaded when a later page fails.
+Future<List<Track>> ytmPlaylistTracks(
+  InnerTubeClient client,
+  String id, {
+  int limit = 1000,
+}) async {
+  final first = await client.playlist(id);
+  final tracks = [...first.tracks];
+  var token = first.continuation;
+  while (token != null && tracks.length < limit) {
+    try {
+      final page = await client.playlistMore(token);
+      tracks.addAll(page.tracks);
+      token = page.continuation;
+    } on InnerTubeException {
+      break;
+    }
+  }
+  return tracks;
 }

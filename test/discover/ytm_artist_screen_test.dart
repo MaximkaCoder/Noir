@@ -94,6 +94,46 @@ void main() {
     await _flushCaches(tester);
   });
 
+  testWidgets('play and a top song go through every song of the artist', (
+    tester,
+  ) async {
+    final ytm = FakeArtistInnerTube()
+      ..artists['UCmara'] = fakeArtist()
+      ..collections['OLAK_all'] = YtmCollection(
+        id: 'VLOLAK_all',
+        title: 'Songs',
+        tracks: [for (var i = 1; i <= 6; i++) ytTrack('top$i')],
+        continuation: 'p2',
+      )
+      ..playlistMorePages['p2'] = YtmTrackPage(
+        tracks: [for (var i = 7; i <= 9; i++) ytTrack('top$i')],
+      );
+    final app = await _openArtist(tester, ytm);
+    List<String> queue() => [
+      for (final q in app.container.read(playbackProvider).queue) q.track.uri,
+    ];
+    final every = [for (var i = 1; i <= 9; i++) 'top$i'];
+
+    await tester.tap(_inPage(find.byTooltip('Play')).first);
+    await tester.pumpAndSettle();
+    expect(
+      ytm.calls,
+      containsAllInOrder(['playlist OLAK_all', 'playlistMore p2']),
+    );
+    expect(queue().take(9), every, reason: 'not only the five shown');
+
+    await tester.tap(_inPage(find.text('Top song 3')));
+    await tester.pumpAndSettle();
+    final state = app.container.read(playbackProvider);
+    expect(state.current?.track.uri, 'top3');
+    expect(queue().take(9), every);
+
+    await tester.tap(_inPage(find.byTooltip('Shuffle play')));
+    await tester.pumpAndSettle();
+    expect(queue().take(9).toSet(), every.toSet());
+    await _flushCaches(tester);
+  });
+
   testWidgets('"Show all" loads every song from the songs playlist', (
     tester,
   ) async {

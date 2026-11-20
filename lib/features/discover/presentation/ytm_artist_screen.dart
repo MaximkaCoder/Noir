@@ -13,6 +13,7 @@ import 'package:noir/features/discover/presentation/ytm_items.dart';
 import 'package:noir/features/playback/application/playback_controller.dart';
 import 'package:noir/integrations/youtube_music/innertube_client.dart';
 import 'package:noir/integrations/youtube_music/ytm_models.dart';
+import 'package:noir/shared/models/media.dart';
 import 'package:noir/shared/widgets/collection_header.dart';
 import 'package:noir/shared/widgets/media_tiles.dart';
 import 'package:noir/shared/widgets/page_scaffold.dart';
@@ -64,6 +65,37 @@ class YtmArtistScreen extends ConsumerStatefulWidget {
 class _YtmArtistScreenState extends ConsumerState<YtmArtistScreen> {
   bool _allSongs = false;
 
+  /// Plays every song of [artist] (their songs list, all of it, not only
+  /// the top songs shown), from [from] or shuffled; radio takes over only
+  /// after the last one. The top songs when the list can't be loaded.
+  Future<void> _play(
+    YtmArtist artist, {
+    bool shuffle = false,
+    Track? from,
+  }) async {
+    final playback = ref.read(playbackProvider.notifier);
+    final client = ref.read(innerTubeClientProvider);
+    var tracks = artist.topSongs;
+    if (artist.songsPlaylistId case final id?) {
+      try {
+        final all = await ytmPlaylistTracks(client, id);
+        if (all.isNotEmpty) tracks = all;
+      } on Exception catch (e) {
+        debugPrint('Artist songs unavailable: ${e.runtimeType}');
+      }
+    }
+    if (shuffle) return await playback.shuffleTracks(tracks);
+    var start = 0;
+    if (from != null) {
+      start = tracks.indexWhere((t) => t.uri == from.uri);
+      if (start < 0) {
+        tracks = [from, ...tracks];
+        start = 0;
+      }
+    }
+    return await playback.playTracks(tracks, startIndex: start);
+  }
+
   @override
   Widget build(BuildContext context) {
     final provider = ytmArtistProvider(widget.browseId);
@@ -107,12 +139,10 @@ class _YtmArtistScreenState extends ConsumerState<YtmArtistScreen> {
         SliverToBoxAdapter(
           child: _ArtistHeader(
             artist: artist,
-            onPlay: top.isEmpty
-                ? null
-                : () => unawaited(playback.playTracks(songs)),
+            onPlay: top.isEmpty ? null : () => unawaited(_play(artist)),
             onShuffle: top.isEmpty
                 ? null
-                : () => unawaited(playback.shuffleTracks(songs)),
+                : () => unawaited(_play(artist, shuffle: true)),
             onRadio: top.isEmpty
                 ? null
                 : () => unawaited(playback.startRadio(top.first)),
@@ -144,8 +174,7 @@ class _YtmArtistScreenState extends ConsumerState<YtmArtistScreen> {
                 key: ValueKey('${songs[i].id}#$i'),
                 track: songs[i],
                 number: i + 1,
-                onPlay: () =>
-                    unawaited(playback.playTracks(songs, startIndex: i)),
+                onPlay: () => unawaited(_play(artist, from: songs[i])),
               );
             },
           ),

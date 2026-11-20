@@ -52,6 +52,15 @@ class YtmCollectionScreen extends ConsumerWidget {
 
     final playback = ref.read(playbackProvider.notifier);
     final tracks = collection.tracks;
+    // A long playlist plays through all of it, not only the pages shown.
+    Future<void> play({int startIndex = 0, bool shuffle = false}) async {
+      final all = await ref.read(provider.notifier).loadAll();
+      if (all.isEmpty) return;
+      await (shuffle
+          ? playback.shuffleTracks(all)
+          : playback.playTracks(all, startIndex: startIndex));
+    }
+
     final more = collection.continuation != null;
     final total = tracks.fold(
       Duration.zero,
@@ -77,12 +86,10 @@ class YtmCollectionScreen extends ConsumerWidget {
               '${songCount(tracks.length)}${more ? '+' : ''}',
               if (total > Duration.zero) formatTotal(total),
             ].join(' · '),
-            onPlay: tracks.isEmpty
-                ? null
-                : () => unawaited(playback.playTracks(tracks)),
+            onPlay: tracks.isEmpty ? null : () => unawaited(play()),
             onShuffle: tracks.isEmpty
                 ? null
-                : () => unawaited(playback.shuffleTracks(tracks)),
+                : () => unawaited(play(shuffle: true)),
             extras: ref.watch(collectionExtrasProvider)('ytm:$id', tracks),
             actions: [
               NoirIconButton(
@@ -122,8 +129,7 @@ class YtmCollectionScreen extends ConsumerWidget {
               number: i + 1,
               // Album tracks share the cover shown above.
               showArtwork: !isAlbum,
-              onPlay: () =>
-                  unawaited(playback.playTracks(tracks, startIndex: i)),
+              onPlay: () => unawaited(play(startIndex: i)),
             );
           },
         ),
